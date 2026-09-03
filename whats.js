@@ -10,7 +10,14 @@ const ATO_NOME = {
   'CDH': 'Escritura de Cessão de Direitos Hereditários',
   'DOA': 'Escritura de Doação',
   'TEST': 'Testamento Público',
-  'INV': 'Escritura de Inventário e Partilha'
+  'INV': 'Escritura de Inventário e Partilha',
+  'PERM': 'Escritura de Permuta',
+  'DIV': 'Escritura de Divórcio',
+  'UE': 'Escritura de União Estável',
+  'UE-DIS': 'Escritura de Dissolução de União Estável',
+  'RERRAT': 'Escritura de Re-ratificação',
+  'ATA-USO': 'Ata Notarial para Usucapião',
+  'ATA-W': 'Ata Notarial de Mensagens Eletrônicas'
 };
 
 function normalizaTelefone(t) {

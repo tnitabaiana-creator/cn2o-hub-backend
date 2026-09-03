@@ -7,7 +7,7 @@ const { t } = require('./trello');
 const CAMPOS = [
   { name: 'Protocolo', type: 'number' },
   { name: 'Extra', type: 'number' },
-  { name: 'Tipo de Ato', type: 'list', options: ['CV-Urbano','CV-Rural','CDP','CDH','DOA','TEST','INV'] },
+  { name: 'Tipo de Ato', type: 'list', options: ['CV-Urbano','CV-Rural','CDP','CDH','DOA','PERM','TEST','INV','DIV','UE','UE-DIS','RERRAT','ATA-USO','ATA-W'] },
   { name: 'Apresentante', type: 'text' },
   { name: 'Tel Apresentante', type: 'text' },
   { name: 'Parte', type: 'text' },
@@ -31,7 +31,19 @@ async function garantirCampos(boardId) {
   const atuais = await t('GET', `/boards/${boardId}/customFields`);
   const nomes = new Set(atuais.map(c => c.name));
   for (const c of CAMPOS) {
-    if (nomes.has(c.name)) { console.log(`  ✓ campo já existe: ${c.name}`); continue; }
+    if (nomes.has(c.name)) {
+      // campo de lista já existe: acrescenta as opções que faltam (novos tipos de ato)
+      if (c.type === 'list') {
+        const def = atuais.find(x => x.name === c.name);
+        const temOpc = new Set((def.options || []).map(o => o.value?.text));
+        for (const o of c.options) {
+          if (temOpc.has(o)) continue;
+          await t('POST', `/customFields/${def.id}/options`, { value: { text: o } });
+          console.log(`  + opção criada em ${c.name}: ${o}`);
+        }
+      }
+      console.log(`  ✓ campo já existe: ${c.name}`); continue;
+    }
     const body = {
       idModel: boardId, modelType: 'board', name: c.name, type: c.type,
       pos: 'bottom', display_cardFront: ['Protocolo','Extra','Tipo de Ato'].includes(c.name)
