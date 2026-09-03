@@ -100,7 +100,7 @@ function prazoDoAto(p) {
   switch (p.ato) {
     case 'CV-Urbano':
     case 'CV-Rural':
-    case 'PERM':
+    case 'PER':
     case 'DOA':  return diasUteis(construtor ? 5 : 8);
     case 'INV':  return diasUteis(4);
     case 'CDH':  return diasUteis(f.includes('roxo') ? 4 : 7);

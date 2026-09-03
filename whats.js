@@ -11,13 +11,13 @@ const ATO_NOME = {
   'DOA': 'Escritura de Doação',
   'TEST': 'Testamento Público',
   'INV': 'Escritura de Inventário e Partilha',
-  'PERM': 'Escritura de Permuta',
+  'PER': 'Escritura de Permuta',
   'DIV': 'Escritura de Divórcio',
   'UE': 'Escritura de União Estável',
-  'UE-DIS': 'Escritura de Dissolução de União Estável',
+  'DUE': 'Escritura de Dissolução de União Estável',
   'RERRAT': 'Escritura de Re-ratificação',
-  'ATA-USO': 'Ata Notarial para Usucapião',
-  'ATA-W': 'Ata Notarial de Mensagens Eletrônicas'
+  'ATA-U': 'Ata Notarial para Usucapião',
+  'ATA-W/A': 'Ata Notarial de Mensagens e Áudios'
 };
 
 function normalizaTelefone(t) {

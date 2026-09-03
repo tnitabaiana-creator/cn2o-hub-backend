@@ -7,7 +7,7 @@ const { t } = require('./trello');
 const CAMPOS = [
   { name: 'Protocolo', type: 'number' },
   { name: 'Extra', type: 'number' },
-  { name: 'Tipo de Ato', type: 'list', options: ['CV-Urbano','CV-Rural','CDP','CDH','DOA','PERM','TEST','INV','DIV','UE','UE-DIS','RERRAT','ATA-USO','ATA-W'] },
+  { name: 'Tipo de Ato', type: 'list', options: ['CV-Urbano','CV-Rural','CDP','CDH','DOA','PER','TEST','INV','DIV','UE','DUE','RERRAT','ATA-U','ATA-W/A'] },
   { name: 'Apresentante', type: 'text' },
   { name: 'Tel Apresentante', type: 'text' },
   { name: 'Parte', type: 'text' },
@@ -17,6 +17,11 @@ const CAMPOS = [
   { name: 'Auditoria', type: 'list', options: ['Aprovado','Ajuste','Reprovado'] },
   { name: 'Vendedor', type: 'text' }
 ];
+
+// Opções que saíram do hub por renomeação (03/09/2026) — apagadas do quadro se ainda existirem.
+const OPCOES_OBSOLETAS = {
+  'Tipo de Ato': ['PERM', 'UE-DIS', 'ATA-USO', 'ATA-W']
+};
 
 const LABELS_BANDEIRA = [
   ['Loteador/Incorporador','green'],
@@ -50,6 +55,15 @@ async function garantirCampos(boardId) {
             await t('DELETE', `/customFields/${def.id}/options/${o.id}`);
             console.log(`  - opção duplicada removida em ${c.name}: ${o.texto}`);
           } catch (e) { console.log(`  ! não removeu duplicata em ${c.name}: ${o.texto} (${e.message})`); }
+        }
+        for (const texto of (OPCOES_OBSOLETAS[c.name] || [])) {
+          const idAntigo = vistos.get(texto);
+          if (!idAntigo || idAntigo === true) continue;
+          try {
+            await t('DELETE', `/customFields/${def.id}/options/${idAntigo}`);
+            vistos.delete(texto);
+            console.log(`  - opção obsoleta removida em ${c.name}: ${texto}`);
+          } catch (e) { console.log(`  ! não removeu obsoleta em ${c.name}: ${texto} (${e.message})`); }
         }
         for (const o of c.options) {
           if (vistos.has(o)) continue;
