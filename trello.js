@@ -82,6 +82,17 @@ async function criarChecklistDossie(cardId, recebidos, pendentes) {
   return cl.id;
 }
 
+
+// há item ainda não marcado na checklist DOSSIÊ? (para reaplicar a etiqueta Doc. pendente
+// quando o cartão troca de quadro — se a equipe já marcou tudo, a etiqueta não volta)
+async function temPendenciaDossie(cardId) {
+  try {
+    const cls = await t('GET', '/cards/' + cardId + "/checklists?fields=name&checkItems=all&checkItem_fields=state");
+    const dos = (cls || []).find(c => /^DOSSI/i.test(c.name || ''));
+    if (!dos) return false;
+    return (dos.checkItems || []).some(i => i.state !== 'complete');
+  } catch (e) { return false; }
+}
 async function aplicarLabelsPorNome(cardId, boardId, nomes) {
   const mapa = await labelsDoQuadro(boardId);
   for (const nome of nomes) {
@@ -110,6 +121,6 @@ async function obterCartao(cardId) {
 
 module.exports = {
   t, camposDoQuadro, labelsDoQuadro,
-  criarCartao, aplicarCampos, criarChecklistDossie, aplicarLabelsPorNome, aplicarCapa,
+  criarCartao, aplicarCampos, criarChecklistDossie, temPendenciaDossie, aplicarLabelsPorNome, aplicarCapa,
   cartoesDaLista, obterCartao
 };

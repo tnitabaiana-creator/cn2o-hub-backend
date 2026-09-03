@@ -29,7 +29,8 @@ const LABELS_BANDEIRA = [
   ['Santa Mônica','pink'],
   ['Advogado','purple'],
   ['Corretor','black'],
-  ['Urgente','red']
+  ['Urgente','red'],
+  ['Doc. pendente','orange']
 ];
 
 // O GET /boards/{id}/customFields NÃO devolve as opções dos campos de lista:

@@ -124,9 +124,11 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     const titulo = `Prot. (${p.ato}) ${pad(numero)} - ${p.parte_envolvida.nome.toUpperCase()}`;
 
     // 2) descrição: observações humanas + bloco de dados de máquina
+    const pendentes = (p.dossie && p.dossie.pendentes) || [];
     const bloco = ['<!--DADOS', JSON.stringify({ numero, ...p }, null, 1), 'DADOS-->'].join('\n');
     const desc = [
       p.observacoes_nao_documentadas ? `**OBSERVAÇÕES NÃO DOCUMENTADAS**\n${p.observacoes_nao_documentadas}` : '',
+      (pendentes.length ? '**DOCUMENTOS PENDENTES — cobrar do interessado antes da lavratura**\n- ' + pendentes.join('\n- ') : ''),
       bloco
     ].filter(Boolean).join('\n\n');
 
@@ -134,6 +136,7 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     const labels = await trello.labelsDoQuadro(process.env.BOARD_00);
     const idLabels = [];
     if (p.urgente && labels['Urgente']) idLabels.push(labels['Urgente']);
+    if (pendentes.length && labels['Doc. pendente']) idLabels.push(labels['Doc. pendente']);
     for (const b of (p.bandeiras || [])) {
       const nome = NOMES_BANDEIRA[b];
       if (nome && labels[nome]) idLabels.push(labels[nome]);
@@ -242,6 +245,7 @@ app.post('/webhook/trello', async (req, res) => {
     // labels também são por quadro: reaplica bandeiras + urgente no destino
     const nomes = (p.bandeiras || []).map(b => NOMES_BANDEIRA[b]).filter(Boolean);
     if (p.urgente) nomes.push('Urgente');
+    if (await trello.temPendenciaDossie(cardId)) nomes.push('Doc. pendente');
     await trello.aplicarLabelsPorNome(cardId, boardDestino, nomes);
     // a capa viaja com o cartão, mas reaplica por garantia
     const capa = corDaCapa(p.bandeiras);
