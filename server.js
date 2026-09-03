@@ -74,6 +74,16 @@ const NOMES_BANDEIRA = {
   verde: 'Loteador/Incorporador', amarelo: 'Construtor',
   rosa: 'Santa Mônica', roxo: 'Advogado', cinza: 'Corretor'
 };
+// ===== CAPA DO CARTÃO — a bandeira vai para a capa (cor cheia), não só para a label =====
+// Uma capa por cartão: rosa (Santa Mônica) > verde (loteador/incorporador) > amarelo
+// (construtor) > roxo (advogado) > cinza (corretor). Urgente continua só como label vermelha.
+const COR_CAPA = { rosa: 'pink', verde: 'green', amarelo: 'yellow', roxo: 'purple', cinza: 'black' };
+const PRIORIDADE_CAPA = ['rosa', 'verde', 'amarelo', 'roxo', 'cinza'];
+function corDaCapa(bandeiras) {
+  const b = bandeiras || [];
+  const k = PRIORIDADE_CAPA.find(x => b.includes(x));
+  return k ? COR_CAPA[k] : null;
+}
 // ===== PRAZOS AUTOMÁTICOS DE LAVRATURA (fixados na criação; não dependem do escrevente) =====
 // CV-U / CV-R / DOA: 5 dias ÚTEIS com bandeira de construtor/loteador (verde, amarelo
 // ou rosa); 8 dias ÚTEIS sem bandeira de vendedor. INV: 4 úteis (advogado é regra).
@@ -136,6 +146,10 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
       idList: process.env.LISTA_ENTRADA, name: titulo, desc, due, idLabels
     });
     await db.vincularCartao(numero, card.id);
+
+    // 5b) capa colorida = bandeira (não bloqueia o protocolo se falhar)
+    const capa = corDaCapa(p.bandeiras);
+    if (capa) await trello.aplicarCapa(card.id, capa).catch(e => console.error('capa:', e.message));
 
     // 6) campos personalizados (mapeados por nome)
     await trello.aplicarCampos(card.id, process.env.BOARD_00, {
@@ -228,6 +242,9 @@ app.post('/webhook/trello', async (req, res) => {
     const nomes = (p.bandeiras || []).map(b => NOMES_BANDEIRA[b]).filter(Boolean);
     if (p.urgente) nomes.push('Urgente');
     await trello.aplicarLabelsPorNome(cardId, boardDestino, nomes);
+    // a capa viaja com o cartão, mas reaplica por garantia
+    const capa = corDaCapa(p.bandeiras);
+    if (capa) await trello.aplicarCapa(cardId, capa).catch(e => console.error('capa:', e.message));
     console.log(`re-hidratado: prot ${reg.numero} no quadro ${boardDestino}`);
   } catch (e) {
     console.error('webhook:', e.message);

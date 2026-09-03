@@ -85,6 +85,14 @@ async function aplicarLabelsPorNome(cardId, boardId, nomes) {
   }
 }
 
+// capa colorida = bandeiramento visível na frente do cartão (a label sozinha é discreta)
+// cores aceitas pelo Trello: pink, green, yellow, purple, black, red, orange, blue, sky, lime
+async function aplicarCapa(cardId, cor) {
+  if (!cor) return null;
+  const brightness = ['yellow', 'lime', 'sky'].includes(cor) ? 'light' : 'dark';
+  return t('PUT', `/cards/${cardId}`, { cover: { color: cor, brightness, size: 'full' } });
+}
+
 async function cartoesDaLista(listId) {
   return t('GET', `/lists/${listId}/cards?fields=name,desc`);
 }
@@ -95,6 +103,6 @@ async function obterCartao(cardId) {
 
 module.exports = {
   t, camposDoQuadro, labelsDoQuadro,
-  criarCartao, aplicarCampos, criarChecklistDossie, aplicarLabelsPorNome,
+  criarCartao, aplicarCampos, criarChecklistDossie, aplicarLabelsPorNome, aplicarCapa,
   cartoesDaLista, obterCartao
 };
