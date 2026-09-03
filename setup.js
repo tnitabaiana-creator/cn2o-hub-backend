@@ -27,20 +27,37 @@ const LABELS_BANDEIRA = [
   ['Urgente','red']
 ];
 
+// O GET /boards/{id}/customFields NÃO devolve as opções dos campos de lista:
+// elas vêm pelo endpoint próprio do campo.
+async function opcoesDoCampo(idCampo) {
+  const ops = await t('GET', `/customFields/${idCampo}/options`);
+  return (ops || []).map(o => ({ id: o._id || o.id, texto: o.value?.text, pos: o.pos }));
+}
+
 async function garantirCampos(boardId) {
   const atuais = await t('GET', `/boards/${boardId}/customFields`);
   const nomes = new Set(atuais.map(c => c.name));
   for (const c of CAMPOS) {
     if (nomes.has(c.name)) {
-      // campo de lista já existe: acrescenta as opções que faltam (novos tipos de ato)
+      // campo de lista já existe: remove opções duplicadas e acrescenta as que faltam (novos tipos de ato)
       if (c.type === 'list') {
         const def = atuais.find(x => x.name === c.name);
-        const temOpc = new Set((def.options || []).map(o => o.value?.text));
+        const ops = (await opcoesDoCampo(def.id)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        const vistos = new Map(); // texto -> id da opção mais antiga (a que os cartões já referenciam)
+        for (const o of ops) {
+          if (!vistos.has(o.texto)) { vistos.set(o.texto, o.id); continue; }
+          try {
+            await t('DELETE', `/customFields/${def.id}/options/${o.id}`);
+            console.log(`  - opção duplicada removida em ${c.name}: ${o.texto}`);
+          } catch (e) { console.log(`  ! não removeu duplicata em ${c.name}: ${o.texto} (${e.message})`); }
+        }
         for (const o of c.options) {
-          if (temOpc.has(o)) continue;
+          if (vistos.has(o)) continue;
           await t('POST', `/customFields/${def.id}/options`, { value: { text: o } });
+          vistos.set(o, true);
           console.log(`  + opção criada em ${c.name}: ${o}`);
         }
+        console.log(`  ✓ campo já existe: ${c.name} (${vistos.size} opções)`); continue;
       }
       console.log(`  ✓ campo já existe: ${c.name}`); continue;
     }

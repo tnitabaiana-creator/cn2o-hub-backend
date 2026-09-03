@@ -21,7 +21,14 @@ async function camposDoQuadro(boardId) {
   if (!cacheCampos.has(boardId)) {
     const defs = await t('GET', `/boards/${boardId}/customFields`);
     const mapa = {};
-    for (const d of defs) mapa[d.name] = { id: d.id, type: d.type, options: d.options || [] };
+    for (const d of defs) {
+      let options = d.options || [];
+      if (d.type === 'list' && !options.length) {
+        // o GET do quadro vem sem as opções dos campos de lista: busca pelo endpoint próprio
+        options = await t('GET', `/customFields/${d.id}/options`).catch(() => []);
+      }
+      mapa[d.name] = { id: d.id, type: d.type, options };
+    }
     cacheCampos.set(boardId, mapa);
   }
   return cacheCampos.get(boardId);
@@ -52,7 +59,7 @@ async function aplicarCampos(cardId, boardId, valores) {
     if (def.type === 'list') {
       const opt = def.options.find(o => o.value?.text === String(valor));
       if (!opt) continue;
-      body = { idValue: opt.id };
+      body = { idValue: opt._id || opt.id };
     } else if (def.type === 'number') {
       body = { value: { number: String(valor) } };
     } else if (def.type === 'date') {
