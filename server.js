@@ -6,7 +6,11 @@ const { dispararRecibos } = require('./whats');
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+// Corpo pequeno mantem o limite antigo; /agentes tem parser proprio (24 MB)
+// porque recebe PDF e imagem em base64.
+const jsonPequeno = express.json({ limit: '256kb' });
+app.use((req, res, next) =>
+  req.path.startsWith('/agentes') ? next() : jsonPequeno(req, res, next));
 
 // CORS: o formulário roda no Netlify
 app.use((req, res, next) => {
@@ -258,7 +262,17 @@ app.post('/webhook/trello', async (req, res) => {
 
 app.get('/saude', (_req, res) => res.json({ ok: true }));
 
-db.init().then(() => {
-  app.listen(process.env.PORT || 3000, () =>
-    console.log('Hub de Protocolo CN2O no ar, porta', process.env.PORT || 3000));
-}).catch(e => { console.error('init:', e); process.exit(1); });
+
+// --- Hub de Agentes (redacao de atos) ------------------------------------
+// Herda sessao, banco e usuarios do hub de protocolo que ja roda aqui.
+app.use('/agentes', exigeSessao, require('./agentes'));
+
+// A interface (public/index.html). Fica por ultimo entre os middlewares
+// para nao sombrear nenhuma rota da API.
+app.use(express.static(require('path').join(__dirname, 'public')));
+
+db.init()
+  .then(() => require('./db-agentes').init())
+  .then(() => app.listen(process.env.PORT || 3000, () =>
+    console.log('CN2O hub no ar')))
+  .catch(e => { console.error('falha no boot:', e); process.exit(1); });
