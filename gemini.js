@@ -63,7 +63,7 @@ function partesDeArquivos(arquivos = []) {
 // pendurada não trava só o agente: trava o cartório inteiro.
 const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 180000;
 
-async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false }) {
+async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false, busca = false }) {
   const corpo = {
     contents: [{ role: 'user', parts: partes }],
     generationConfig: {
@@ -73,6 +73,12 @@ async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 
     }
   };
   if (sistema) corpo.systemInstruction = { parts: [{ text: sistema }] };
+  // Busca na web. No app do Gemini o Gem pesquisa sozinho; pela API isso não
+  // existe a menos que a ferramenta seja declarada. Sem ela, um prompt que manda
+  // "pesquise valores praticados" não tem como obedecer — e o modelo ou inventa
+  // comparativos ou diz sempre que não achou nada.
+  // Incompatível com responseMimeType JSON, por isso os dois nunca vêm juntos.
+  if (busca && !json) corpo.tools = [{ google_search: {} }];
 
   let r;
   try {
@@ -244,20 +250,30 @@ async function executar({ agente, arquivos = [], campos = {}, observacoes, model
     .filter(([, v]) => v != null && String(v).trim() !== '')
     .map(([k, v]) => `${k}: ${v}`);
 
+  // Os documentos vêm ANTES das instruções: com material longo o modelo ancora
+  // melhor a transcrição literal assim (é a nota de implantação do próprio
+  // Not-Extrator, e vale para qualquer agente que transcreva).
   const partes = [
     ...partesDeArquivos(arquivos),
     { text: [
         preenchidos.length ? 'DADOS INFORMADOS:\n' + preenchidos.join('\n') : '',
         observacoes ? `\nOBSERVAÇÕES:\n${observacoes}` : '',
         arquivos.length ? '\nOs documentos acima fazem parte do pedido.' : '',
-        '\nExecute a sua função sobre o material acima. Responda apenas com o resultado, sem preâmbulo.'
+        '\nExecute a sua função sobre o material acima, no formato de saída que as',
+        'suas instruções definem. Responda apenas com o resultado — sem preâmbulo,',
+        'sem "segue abaixo", sem comentário final.'
       ].filter(Boolean).join('\n') }
   ];
 
+  // Temperatura 0 por padrão: ferramenta de transcrição não se beneficia de
+  // variabilidade, e o Not-Extrator exige cópia ipsis litteris.
   const r = exigirCompleto(await chamar({
     modelo: modelo || agente.modelo_redacao || MODELO_REDACAO,
     sistema: agente.prompt_sistema,
-    partes, temperatura: 0.2, maxTokens: 32768
+    partes,
+    temperatura: agente.temperatura == null ? 0 : Number(agente.temperatura),
+    busca: !!agente.usa_busca,
+    maxTokens: 32768
   }), 'a resposta');
   return { texto: r.texto, uso: r };
 }
