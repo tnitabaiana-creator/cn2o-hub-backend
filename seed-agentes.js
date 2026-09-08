@@ -92,7 +92,9 @@ const FISCAL = [
 
 const AGENTES = [
   // ---- os que já tinham Gem própria ----
-  { slug: 'compra-venda', nome: 'Compra e Venda', codigo_ato: 'CV', ordem: 10,
+  // codigo_ato precisa casar com os códigos que o POST /protocolo entende
+  // (ver ATOS em agentes.js). Aqui vai o mais comum; a tela deixa trocar.
+  { slug: 'compra-venda', nome: 'Compra e Venda', codigo_ato: 'CV-Urbano', ordem: 10,
     descricao: 'Escritura de compra e venda, urbana e rural. Cobre continuidade registral, partes ideais, ascendente a descendente e cessão anterior.',
     prompt: 'assessor-cv.md', template: 'modulo-10-compra-e-venda.md',
     campos: [...PARTE('vendedor'), ...PARTE('comprador'), ...IMOVEL, ...PRECO, ...FISCAL,

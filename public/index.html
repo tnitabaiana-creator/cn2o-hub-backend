@@ -203,6 +203,19 @@ textarea{ resize:vertical; min-height:76px; line-height:1.5; }
 .card .campos-qtd{ font-size:11.5px; color:var(--tinta-fraca); margin-left:auto; font-variant-numeric:tabular-nums; }
 .card .canto{ position:absolute; top:12px; right:12px; opacity:.28; }
 .card:hover .canto{ opacity:.6; }
+/* O cartão é uma caixa; o título é o botão de verdade e o ::after o estende
+   por todo o cartão. Assim cabe uma segunda ação dentro sem aninhar botões. */
+.card .nome-ato > button{
+  background:none; border:none; padding:0; margin:0; font:inherit; color:inherit;
+  text-align:left; cursor:pointer; width:100%;
+}
+.card .nome-ato > button::after{ content:""; position:absolute; inset:0; border-radius:var(--raio); }
+.card:focus-within{ border-left-color:var(--selo); box-shadow:var(--sombra); }
+.card .acao-secundaria{ position:relative; z-index:1; margin-left:8px; }
+
+/* ---------------------------------------------------------------- voltar */
+.barra-voltar{ margin:0 0 12px; }
+.barra-voltar .btn{ padding:6px 12px 6px 9px; }
 
 /* ---------------------------------------------------------------- passos */
 .trilho{
@@ -270,7 +283,7 @@ fieldset.grupo legend{
 }
 .linha-campos{ display:grid; grid-template-columns:repeat(auto-fit, minmax(268px,1fr)); gap:0 16px; }
 .campo-caixa{ padding:2px 0 0; }
-.campo-caixa.largo{ grid-column:1 / -1; }
+.campo-caixa.largo, .campo.largo{ grid-column:1 / -1; }
 .campo-caixa.verificar input, .campo-caixa.verificar textarea{
   border-color:var(--ambar-forte); background:var(--ambar-claro); box-shadow:inset 3px 0 0 var(--ambar-forte);
 }
@@ -328,6 +341,33 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
 
 .checkbox-linha{ display:inline-flex; align-items:center; gap:8px; font-size:13.5px; color:var(--tinta-media); cursor:pointer; }
 .checkbox-linha input{ width:16px; height:16px; accent-color:var(--selo); }
+
+/* ---------------------------------------------------------------- protocolo */
+.grade-2{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:0 18px; }
+.caixas{ display:flex; flex-wrap:wrap; gap:9px 20px; margin-bottom:6px; }
+.lista-dossie{ list-style:none; margin:6px 0 0; padding:0; }
+.lista-dossie li{
+  display:flex; align-items:center; gap:10px; padding:6px 10px; border:1px solid var(--linha);
+  border-radius:var(--raio); background:var(--papel); margin-bottom:5px; font-size:13.5px;
+}
+.lista-dossie .txt{ flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.lista-dossie.pendente li{ border-left:3px solid var(--ambar-forte); }
+.lista-dossie.recebido li{ border-left:3px solid var(--selo); }
+.dossie-add{ display:flex; gap:8px; align-items:flex-end; margin-top:8px; }
+.dossie-add .campo{ flex:1 1 auto; margin-bottom:0; }
+.dossie-vazio{ font-size:12.5px; color:var(--tinta-fraca); padding:4px 0; }
+
+.recibo{
+  background:var(--papel-alto); border:1px solid var(--selo); border-left:4px solid var(--selo);
+  border-radius:var(--raio); padding:22px 24px; box-shadow:var(--sombra); margin-bottom:18px;
+}
+.recibo .rot{ margin-bottom:2px; }
+.recibo .numero{
+  font-family:var(--serif); font-size:44px; line-height:1.05; color:var(--selo-escuro);
+  font-variant-numeric:tabular-nums; letter-spacing:.02em;
+}
+.recibo .prazo{ margin-top:8px; font-size:14px; color:var(--tinta-media); }
+.recibo .links{ display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
 
 .vazio{ text-align:center; padding:46px 20px; color:var(--tinta-fraca); }
 .vazio h3{ font-size:17px; color:var(--tinta-media); margin-bottom:6px; }
@@ -452,12 +492,14 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
 
       <!-- ------------------------------------------------------- NOVO ATO -->
       <section id="secao-ato" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-ato">← Painel</button>
+        </div>
         <div class="cabeca-secao">
           <div>
             <h2 id="ato-titulo">Novo ato</h2>
             <p id="ato-subtitulo"></p>
           </div>
-          <button type="button" class="btn btn-fantasma" id="btn-voltar-painel" style="margin-left:auto">← Voltar aos atos</button>
         </div>
 
         <ol class="trilho" id="trilho">
@@ -477,7 +519,8 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
             <div class="titulo">Arraste os documentos para cá</div>
             <div class="sub">ou clique para escolher no computador · PDF, JPG, PNG</div>
           </div>
-          <input type="file" id="input-arquivos" multiple accept="application/pdf,image/*" class="oculto">
+          <input type="file" id="input-arquivos" multiple accept="application/pdf,image/*" class="oculto"
+                 aria-label="Documentos do caso">
           <ul class="lista-arq" id="lista-arquivos"></ul>
           <div class="total-arq" id="total-arquivos"></div>
           <div id="aviso-tamanho"></div>
@@ -534,7 +577,8 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
         <div id="passo-3" class="painel oculto">
           <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
             <div>
-              <h3 id="minuta-titulo">Minuta</h3>
+              <h3 id="minuta-titulo"><span id="minuta-titulo-texto">Minuta</span>
+                <span id="minuta-protocolo" class="selo-modelo oculto" style="vertical-align:4px"></span></h3>
               <p class="legenda" id="minuta-legenda">Edite livremente. O texto abaixo é o que vai para o Word.</p>
             </div>
             <div style="margin-left:auto;text-align:right">
@@ -549,6 +593,7 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
           <div class="barra-acoes">
             <button type="button" class="btn btn-principal" id="btn-baixar">Baixar Word</button>
             <button type="button" class="btn" id="btn-salvar">Salvar alterações</button>
+            <button type="button" class="btn" id="btn-protocolar-minuta">Protocolar este ato</button>
             <div class="direita"><div id="carregando-minuta"></div></div>
           </div>
 
@@ -567,8 +612,205 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
         </div>
       </section>
 
+      <!-- ------------------------------------ ETAPA ÚNICA · ENTRADA DO AGENTE -->
+      <!-- Ferramentas e comunicação não redigem escritura: entra material, sai texto. -->
+      <section id="secao-execucao" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-execucao">← Painel</button>
+        </div>
+        <div class="cabeca-secao">
+          <div>
+            <h2 id="exec-titulo">Ferramenta</h2>
+            <p id="exec-subtitulo"></p>
+          </div>
+        </div>
+
+        <div class="painel">
+          <h3 id="exec-painel-titulo">Material de trabalho</h3>
+          <p class="legenda" id="exec-painel-legenda"></p>
+          <div id="erro-exec"></div>
+
+          <div id="exec-campos"></div>
+
+          <div id="exec-bloco-arquivos">
+            <div class="rot" id="exec-rot-arquivos">Documentos</div>
+            <div class="solta" id="exec-area-solta" tabindex="0" role="button"
+                 aria-label="Escolher arquivos: clique, tecle Enter ou arraste os documentos para cá">
+              <div class="titulo">Arraste os documentos para cá</div>
+              <div class="sub" id="exec-solta-sub">ou clique para escolher no computador · PDF, JPG, PNG</div>
+            </div>
+            <input type="file" id="exec-input-arquivos" multiple accept="application/pdf,image/*" class="oculto"
+                   aria-label="Documentos para o agente">
+            <ul class="lista-arq" id="exec-lista-arquivos"></ul>
+            <div class="total-arq" id="exec-total-arquivos"></div>
+            <div id="exec-aviso-tamanho"></div>
+          </div>
+
+          <div class="campo" style="margin-top:18px">
+            <label for="exec-titulo-saida">Título deste trabalho <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+            <input id="exec-titulo-saida" type="text" autocomplete="off" placeholder="ex.: Qualificação — matrícula 12.345">
+            <p class="ajuda">Serve para você achar o resultado depois em “Minhas minutas”.</p>
+          </div>
+
+          <div class="campo">
+            <label for="exec-observacoes">Observações</label>
+            <textarea id="exec-observacoes" rows="4"
+              placeholder="O que o agente precisa saber e não está no material anexado."></textarea>
+          </div>
+
+          <div class="barra-acoes">
+            <button type="button" class="btn btn-principal" id="btn-executar">Executar</button>
+            <span class="ajuda" style="margin:0">Leva de 20 a 60 segundos. Não feche a aba.</span>
+            <div class="direita"><div id="carregando-exec"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------- ETAPA ÚNICA · TEXTO DE SAÍDA -->
+      <section id="secao-resultado" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-resultado">← Voltar</button>
+        </div>
+        <div class="cabeca-secao">
+          <div>
+            <h2 id="saida-titulo">Resultado</h2>
+            <p id="saida-subtitulo"></p>
+          </div>
+          <div style="margin-left:auto;text-align:right">
+            <div class="custo" id="saida-custo"></div>
+            <div class="custo" id="saida-salvo"></div>
+          </div>
+        </div>
+        <div class="painel">
+          <div id="erro-saida"></div>
+          <label class="rot" for="editor-saida">Texto gerado — edite à vontade</label>
+          <textarea id="editor-saida" class="editor-minuta" spellcheck="true"></textarea>
+          <div class="barra-acoes">
+            <button type="button" class="btn btn-principal" id="btn-copiar-saida">Copiar</button>
+            <button type="button" class="btn" id="btn-baixar-saida">Baixar Word</button>
+            <button type="button" class="btn" id="btn-salvar-saida">Salvar alterações</button>
+            <div class="direita"><div id="carregando-saida"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------------- PROTOCOLO -->
+      <section id="secao-protocolo" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-protocolo">← Painel</button>
+        </div>
+        <div class="cabeca-secao">
+          <div>
+            <h2 id="protocolo-titulo">Protocolar no balcão</h2>
+            <p>Abre o número do ato, cria o cartão no Trello com o prazo e monta o dossiê.</p>
+          </div>
+        </div>
+
+        <div id="protocolo-sucesso"></div>
+
+        <form id="form-protocolo" class="painel" novalidate>
+          <div id="erro-protocolo"></div>
+
+          <div class="grade-2">
+            <div class="campo">
+              <label for="prot-ato">Ato<span class="obrig" title="obrigatório">*</span></label>
+              <select id="prot-ato" required>
+                <option value="">— escolha o ato —</option>
+              </select>
+              <p class="ajuda" id="prot-ato-estado"></p>
+            </div>
+            <div class="campo">
+              <label for="prot-vendedor">Vendedor / empreendimento <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+              <input id="prot-vendedor" type="text" list="lista-vendedores" autocomplete="off"
+                     placeholder="comece a digitar — a lista sugere">
+              <datalist id="lista-vendedores"></datalist>
+              <p class="ajuda" id="prot-vendedor-estado"></p>
+            </div>
+          </div>
+
+          <fieldset class="grupo">
+            <legend>Apresentante</legend>
+            <div class="linha-campos">
+              <div class="campo">
+                <label for="prot-apres-nome">Nome<span class="obrig" title="obrigatório">*</span></label>
+                <input id="prot-apres-nome" type="text" autocomplete="off" required>
+              </div>
+              <div class="campo">
+                <label for="prot-apres-tel">Telefone<span class="obrig" title="obrigatório">*</span></label>
+                <input id="prot-apres-tel" type="text" inputmode="tel" autocomplete="off" placeholder="(79) 90000-0000" required>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="grupo">
+            <legend>Parte envolvida</legend>
+            <div class="linha-campos">
+              <div class="campo">
+                <label for="prot-parte-nome">Nome<span class="obrig" title="obrigatório">*</span></label>
+                <input id="prot-parte-nome" type="text" autocomplete="off" required>
+              </div>
+              <div class="campo">
+                <label for="prot-parte-tel">Telefone <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+                <input id="prot-parte-tel" type="text" inputmode="tel" autocomplete="off" placeholder="(79) 90000-0000">
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="grupo">
+            <legend>Bandeiras e urgência</legend>
+            <div class="caixas" id="prot-bandeiras"></div>
+            <label class="checkbox-linha" style="margin-bottom:12px">
+              <input type="checkbox" id="prot-urgente"> este ato é urgente
+            </label>
+          </fieldset>
+
+          <fieldset class="grupo">
+            <legend>Dossiê</legend>
+            <div class="grade-2">
+              <div style="padding-bottom:10px">
+                <div class="rot" id="rot-recebidos">Documentos recebidos</div>
+                <ul class="lista-dossie recebido" id="lista-recebidos" aria-labelledby="rot-recebidos"></ul>
+                <div class="dossie-add">
+                  <div class="campo">
+                    <label for="add-recebido">Acrescentar recebido</label>
+                    <input id="add-recebido" type="text" autocomplete="off" placeholder="ex.: RG do comprador">
+                  </div>
+                  <button type="button" class="btn btn-pequeno" id="btn-add-recebido">Acrescentar</button>
+                </div>
+              </div>
+              <div style="padding-bottom:10px">
+                <div class="rot" id="rot-pendentes">Documentos pendentes</div>
+                <ul class="lista-dossie pendente" id="lista-pendentes" aria-labelledby="rot-pendentes"></ul>
+                <div class="dossie-add">
+                  <div class="campo">
+                    <label for="add-pendente">Acrescentar pendente</label>
+                    <input id="add-pendente" type="text" autocomplete="off" placeholder="ex.: Matrícula atualizada">
+                  </div>
+                  <button type="button" class="btn btn-pequeno" id="btn-add-pendente">Acrescentar</button>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="campo">
+            <label for="prot-observacoes">Observações não documentadas</label>
+            <textarea id="prot-observacoes" rows="3"
+              placeholder="O que foi combinado no balcão e não está em papel nenhum."></textarea>
+          </div>
+
+          <div class="barra-acoes">
+            <button type="submit" class="btn btn-principal" id="btn-protocolar">Protocolar</button>
+            <span class="ajuda" style="margin:0">Gera o número e o cartão no Trello.</span>
+            <div class="direita"><div id="carregando-protocolo"></div></div>
+          </div>
+        </form>
+      </section>
+
       <!-- --------------------------------------------------- MINHAS MINUTAS -->
       <section id="secao-minutas" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-minutas">← Painel</button>
+        </div>
         <div class="cabeca-secao">
           <div>
             <h2>Minhas minutas</h2>
@@ -587,6 +829,9 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
 
       <!-- ---------------------------------------------------------- CONSUMO -->
       <section id="secao-consumo" class="secao oculto">
+        <div class="barra-voltar">
+          <button type="button" class="btn btn-fantasma btn-voltar" id="voltar-consumo">← Painel</button>
+        </div>
         <div class="cabeca-secao">
           <div>
             <h2>Consumo da plataforma</h2>
@@ -722,7 +967,16 @@ var estado = {
   agentes: [],
   busca: '',
   minutas: [],
-  ato: null                 // ver novoAto()
+  ato: null,                // ver novoAto()
+  exec: null,               // ver novaExecucao() — agentes de etapa única
+  catalogoProtocolo: null,  // { atos:[], bandeiras:[] }, buscado uma vez por sessão
+  protocoloOrigem: null,    // tela para onde o "voltar" do protocolo leva
+  protocoloVinculo: null,   // { minutaId } quando o protocolo saiu da tela da minuta
+  protocoloFeito: false,    // já protocolou: o formulário some e nada mais está em risco
+  protocoloAtoInicial: '',  // ato que veio do card — preenchê-lo não é "trabalho não salvo"
+  resultadoOrigem: null,    // de onde a tela de saída foi aberta (execução ou lista)
+  vendedoresCarregados: false,
+  dossie: { recebidos: [], pendentes: [] }
 };
 
 var CARGOS_ADMIN = ['Tabelião', 'Substituta do Tabelião'];
@@ -743,7 +997,22 @@ function novoAto(agente){
     texto: '',
     turnos: [],
     custoUsd: 0,
-    passosLiberados: { 1:true, 2:false, 3:false }
+    passosLiberados: { 1:true, 2:false, 3:false },
+    conferenciaEditada: false
+  };
+}
+
+// Agentes de etapa única: entra material, sai texto. Sem conferência, sem revisão.
+function novaExecucao(agente){
+  return {
+    agente: agente || null,
+    arquivos: [],           // [{ nome, mime, tamanho, file }]
+    campos: [],             // definição local dos campos (CAMPOS_FIXOS)
+    titulo: '',
+    obs: '',
+    minutaId: null,
+    texto: '',
+    custoUsd: 0
   };
 }
 
@@ -835,7 +1104,10 @@ function abrirApp(){
   $('#topo-cargo').textContent = (estado.usuario && estado.usuario.cargo) || '';
   mostrar($('#aba-consumo'), estado.ehAdmin);
   mostrar($('#rot-todas-minutas'), estado.ehAdmin);
-  irPara('painel');
+  // o painel é a base do histórico: daqui o Voltar do navegador nunca sai do app
+  pilha = [];
+  aplicarTela({ secao:'painel' });
+  trocarTopo({ secao:'painel' });
   carregarAgentes();
 }
 
@@ -900,23 +1172,172 @@ $('#btn-sair').addEventListener('click', function(){
 
 /* -------------------------------------------------------- 5. navegação SPA */
 
-var SECOES = ['painel','ato','minutas','consumo'];
+var SECOES = ['painel','ato','execucao','resultado','protocolo','minutas','consumo'];
+// seções que continuam sendo "atos e ferramentas" para efeito da aba marcada
+var SOB_PAINEL = ['ato','execucao','resultado','protocolo'];
 
-function irPara(secao){
+// Uma "tela" é { secao, passo? }. A pilha espelha o histórico do navegador:
+// o topo é o que está na frente. Serve só para decidir entre history.back()
+// e empilhar uma tela nova — o desenho quem faz é aplicarTela().
+var pilha = [];
+var pulaConfirmacao = false;   // o botão Voltar já perguntou; o popstate não pergunta de novo
+
+function mesmaTela(a, b){
+  if (!a || !b) return false;
+  return a.secao === b.secao && (a.passo || 0) === (b.passo || 0);
+}
+function telaAtual(){
+  return pilha[pilha.length - 1] || { secao: estado.secao || 'painel' };
+}
+
+function empilhar(t){
+  pilha.push(t);
+  try { window.history.pushState({ cn2o: t, i: pilha.length - 1 }, ''); } catch (e) { /* sem histórico, segue */ }
+}
+function trocarTopo(t){
+  if (!pilha.length) pilha.push(t); else pilha[pilha.length - 1] = t;
+  try { window.history.replaceState({ cn2o: t, i: pilha.length - 1 }, ''); } catch (e) { /* ignora */ }
+}
+
+// Desenha a tela. Não mexe no histórico — quem mexe é irPara/voltar/popstate.
+function aplicarTela(t){
+  var secao = t.secao;
   estado.secao = secao;
   SECOES.forEach(function(s){ mostrar($('#secao-' + s), s === secao); });
-  // a aba "Atos" fica marcada também enquanto o assistente do ato está aberto
   $$('nav.abas button').forEach(function(b){
     var alvo = b.getAttribute('data-secao');
-    var ativa = alvo === secao || (secao === 'ato' && alvo === 'painel');
+    var ativa = alvo === secao || (SOB_PAINEL.indexOf(secao) >= 0 && alvo === 'painel');
     if (ativa) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
+  if (secao === 'ato') aplicarPasso(t.passo || (estado.ato && estado.ato.passo) || 1);
+  atualizarVoltar();
   window.scrollTo(0, 0);
+}
+
+function irPara(secao, extra){
+  var t = { secao: secao };
+  if (extra && extra.passo) t.passo = extra.passo;
+  if (mesmaTela(telaAtual(), t)){ trocarTopo(t); aplicarTela(t); return; }
+  aplicarTela(t);
+  empilhar(t);
+}
+
+/* ---- botão voltar: teclado, mouse e o botão do Chrome no mesmo caminho ---- */
+
+// Para onde o "voltar" leva, a partir de onde estamos.
+function destinoVoltar(){
+  var s = estado.secao;
+  if (s === 'ato'){
+    var p = (estado.ato && estado.ato.passo) || 1;
+    var ant = p - 1;
+    // pula passos que não estão liberados (minuta aberta da lista começa no 2)
+    while (ant >= 1 && estado.ato && !estado.ato.passosLiberados[ant]) ant--;
+    if (ant >= 1) return { secao:'ato', passo: ant };
+    return { secao:'painel' };
+  }
+  if (s === 'resultado') return estado.resultadoOrigem || { secao:'execucao' };
+  if (s === 'protocolo') return estado.protocoloOrigem || { secao:'painel' };
+  if (s === 'painel') return null;
+  return { secao:'painel' };
+}
+
+function rotuloVoltar(destino){
+  return (destino && destino.secao === 'painel') ? '← Painel' : '← Voltar';
+}
+
+function atualizarVoltar(){
+  var d = destinoVoltar();
+  var b = $('#voltar-' + estado.secao);
+  if (b) b.textContent = rotuloVoltar(d);
+}
+
+// Volta de fato. Se a tela anterior do histórico já é o destino, usa o histórico
+// (assim a pilha não cresce à toa e o botão do Chrome continua coerente).
+function voltarPara(t){
+  if (pilha.length > 1 && mesmaTela(pilha[pilha.length - 2], t)){
+    pulaConfirmacao = true;
+    try { window.history.back(); return; } catch (e) { pulaConfirmacao = false; }
+  }
+  aplicarTela(t);
+  empilhar(t);
+}
+
+function voltar(){
+  var d = destinoVoltar();
+  if (!d) return;
+  if (!podeSair(d)) return;
+  voltarPara(d);
+}
+
+$$('.btn-voltar').forEach(function(b){ b.addEventListener('click', voltar); });
+
+// Escape faz o mesmo que o botão — a escrevente pede pra sair e sai.
+document.addEventListener('keydown', function(ev){
+  if (ev.key !== 'Escape' && ev.keyCode !== 27) return;
+  if (ev.defaultPrevented) return;
+  if (!estado.token) return;                       // na tela de login não há de onde voltar
+  if (!destinoVoltar()) return;                    // já estamos no painel
+  ev.preventDefault();
+  voltar();
+});
+
+// Botão Voltar do navegador. Sem isto o Chrome sai do app e a sessão parece cair.
+window.addEventListener('popstate', function(ev){
+  if (!estado.token) return;
+  var st = ev.state && ev.state.cn2o;
+  var destino = st || { secao:'painel' };
+  var i = (ev.state && typeof ev.state.i === 'number') ? ev.state.i : 0;
+  if (!pulaConfirmacao && !podeSair(destino)){
+    // desistiu de sair: recoloca no histórico a tela em que estava
+    empilhar(telaAtual());
+    return;
+  }
+  pulaConfirmacao = false;
+  pilha.length = Math.max(0, i);
+  pilha.push(destino);
+  aplicarTela(destino);
+});
+
+/* ---- trabalho não salvo ---- */
+
+// Devolve a frase do que se perde ao sair, ou '' quando não há nada em risco.
+function trabalhoNaoSalvo(){
+  var s = estado.secao, a = estado.ato, x = estado.exec;
+  if (s === 'ato' && a){
+    if (a.passo === 3 && $('#editor-minuta').value !== (a.texto || ''))
+      return 'A minuta tem alterações que você ainda não salvou.';
+    if (a.passo === 2 && a.conferenciaEditada)
+      return 'Você corrigiu campos na conferência e ainda não gerou a minuta.';
+    if (a.passo === 1 && (a.arquivos.length ||
+        $('#ato-observacoes').value.trim() || $('#ato-titulo-minuta').value.trim()))
+      return 'Há documentos anexados ou dados preenchidos neste ato.';
+  }
+  if (s === 'execucao' && x){
+    if (x.arquivos.length || $('#exec-observacoes').value.trim() || algumCampoExecPreenchido())
+      return 'Há material anexado ou campos preenchidos nesta ferramenta.';
+  }
+  if (s === 'resultado' && x){
+    if ($('#editor-saida').value !== (x.texto || ''))
+      return 'O texto tem alterações que você ainda não salvou.';
+  }
+  if (s === 'protocolo' && !estado.protocoloFeito && protocoloPreenchido())
+    return 'O formulário de protocolo está preenchido e nada foi protocolado ainda.';
+  return '';
+}
+
+function podeSair(destino){
+  // andar dentro da mesma seção (passo a passo do assistente) não perde nada
+  if (destino && destino.secao === estado.secao) return true;
+  var aviso = trabalhoNaoSalvo();
+  if (!aviso) return true;
+  try { return window.confirm(aviso + '\n\nSair mesmo assim? O que não foi salvo se perde.') === true; }
+  catch (e) { return true; }
 }
 
 $$('nav.abas button').forEach(function(b){
   b.addEventListener('click', function(){
     var s = b.getAttribute('data-secao');
+    if (!podeSair({ secao: s })) return;
     irPara(s);
     if (s === 'minutas') carregarMinutas();
     if (s === 'consumo') carregarConsumo();
@@ -965,8 +1386,12 @@ function renderPainel(){
       .toLowerCase().indexOf(termo) >= 0;
   });
 
+  // o cartão do balcão não vem do catálogo: ele é fixo, e também obedece à busca
+  var mostraProtocolo = !termo ||
+    'protocolar no balcao balcão protocolo trello ato numero número'.indexOf(termo) >= 0;
+
   var alvo = $('#painel-grupos');
-  if (!visiveis.length){
+  if (!visiveis.length && !mostraProtocolo){
     alvo.innerHTML = '<div class="vazio"><h3>Nada encontrado</h3><p>' +
       (termo ? 'Nenhum ato combina com “' + esc(estado.busca) + '”. Tente outra palavra.'
              : 'Nenhum agente cadastrado ainda. Fale com o tabelião.') + '</p></div>';
@@ -994,26 +1419,72 @@ function renderPainel(){
             (explica ? ' <span style="text-transform:none;letter-spacing:0;font-family:var(--sans);font-size:12px">· ' + esc(explica) + '</span>' : '') +
             '</span></div><div class="grade">';
     itens.forEach(function(a){
-      html += '<button type="button" class="card" data-slug="' + esc(a.slug) + '">' +
+      // só escritura tem o que protocolar: é o ato que abre número no balcão
+      var protocolavel = (a.categoria || 'escritura') === 'escritura';
+      html += '<div class="card">' +
         '<span class="canto" aria-hidden="true">' +
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E6B4C" stroke-width="1.2">' +
           '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" stroke-dasharray="1.5 2"/></svg>' +
         '</span>' +
-        '<span class="nome-ato">' + esc(a.nome) + '</span>' +
+        '<span class="nome-ato"><button type="button" data-slug="' + esc(a.slug) + '">' +
+          esc(a.nome) + '</button></span>' +
         '<span class="desc">' + esc(a.descricao || 'Sem descrição cadastrada.') + '</span>' +
         '<span class="pe">' +
           (a.codigo_ato ? '<span class="etiqueta">' + esc(a.codigo_ato) + '</span>' : '') +
           (a.tem_template ? '<span class="selo-modelo">modelo próprio</span>' : '') +
           '<span class="campos-qtd">' + esc(a.qtd_campos || 0) + ' campos</span>' +
-        '</span></button>';
+          (protocolavel
+            ? '<button type="button" class="btn btn-pequeno acao-secundaria" data-protocolar="' + esc(a.slug) + '">Protocolar</button>'
+            : '') +
+        '</span></div>';
     });
     html += '</div>';
   });
+
+  if (mostraProtocolo){
+    html += '<div class="grupo-titulo"><span>Protocolo' +
+      ' <span style="text-transform:none;letter-spacing:0;font-family:var(--sans);font-size:12px">· abre o número do ato e o cartão no Trello</span>' +
+      '</span></div><div class="grade">' +
+      '<div class="card">' +
+        '<span class="canto" aria-hidden="true">' +
+          '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E6B4C" stroke-width="1.2">' +
+          '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10"/></svg>' +
+        '</span>' +
+        '<span class="nome-ato"><button type="button" data-protocolo-balcao="1">Protocolar no balcão</button></span>' +
+        '<span class="desc">Número do ato, prazo e dossiê num cartão do Trello — sem sair do hub.</span>' +
+        '<span class="pe"><span class="etiqueta">balcão</span>' +
+          '<span class="campos-qtd">Trello</span></span>' +
+      '</div></div>';
+  }
+
   alvo.innerHTML = html;
 
-  $$('#painel-grupos .card').forEach(function(c){
-    c.addEventListener('click', function(){ abrirAto(c.getAttribute('data-slug')); });
+  $$('#painel-grupos .nome-ato [data-slug]').forEach(function(b){
+    b.addEventListener('click', function(){ abrirAgente(b.getAttribute('data-slug')); });
   });
+  $$('#painel-grupos [data-protocolar]').forEach(function(b){
+    b.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      var ag = acharAgente(b.getAttribute('data-protocolar'));
+      abrirProtocolo({ ato: (ag && ag.codigo_ato) || '', origem: { secao:'painel' } });
+    });
+  });
+  var bal = $('#painel-grupos [data-protocolo-balcao]');
+  if (bal) bal.addEventListener('click', function(){
+    abrirProtocolo({ ato:'', origem: { secao:'painel' } });
+  });
+}
+
+function acharAgente(slug){
+  return estado.agentes.filter(function(a){ return a.slug === slug; })[0] || null;
+}
+
+// O caminho depende da categoria: só escritura passa pelo assistente de 3 passos.
+function abrirAgente(slug){
+  var ag = acharAgente(slug);
+  if (!ag) return;
+  if ((ag.categoria || 'escritura') === 'escritura') abrirAto(slug);
+  else abrirExecucao(ag);
 }
 
 $('#busca-agentes').addEventListener('input', function(ev){
@@ -1024,7 +1495,7 @@ $('#busca-agentes').addEventListener('input', function(ev){
 /* ------------------------------------------------- 7. assistente do ato */
 
 function abrirAto(slug){
-  var ag = estado.agentes.filter(function(a){ return a.slug === slug; })[0];
+  var ag = acharAgente(slug);
   if (!ag) return;
   estado.ato = novoAto(ag);
   $('#ato-titulo').textContent = ag.nome;
@@ -1040,14 +1511,13 @@ function abrirAto(slug){
   limpa($('#resumo-protocolo')); limpa($('#erro-passo1'));
   limpa($('#erro-passo2')); limpa($('#erro-passo3'));
   limpa($('#minuta-salvo')); limpa($('#minuta-custo'));
+  mostrar($('#minuta-protocolo'), false);
   renderArquivos();
-  irPara('ato');
-  irParaPasso(1);
+  irPara('ato', { passo:1 });
 }
 
-$('#btn-voltar-painel').addEventListener('click', function(){ irPara('painel'); });
-
-function irParaPasso(n){
+// Desenha o passo. Quem empilha no histórico é irParaPasso().
+function aplicarPasso(n){
   if (!estado.ato) return;
   estado.ato.passo = n;
   [1,2,3].forEach(function(i){ mostrar($('#passo-' + i), i === n); });
@@ -1059,7 +1529,11 @@ function irParaPasso(n){
     b.disabled = !estado.ato.passosLiberados[p];
     b.setAttribute('aria-current', p === n ? 'step' : 'false');
   });
-  window.scrollTo(0, 0);
+}
+
+function irParaPasso(n){
+  if (!estado.ato) return;
+  irPara('ato', { passo:n });
 }
 
 $$('#trilho button').forEach(function(b){
@@ -1071,69 +1545,93 @@ $$('#trilho button').forEach(function(b){
 
 /* ---- passo 1: arquivos ---- */
 
-var areaSolta = $('#area-solta');
-var inputArq  = $('#input-arquivos');
+// Um mesmo uploader serve ao assistente do ato e à tela de etapa única:
+// muda só o conjunto de elementos e de onde sai a lista de arquivos.
+function ligarUploader(ids, obterArquivos){
+  var areaSolta = $(ids.solta);
+  var inputArq  = $(ids.input);
+  var ul        = $(ids.lista);
+  var elTotal   = $(ids.total);
+  var elAviso   = $(ids.aviso);
+  if (!areaSolta || !inputArq) return { render: function(){} };
 
-areaSolta.addEventListener('click', function(){ inputArq.click(); });
-areaSolta.addEventListener('keydown', function(ev){
-  if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); inputArq.click(); }
-});
-['dragenter','dragover'].forEach(function(evt){
-  areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.add('sobre'); });
-});
-['dragleave','drop'].forEach(function(evt){
-  areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.remove('sobre'); });
-});
-areaSolta.addEventListener('drop', function(ev){
-  if (ev.dataTransfer && ev.dataTransfer.files) adicionarArquivos(ev.dataTransfer.files);
-});
-inputArq.addEventListener('change', function(){
-  adicionarArquivos(inputArq.files);
-  inputArq.value = ''; // permite escolher o mesmo arquivo de novo depois de remover
-});
-
-function adicionarArquivos(lista){
-  if (!estado.ato) return;
-  Array.prototype.forEach.call(lista, function(f){
-    // evita duplicata óbvia (mesmo nome e mesmo tamanho)
-    var repetido = estado.ato.arquivos.some(function(a){ return a.nome === f.name && a.tamanho === f.size; });
-    if (repetido) return;
-    estado.ato.arquivos.push({ nome: f.name, mime: f.type || 'application/octet-stream', tamanho: f.size, file: f });
+  areaSolta.addEventListener('click', function(){ inputArq.click(); });
+  areaSolta.addEventListener('keydown', function(ev){
+    if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); inputArq.click(); }
   });
-  renderArquivos();
-}
+  ['dragenter','dragover'].forEach(function(evt){
+    areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.add('sobre'); });
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.remove('sobre'); });
+  });
+  areaSolta.addEventListener('drop', function(ev){
+    if (ev.dataTransfer && ev.dataTransfer.files) adicionar(ev.dataTransfer.files);
+  });
+  inputArq.addEventListener('change', function(){
+    adicionar(inputArq.files);
+    inputArq.value = ''; // permite escolher o mesmo arquivo de novo depois de remover
+  });
 
-function renderArquivos(){
-  var ul = $('#lista-arquivos');
-  var arqs = (estado.ato && estado.ato.arquivos) || [];
-  if (!arqs.length){
-    ul.innerHTML = '';
-    $('#total-arquivos').textContent = '';
-    limpa($('#aviso-tamanho'));
-    return;
-  }
-  ul.innerHTML = arqs.map(function(a, i){
-    return '<li><span class="nome" title="' + esc(a.nome) + '">' + esc(a.nome) + '</span>' +
-      '<span class="tam">' + esc(fmtTamanho(a.tamanho)) + '</span>' +
-      '<button type="button" class="btn btn-pequeno btn-perigo" data-remover="' + i + '" ' +
-      'aria-label="Remover ' + esc(a.nome) + '">Remover</button></li>';
-  }).join('');
-  $$('#lista-arquivos [data-remover]').forEach(function(b){
-    b.addEventListener('click', function(){
-      estado.ato.arquivos.splice(parseInt(b.getAttribute('data-remover'), 10), 1);
-      renderArquivos();
+  function adicionar(lista){
+    var arqs = obterArquivos();
+    if (!arqs) return;
+    Array.prototype.forEach.call(lista, function(f){
+      // evita duplicata óbvia (mesmo nome e mesmo tamanho)
+      var repetido = arqs.some(function(a){ return a.nome === f.name && a.tamanho === f.size; });
+      if (repetido) return;
+      arqs.push({ nome: f.name, mime: f.type || 'application/octet-stream', tamanho: f.size, file: f });
     });
-  });
-  var total = arqs.reduce(function(s, a){ return s + a.tamanho; }, 0);
-  $('#total-arquivos').textContent = arqs.length + (arqs.length === 1 ? ' arquivo · ' : ' arquivos · ') + fmtTamanho(total);
-  // acima de ~20 MB o envio costuma ser recusado pelo servidor
-  var av = $('#aviso-tamanho');
-  if (total > LIMITE_MB * 1024 * 1024){
-    av.innerHTML = '<div class="aviso aviso-ambar" role="status">São ' + esc(fmtTamanho(total)) +
-      ' no total — acima do limite de ' + LIMITE_MB + ' MB. O servidor pode recusar o envio. ' +
-      'Tire os documentos que não interessam ou envie em duas levas.</div>';
-  } else { limpa(av); }
+    render();
+  }
+
+  function render(){
+    var arqs = obterArquivos() || [];
+    if (!arqs.length){
+      ul.innerHTML = '';
+      elTotal.textContent = '';
+      limpa(elAviso);
+      return;
+    }
+    ul.innerHTML = arqs.map(function(a, i){
+      return '<li><span class="nome" title="' + esc(a.nome) + '">' + esc(a.nome) + '</span>' +
+        '<span class="tam">' + esc(fmtTamanho(a.tamanho)) + '</span>' +
+        '<button type="button" class="btn btn-pequeno btn-perigo" data-remover="' + i + '" ' +
+        'aria-label="Remover ' + esc(a.nome) + '">Remover</button></li>';
+    }).join('');
+    Array.prototype.slice.call(ul.querySelectorAll('[data-remover]')).forEach(function(b){
+      b.addEventListener('click', function(){
+        var atuais = obterArquivos();
+        if (!atuais) return;
+        atuais.splice(parseInt(b.getAttribute('data-remover'), 10), 1);
+        render();
+      });
+    });
+    var total = arqs.reduce(function(s, a){ return s + a.tamanho; }, 0);
+    elTotal.textContent = arqs.length + (arqs.length === 1 ? ' arquivo · ' : ' arquivos · ') + fmtTamanho(total);
+    // acima de ~20 MB o envio costuma ser recusado pelo servidor
+    if (total > LIMITE_MB * 1024 * 1024){
+      elAviso.innerHTML = '<div class="aviso aviso-ambar" role="status">São ' + esc(fmtTamanho(total)) +
+        ' no total — acima do limite de ' + LIMITE_MB + ' MB. O servidor pode recusar o envio. ' +
+        'Tire os documentos que não interessam ou envie em duas levas.</div>';
+    } else { limpa(elAviso); }
+  }
+
+  return { render: render };
 }
+
+var uploaderAto = ligarUploader(
+  { solta:'#area-solta', input:'#input-arquivos', lista:'#lista-arquivos',
+    total:'#total-arquivos', aviso:'#aviso-tamanho' },
+  function(){ return estado.ato ? estado.ato.arquivos : null; }
+);
+function renderArquivos(){ uploaderAto.render(); }
+
+var uploaderExec = ligarUploader(
+  { solta:'#exec-area-solta', input:'#exec-input-arquivos', lista:'#exec-lista-arquivos',
+    total:'#exec-total-arquivos', aviso:'#exec-aviso-tamanho' },
+  function(){ return estado.exec ? estado.exec.arquivos : null; }
+);
 
 // FileReader devolve dataURL; a API quer só o que vem depois da vírgula.
 function lerBase64(file){
@@ -1351,6 +1849,7 @@ function campoHTML(c, valor){
 function aoEditarCampo(ev){
   var el = ev.target;
   if (!el || !el.getAttribute || !el.getAttribute('data-campo')) return;
+  if (estado.ato) estado.ato.conferenciaEditada = true;   // avisa antes de sair da tela
   var caixa = el.closest ? el.closest('.campo-caixa') : null;
   if (caixa) caixa.classList.toggle('verificar', el.value.trim() === MARCA_VERIFICAR);
   atualizarContador();
@@ -1425,6 +1924,7 @@ $('#btn-redigir').addEventListener('click', function(){
     ato.texto = r.texto || '';
     if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
     ato.passosLiberados[3] = true;
+    ato.conferenciaEditada = false;   // as correções já foram para o servidor
     renderMinuta();
     irParaPasso(3);
   }).catch(function(e){
@@ -1440,7 +1940,8 @@ $('#btn-redigir').addEventListener('click', function(){
 function renderMinuta(){
   var ato = estado.ato;
   $('#editor-minuta').value = ato.texto || '';
-  $('#minuta-titulo').textContent = ato.titulo || (ato.agente && ato.agente.nome) || 'Minuta';
+  $('#minuta-titulo-texto').textContent = ato.titulo || (ato.agente && ato.agente.nome) || 'Minuta';
+  renderProtocoloMinuta();
   $('#minuta-legenda').textContent = ato.minutaId
     ? ('Minuta nº ' + ato.minutaId + (ato.protocolo ? ' · protocolo ' + ato.protocolo : '') +
        ' · edite livremente; o texto abaixo é o que vai para o Word.')
@@ -1569,6 +2070,492 @@ $('#btn-baixar').addEventListener('click', function(){
   baixarWord(ato.minutaId, nome, $('#erro-passo3'), $('#carregando-minuta'));
 });
 
+// Selo "Protocolo nº N" no cabeçalho da minuta.
+function renderProtocoloMinuta(){
+  var el = $('#minuta-protocolo');
+  var p = estado.ato && estado.ato.protocolo;
+  if (!p){ el.textContent = ''; mostrar(el, false); return; }
+  el.textContent = 'Protocolo nº ' + p;
+  mostrar(el, true);
+}
+
+$('#btn-protocolar-minuta').addEventListener('click', function(){
+  var ato = estado.ato;
+  if (!ato) return;
+  abrirProtocolo({
+    ato: (ato.agente && ato.agente.codigo_ato) || '',
+    minutaId: ato.minutaId,
+    origem: { secao:'ato', passo:3 }
+  });
+});
+
+/* -------------------------------------- 7b. agentes que não redigem escritura */
+
+// GET /agentes/:slug é 403 para quem não é Tabelião/Substituta, e a lista do
+// painel não traz os campos. Então o formulário do Redator mora aqui, na tela.
+// `id` é o do elemento; `chave` é o nome que o agente lê no prompt — por isso
+// vai por extenso, em português.
+var CAMPOS_FIXOS = {
+  redator: [
+    { id:'tipo', chave:'tipo de documento', rotulo:'Tipo de documento', tipo:'selecao', obrigatorio:true,
+      opcoes:['e-mail','ofício','aviso de pendência','comunicado interno'] },
+    { id:'destinatario', chave:'destinatário', rotulo:'Destinatário', tipo:'texto', obrigatorio:true,
+      dica:'para quem vai: pessoa, cartório, órgão…' },
+    { id:'assunto', chave:'assunto', rotulo:'Assunto', tipo:'texto', obrigatorio:true },
+    { id:'protocolo', chave:'protocolo', rotulo:'Protocolo', tipo:'texto', dica:'opcional' },
+    { id:'o_que_dizer', chave:'o que precisa ser dito', rotulo:'O que precisa ser dito',
+      tipo:'longo', obrigatorio:true, dica:'pode ser em tópicos; o agente escreve o texto corrido.' },
+    { id:'prazo_providencia', chave:'prazo ou providência', rotulo:'Prazo ou providência', tipo:'texto',
+      dica:'o que o destinatário precisa fazer, e até quando.' }
+  ]
+};
+function chaveDoCampo(c){ return c.chave || c.id; }
+
+function abrirExecucao(ag){
+  var ex = novaExecucao(ag);
+  var comunicacao = ag.categoria === 'comunicacao';
+  ex.campos = (comunicacao && CAMPOS_FIXOS[ag.slug]) ? CAMPOS_FIXOS[ag.slug] : [];
+  estado.exec = ex;
+
+  $('#exec-titulo').textContent = ag.nome;
+  $('#exec-subtitulo').textContent = ag.descricao || '';
+  $('#exec-observacoes').value = '';
+  $('#exec-titulo-saida').value = '';
+  $('#exec-input-arquivos').value = '';
+  $('#editor-saida').value = '';
+  limpa($('#erro-exec')); limpa($('#erro-saida'));
+  limpa($('#saida-custo')); limpa($('#saida-salvo'));
+
+  $('#exec-painel-titulo').textContent = comunicacao ? 'O que o documento precisa dizer' : 'Material de trabalho';
+  $('#exec-painel-legenda').textContent = comunicacao
+    ? 'Preencha o essencial. O agente devolve o texto pronto para copiar.'
+    : 'Anexe as certidões, matrículas e documentos. Aceita PDF e imagens (JPG, PNG, HEIC).';
+  $('#exec-rot-arquivos').textContent = comunicacao ? 'Anexos (opcional)' : 'Documentos';
+  $('#exec-solta-sub').textContent = comunicacao
+    ? 'opcional — anexe o que o documento cita · PDF, JPG, PNG'
+    : 'ou clique para escolher no computador · PDF, JPG, PNG';
+
+  renderCamposExec();
+  uploaderExec.render();
+  irPara('execucao');
+}
+
+function renderCamposExec(){
+  var alvo = $('#exec-campos');
+  var ex = estado.exec;
+  if (!ex || !ex.campos.length){ alvo.innerHTML = ''; return; }
+  alvo.innerHTML = '<fieldset class="grupo"><legend>Dados do documento</legend><div class="linha-campos">' +
+    ex.campos.map(function(c){
+      var id = 'exec_' + String(c.id).replace(/[^A-Za-z0-9_-]/g, '_');
+      var rot = '<label for="' + esc(id) + '">' + esc(c.rotulo) +
+        (c.obrigatorio ? '<span class="obrig" title="campo obrigatório">*</span>' : '') + '</label>';
+      var attrs = 'id="' + esc(id) + '" data-exec-campo="' + esc(chaveDoCampo(c)) + '"';
+      var controle;
+      if (c.tipo === 'selecao'){
+        controle = '<select ' + attrs + '><option value="">— escolha —</option>' +
+          (c.opcoes || []).map(function(o){
+            return '<option value="' + esc(o) + '">' + esc(o) + '</option>';
+          }).join('') + '</select>';
+      } else if (c.tipo === 'longo'){
+        controle = '<textarea ' + attrs + ' rows="5"></textarea>';
+      } else {
+        controle = '<input type="text" ' + attrs + ' autocomplete="off">';
+      }
+      return '<div class="campo' + (c.tipo === 'longo' ? ' largo' : '') + '">' + rot + controle +
+        (c.dica ? '<p class="ajuda">' + esc(c.dica) + '</p>' : '') + '</div>';
+    }).join('') + '</div></fieldset>';
+}
+
+function colherCamposExec(){
+  var out = {};
+  $$('#exec-campos [data-exec-campo]').forEach(function(el){
+    var v = String(el.value || '').trim();
+    if (v) out[el.getAttribute('data-exec-campo')] = v;
+  });
+  return out;
+}
+function algumCampoExecPreenchido(){
+  return Object.keys(colherCamposExec()).length > 0;
+}
+
+$('#btn-executar').addEventListener('click', function(){
+  var ex = estado.exec;
+  if (!ex || !ex.agente) return;
+  var erroEl = $('#erro-exec');
+  limpa(erroEl);
+
+  ex.obs = $('#exec-observacoes').value.trim();
+  ex.titulo = $('#exec-titulo-saida').value.trim();
+  var campos = colherCamposExec();
+
+  var faltando = ex.campos.filter(function(c){ return c.obrigatorio && !campos[chaveDoCampo(c)]; });
+  if (faltando.length){
+    erroEl.innerHTML = html_erro('falta preencher: ' +
+      faltando.map(function(c){ return c.rotulo; }).join(', ') + '.');
+    var alvo = $('#exec_' + String(faltando[0].id).replace(/[^A-Za-z0-9_-]/g, '_'));
+    if (alvo){ alvo.focus(); if (alvo.scrollIntoView) alvo.scrollIntoView({ block:'center' }); }
+    return;
+  }
+  if (!ex.arquivos.length && !Object.keys(campos).length && !ex.obs){
+    erroEl.innerHTML = html_erro('anexe um documento ou escreva o que o agente precisa fazer.');
+    return;
+  }
+
+  var btn = $('#btn-executar');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-exec'), 'Trabalhando… isso leva de 20 a 60 segundos.');
+
+  Promise.all(ex.arquivos.map(function(a){
+    return lerBase64(a.file).then(function(b64){
+      return { nome: a.nome, mime: a.mime, base64: b64 };
+    });
+  })).then(function(arquivos){
+    var corpo = {};
+    if (arquivos.length) corpo.arquivos = arquivos;
+    if (Object.keys(campos).length) corpo.campos = campos;
+    if (ex.obs) corpo.observacoes = ex.obs;
+    if (ex.titulo) corpo.titulo = ex.titulo;
+    return api('/agentes/' + encodeURIComponent(ex.agente.slug) + '/executar', { metodo:'POST', corpo: corpo });
+  }).then(function(r){
+    ex.minutaId = r.minuta_id;
+    ex.texto = r.texto || '';
+    if (r.uso && r.uso.custo_usd) ex.custoUsd += Number(r.uso.custo_usd) || 0;
+    estado.resultadoOrigem = { secao:'execucao' };
+    renderSaida();
+    irPara('resultado');
+  }).catch(function(e){
+    if (e && e.status === 401) return;
+    pintaErro(erroEl, e);
+  }).then(function(){
+    parar(); btn.disabled = false;
+  });
+});
+
+function renderSaida(){
+  var ex = estado.exec;
+  if (!ex) return;
+  $('#editor-saida').value = ex.texto || '';
+  $('#saida-titulo').textContent = ex.titulo || (ex.agente && ex.agente.nome) || 'Resultado';
+  $('#saida-subtitulo').textContent = ((ex.agente && ex.agente.nome) || '') +
+    (ex.minutaId ? ' · registro nº ' + ex.minutaId : '');
+  $('#saida-custo').textContent = ex.custoUsd
+    ? ('custo deste trabalho: ' + fmtBRL(ex.custoUsd * CAMBIO) + ' (' + fmtUSD(ex.custoUsd) + ')')
+    : '';
+  $('#saida-salvo').textContent = '';
+}
+
+// Área de transferência: a API moderna cai fora de https, daí o plano B.
+function copiarNaMarra(ta){
+  try {
+    ta.focus(); ta.select();
+    return !!(document.execCommand && document.execCommand('copy'));
+  } catch (e) { return false; }
+}
+
+$('#btn-copiar-saida').addEventListener('click', function(){
+  var ta = $('#editor-saida');
+  var aviso = $('#saida-salvo');
+  function ok(){ aviso.textContent = 'texto copiado às ' + fmtData(new Date().toISOString()).slice(11); }
+  function falhou(){ aviso.textContent = 'não consegui copiar — selecione o texto e use Ctrl+C'; }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(ta.value).then(ok, function(){
+        if (copiarNaMarra(ta)) ok(); else falhou();
+      });
+      return;
+    }
+  } catch (e) { /* cai no plano B */ }
+  if (copiarNaMarra(ta)) ok(); else falhou();
+});
+
+$('#btn-baixar-saida').addEventListener('click', function(){
+  var ex = estado.exec;
+  if (!ex || !ex.minutaId) return;
+  limpa($('#erro-saida'));
+  var nome = ex.titulo || (ex.agente && ex.agente.nome) || ('texto-' + ex.minutaId);
+  baixarWord(ex.minutaId, nome, $('#erro-saida'), $('#carregando-saida'));
+});
+
+$('#btn-salvar-saida').addEventListener('click', function(){
+  var ex = estado.exec;
+  if (!ex || !ex.minutaId) return;
+  var erroEl = $('#erro-saida');
+  limpa(erroEl);
+  var btn = $('#btn-salvar-saida');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-saida'), 'Salvando…');
+  var texto = $('#editor-saida').value;
+  api('/agentes/minutas/' + ex.minutaId + '/salvar', { metodo:'POST', corpo:{ texto: texto } })
+    .then(function(m){
+      ex.texto = texto;
+      $('#saida-salvo').textContent = 'salvo às ' + fmtData((m && m.atualizado) || new Date().toISOString()).slice(11);
+    })
+    .catch(function(e){ if (e && e.status === 401) return; pintaErro(erroEl, e); })
+    .then(function(){ parar(); btn.disabled = false; });
+});
+
+/* ------------------------------------------ 7c. protocolo no balcão (Trello) */
+
+function abrirProtocolo(opcoes){
+  opcoes = opcoes || {};
+  estado.protocoloOrigem  = opcoes.origem || { secao:'painel' };
+  estado.protocoloVinculo = opcoes.minutaId ? { minutaId: opcoes.minutaId } : null;
+  estado.protocoloFeito   = false;
+  estado.protocoloAtoInicial = opcoes.ato || '';
+  estado.dossie = { recebidos: [], pendentes: [] };
+
+  $('#protocolo-titulo').textContent = opcoes.minutaId ? 'Protocolar este ato' : 'Protocolar no balcão';
+  limpa($('#protocolo-sucesso'));
+  limpa($('#erro-protocolo'));
+  mostrar($('#form-protocolo'), true);
+  ['#prot-apres-nome','#prot-apres-tel','#prot-parte-nome','#prot-parte-tel',
+   '#prot-vendedor','#prot-observacoes','#add-recebido','#add-pendente'].forEach(function(s){
+    var el = $(s); if (el) el.value = '';
+  });
+  $('#prot-urgente').checked = false;
+  renderDossie();
+  carregarCatalogoProtocolo(estado.protocoloAtoInicial);
+  carregarSugestoesVendedor();
+  irPara('protocolo');
+  var sel = $('#prot-ato');
+  if (sel && sel.focus) sel.focus();
+}
+
+function carregarCatalogoProtocolo(codigoAto){
+  var sel = $('#prot-ato');
+  var est = $('#prot-ato-estado');
+  function pintar(){
+    var cat = estado.catalogoProtocolo || { atos: [], bandeiras: [] };
+    sel.innerHTML = '<option value="">— escolha o ato —</option>' +
+      (cat.atos || []).map(function(a){
+        return '<option value="' + esc(a.codigo) + '">' + esc(a.codigo) + ' · ' + esc(a.nome) + '</option>';
+      }).join('');
+    sel.value = codigoAto || '';
+    // agente sem código, ou código fora do catálogo: o select fica em branco
+    est.textContent = (codigoAto && sel.value !== codigoAto)
+      ? ('o código “' + codigoAto + '” não está no catálogo — escolha o ato na lista.') : '';
+    renderBandeiras(cat.bandeiras || []);
+  }
+  if (estado.catalogoProtocolo){ pintar(); return; }
+  est.textContent = 'carregando o catálogo de atos…';
+  api('/agentes/protocolo-catalogo')
+    .then(function(c){ estado.catalogoProtocolo = c || { atos:[], bandeiras:[] }; pintar(); })
+    .catch(function(e){
+      if (e && e.status === 401) return;
+      est.textContent = '';
+      $('#erro-protocolo').innerHTML =
+        html_erro('não consegui carregar o catálogo de atos: ' + ((e && e.mensagem) || ''), e && e.detalhe);
+      renderBandeiras([]);
+    });
+}
+
+function renderBandeiras(lista){
+  var alvo = $('#prot-bandeiras');
+  if (!lista.length){
+    alvo.innerHTML = '<p class="ajuda" style="margin:0">Nenhuma bandeira no catálogo.</p>';
+    return;
+  }
+  alvo.innerHTML = lista.map(function(b){
+    var id = 'band_' + String(b.chave).replace(/[^A-Za-z0-9_-]/g, '_');
+    return '<label class="checkbox-linha" for="' + esc(id) + '">' +
+      '<input type="checkbox" id="' + esc(id) + '" data-bandeira="' + esc(b.chave) + '"> ' +
+      esc(b.nome) + '</label>';
+  }).join('');
+}
+
+// As três listas do Trello alimentam o mesmo datalist. Não pedem token e
+// nenhuma falha delas pode derrubar a sessão nem travar o protocolo.
+function carregarSugestoesVendedor(){
+  if (estado.vendedoresCarregados) return;
+  var est = $('#prot-vendedor-estado');
+  est.textContent = 'carregando as sugestões…';
+  Promise.all(['/vendedores','/corretores','/advogados'].map(function(rota){
+    return api(rota, { semSessao: true }).catch(function(){ return []; });
+  })).then(function(listas){
+    var vistos = {}, nomes = [];
+    listas.forEach(function(l){
+      (Array.isArray(l) ? l : []).forEach(function(x){
+        var nome = x && x.nome;
+        if (!nome || vistos[nome]) return;
+        vistos[nome] = true; nomes.push(nome);
+      });
+    });
+    nomes.sort(function(a, b){ return String(a).localeCompare(String(b), 'pt-BR'); });
+    $('#lista-vendedores').innerHTML = nomes.map(function(n){
+      return '<option value="' + esc(n) + '"></option>';
+    }).join('');
+    estado.vendedoresCarregados = true;
+    est.textContent = nomes.length ? (nomes.length + ' nomes vindos do Trello') : '';
+  });
+}
+
+function renderDossie(){
+  [['recebidos','#lista-recebidos'], ['pendentes','#lista-pendentes']].forEach(function(par){
+    var chave = par[0], ul = $(par[1]);
+    var itens = estado.dossie[chave] || [];
+    if (!itens.length){
+      ul.innerHTML = '<li class="dossie-vazio" style="border:none;background:none;padding:4px 0">nenhum item</li>';
+      return;
+    }
+    ul.innerHTML = itens.map(function(t, i){
+      return '<li><span class="txt">' + esc(t) + '</span>' +
+        '<button type="button" class="btn btn-pequeno btn-perigo" data-tira="' + chave + ':' + i + '" ' +
+        'aria-label="Tirar ' + esc(t) + ' da lista">Tirar</button></li>';
+    }).join('');
+  });
+  $$('#secao-protocolo [data-tira]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var p = b.getAttribute('data-tira').split(':');
+      estado.dossie[p[0]].splice(parseInt(p[1], 10), 1);
+      renderDossie();
+    });
+  });
+}
+
+function acrescentarDossie(chave, input){
+  var v = input.value.trim();
+  if (!v){ input.focus(); return; }
+  if (estado.dossie[chave].indexOf(v) < 0) estado.dossie[chave].push(v);
+  input.value = '';
+  renderDossie();
+  input.focus();
+}
+$('#btn-add-recebido').addEventListener('click', function(){ acrescentarDossie('recebidos', $('#add-recebido')); });
+$('#btn-add-pendente').addEventListener('click', function(){ acrescentarDossie('pendentes', $('#add-pendente')); });
+[['#add-recebido','recebidos'], ['#add-pendente','pendentes']].forEach(function(p){
+  $(p[0]).addEventListener('keydown', function(ev){
+    // Enter aqui acrescenta o item; sem isto o formulário inteiro seria enviado
+    if (ev.key === 'Enter'){ ev.preventDefault(); acrescentarDossie(p[1], $(p[0])); }
+  });
+});
+
+function protocoloPreenchido(){
+  var textos = ['#prot-apres-nome','#prot-apres-tel','#prot-parte-nome','#prot-parte-tel',
+                '#prot-vendedor','#prot-observacoes'];
+  var algum = textos.some(function(s){
+    var el = $(s); return !!(el && String(el.value || '').trim());
+  });
+  var sel = $('#prot-ato');
+  // o ato pré-selecionado pelo card não conta como trabalho da escrevente
+  if (sel && sel.value && sel.value !== (estado.protocoloAtoInicial || '')) algum = true;
+  return algum || $('#prot-urgente').checked ||
+    estado.dossie.recebidos.length > 0 || estado.dossie.pendentes.length > 0;
+}
+
+$('#form-protocolo').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  var erroEl = $('#erro-protocolo');
+  limpa(erroEl);
+
+  var ato    = $('#prot-ato').value;
+  var apNome = $('#prot-apres-nome').value.trim();
+  var apTel  = $('#prot-apres-tel').value.trim();
+  var ptNome = $('#prot-parte-nome').value.trim();
+  var ptTel  = $('#prot-parte-tel').value.trim();
+
+  var faltas = [];
+  if (!ato)    faltas.push('o ato');
+  if (!apNome) faltas.push('o nome do apresentante');
+  if (!apTel)  faltas.push('o telefone do apresentante');
+  if (!ptNome) faltas.push('o nome da parte envolvida');
+  if (faltas.length){
+    erroEl.innerHTML = html_erro('falta preencher ' + faltas.join(', ') + '.');
+    var alvo = !ato ? '#prot-ato' : (!apNome ? '#prot-apres-nome' : (!apTel ? '#prot-apres-tel' : '#prot-parte-nome'));
+    var el = $(alvo);
+    if (el && el.focus) el.focus();
+    return;
+  }
+
+  var corpo = {
+    ato: ato,
+    apresentante:    { nome: apNome, telefone: apTel },
+    parte_envolvida: { nome: ptNome, telefone: ptTel }
+  };
+  var vend = $('#prot-vendedor').value.trim();
+  if (vend) corpo.vendedor = { nome: vend };
+  var bandeiras = $$('#prot-bandeiras [data-bandeira]')
+    .filter(function(c){ return c.checked; })
+    .map(function(c){ return c.getAttribute('data-bandeira'); });
+  if (bandeiras.length) corpo.bandeiras = bandeiras;
+  if ($('#prot-urgente').checked) corpo.urgente = true;
+  var obs = $('#prot-observacoes').value.trim();
+  if (obs) corpo.observacoes_nao_documentadas = obs;
+  if (estado.dossie.recebidos.length || estado.dossie.pendentes.length){
+    corpo.dossie = {
+      recebidos: estado.dossie.recebidos.slice(),
+      pendentes: estado.dossie.pendentes.slice()
+    };
+  }
+
+  var btn = $('#btn-protocolar');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-protocolo'), 'Protocolando e abrindo o cartão no Trello…');
+
+  api('/protocolo', { metodo:'POST', corpo: corpo })
+    .then(function(r){
+      estado.protocoloFeito = true;
+      renderProtocoloOk(r);
+      var vinc = estado.protocoloVinculo;
+      if (!vinc || !vinc.minutaId) return;
+      // amarra o número à minuta que originou o protocolo
+      return api('/agentes/minutas/' + vinc.minutaId + '/salvar', {
+        metodo:'POST', corpo:{ protocolo: r.numero }
+      }).then(function(){
+        if (estado.ato && estado.ato.minutaId === vinc.minutaId){
+          estado.ato.protocolo = r.numero;
+          renderProtocoloMinuta();
+        }
+      }, function(e){
+        if (e && e.status === 401) return;
+        // o protocolo saiu: aqui só falhou o vínculo, e isso não pode assustar
+        $('#erro-protocolo').innerHTML = html_erro(
+          'o protocolo ' + r.numero + ' foi aberto, mas não consegui gravá-lo na minuta: ' +
+          ((e && e.mensagem) || ''), e && e.detalhe);
+      });
+    })
+    .catch(function(e){ if (e && e.status === 401) return; pintaErro(erroEl, e); })
+    .then(function(){ parar(); btn.disabled = false; });
+});
+
+// "2026-09-16T17:00:00.000Z" → "quarta-feira, 16 de setembro de 2026, às 14:00"
+function fmtPrazo(iso){
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  try {
+    return d.toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }) +
+      ', às ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  } catch (e) { return fmtData(iso); }
+}
+
+function renderProtocoloOk(r){
+  var alvo = $('#protocolo-sucesso');
+  mostrar($('#form-protocolo'), false);
+  var url = String((r && r.card_url) || '');
+  // nada de href com o que veio do servidor sem conferir o esquema
+  var linkOk = /^https:\/\//i.test(url);
+  alvo.innerHTML = '<div class="recibo" role="status">' +
+    '<div class="rot">Protocolo aberto</div>' +
+    '<div class="numero">nº ' + esc(r && r.numero) + '</div>' +
+    ((r && r.prazo) ? '<div class="prazo">Prazo: <b>' + esc(fmtPrazo(r.prazo)) + '</b></div>' : '') +
+    '<div class="links">' +
+      (linkOk
+        ? '<a class="btn btn-principal" href="' + esc(url) + '" target="_blank" rel="noopener">Abrir cartão no Trello</a>'
+        : '<span class="ajuda" style="margin:0">O cartão foi criado, mas o endereço não veio no formato esperado.</span>') +
+      '<button type="button" class="btn" id="btn-protocolar-outro">Protocolar outro ato</button>' +
+      '<button type="button" class="btn btn-fantasma" id="btn-protocolo-voltar">Voltar</button>' +
+    '</div></div>';
+
+  var outro = $('#btn-protocolar-outro');
+  if (outro) outro.addEventListener('click', function(){
+    abrirProtocolo({ ato:'', origem: estado.protocoloOrigem });
+  });
+  var v = $('#btn-protocolo-voltar');
+  if (v){
+    v.textContent = rotuloVoltar(destinoVoltar());
+    v.addEventListener('click', voltar);
+  }
+}
+
 /* ------------------------------------------------------- 8. minhas minutas */
 
 function carregarMinutas(){
@@ -1642,8 +2629,24 @@ function abrirMinuta(id){
   api('/agentes/minutas/' + id)
     .then(function(m){
       limpa(alvo);
-      var ag = estado.agentes.filter(function(a){ return a.slug === m.agente; })[0] ||
-               { slug: m.agente, nome: m.agente, descricao: '' };
+      var ag = acharAgente(m.agente) || { slug: m.agente, nome: m.agente, descricao: '' };
+
+      // Resultado de agente de etapa única não volta para o assistente de 3 passos.
+      if ((ag.categoria || 'escritura') !== 'escritura' && m.texto){
+        var ex = novaExecucao(ag);
+        ex.minutaId = m.id;
+        ex.titulo = m.titulo || '';
+        ex.texto = m.texto || '';
+        estado.exec = ex;
+        estado.resultadoOrigem = { secao:'minutas' };
+        limpa($('#erro-exec')); limpa($('#erro-saida'));
+        renderSaida();
+        $('#saida-subtitulo').textContent = ag.nome + ' · registro nº ' + m.id +
+          (m.usuario ? ' · ' + m.usuario : '');
+        irPara('resultado');
+        return;
+      }
+
       var ato = novoAto(ag);
       ato.minutaId = m.id;
       ato.titulo = m.titulo || '';
@@ -1663,8 +2666,7 @@ function abrirMinuta(id){
       limpa($('#erro-passo2')); limpa($('#erro-passo3')); limpa($('#minuta-salvo'));
       renderConferencia();
       renderMinuta();
-      irPara('ato');
-      irParaPasso(m.texto ? 3 : 2);
+      irPara('ato', { passo: m.texto ? 3 : 2 });
     })
     .catch(function(e){ if (e && e.status === 401) return; pintaErro(alvo, e); });
 }

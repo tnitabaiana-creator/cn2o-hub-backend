@@ -157,14 +157,22 @@ async function criarMinuta({ protocolo, agente, usuario, titulo, dados, alertas 
   return rows[0];
 }
 
+// As colunas que podem ser atualizadas ficam aqui dentro, e não na confiança de
+// quem chama. O nome da coluna entra no SQL por interpolação — se um dia alguém
+// passar as chaves de um req.body direto, a lista branca é o que impede injeção.
+const COLUNAS_MINUTA = new Set(['protocolo', 'titulo', 'status', 'dados', 'alertas', 'texto']);
+const COLUNAS_JSONB = new Set(['dados', 'alertas']);
+
 async function atualizarMinuta(id, campos) {
   const set = [], vals = [];
   let i = 1;
   for (const [k, v] of Object.entries(campos)) {
-    if (k === 'dados' || k === 'alertas') { set.push(`${k} = $${i}::jsonb`); vals.push(JSON.stringify(v)); }
+    if (!COLUNAS_MINUTA.has(k)) throw new Error(`campo não atualizável: ${k}`);
+    if (COLUNAS_JSONB.has(k)) { set.push(`${k} = $${i}::jsonb`); vals.push(JSON.stringify(v)); }
     else { set.push(`${k} = $${i}`); vals.push(v); }
     i++;
   }
+  if (!set.length) throw new Error('nada para atualizar');
   set.push('atualizado = now()');
   vals.push(id);
   const { rows } = await pool.query(

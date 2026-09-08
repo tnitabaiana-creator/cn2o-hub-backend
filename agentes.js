@@ -101,6 +101,49 @@ router.get('/minutas/:id/arquivo', async (req, res) => {
   } catch (e) { erro(res, 500, 'falha ao gerar o arquivo', e.message); }
 });
 
+// ------------------------------------------------------- CATÁLOGO DO PROTOCOLO
+
+// Os códigos de ato e as bandeiras que o POST /protocolo já entende. Ficam aqui
+// para a tela não precisar decorá-los — e para você corrigir num lugar só quando
+// o cartório criar um tipo de ato novo.
+const ATOS = [
+  { codigo: 'CV-Urbano', nome: 'Compra e Venda — urbano' },
+  { codigo: 'CV-Rural',  nome: 'Compra e Venda — rural' },
+  { codigo: 'CDH',       nome: 'Cessão de Direitos Hereditários' },
+  { codigo: 'CDP',       nome: 'Cessão de Direitos Possessórios' },
+  { codigo: 'DOA',       nome: 'Doação' },
+  { codigo: 'INV',       nome: 'Inventário e Partilha' },
+  { codigo: 'TEST',      nome: 'Testamento' },
+  { codigo: 'PER',       nome: 'Permuta' },
+  { codigo: 'PERM',      nome: 'Permuta (variante)' },
+  { codigo: 'DIV',       nome: 'Divórcio' },
+  { codigo: 'UE',        nome: 'União Estável' },
+  { codigo: 'UE-DIS',    nome: 'União Estável — dissolução' },
+  { codigo: 'DUE',       nome: 'Dissolução de União Estável' },
+  { codigo: 'RERRAT',    nome: 'Rerratificação' },
+  { codigo: 'ATA-U',     nome: 'Ata Notarial — usucapião' },
+  { codigo: 'ATA-USO',   nome: 'Ata Notarial — uso' },
+  { codigo: 'ATA-W',     nome: 'Ata Notarial — constatação digital' },
+  { codigo: 'ATA-W/A',   nome: 'Ata Notarial — constatação com áudio' },
+  { codigo: 'PROC',      nome: 'Procuração' },
+  { codigo: 'LAJE',      nome: 'Direito Real de Laje' },
+  { codigo: 'DAC',       nome: 'Dação em Pagamento' }
+];
+
+// As mesmas cinco do server.js (NOMES_BANDEIRA). Mudou lá, mude aqui.
+const BANDEIRAS = [
+  { chave: 'verde',   nome: 'Loteador/Incorporador' },
+  { chave: 'amarelo', nome: 'Construtor' },
+  { chave: 'rosa',    nome: 'Santa Mônica' },
+  { chave: 'roxo',    nome: 'Advogado' },
+  { chave: 'cinza',   nome: 'Corretor' }
+];
+
+// GET /agentes/protocolo-catalogo — o que a tela precisa para montar o formulário.
+router.get('/protocolo-catalogo', (req, res) => {
+  res.json({ atos: ATOS, bandeiras: BANDEIRAS });
+});
+
 // ---------------------------------------------------------------- PIPELINE
 
 // POST /agentes/:slug/extrair
@@ -143,6 +186,52 @@ router.post('/:slug/extrair', async (req, res) => {
       uso: { modelo: uso.modelo, tokens_entrada: uso.tokens_entrada, tokens_saida: uso.tokens_saida, custo_usd: uso.custo_usd }
     });
   } catch (e) { erro(res, 502, 'falha na extração dos documentos', e.message); }
+});
+
+// POST /agentes/:slug/executar
+// { arquivos?: [{nome, mime, base64}], campos?: {}, observacoes?, protocolo?, titulo? }
+// → { minuta_id, texto, uso }
+//
+// Etapa única, para os agentes que não redigem escritura: Qualificação do Imóvel,
+// Extração de Certidões e o Redator Oficial. Grava mesmo assim em `minutas`, para
+// a escrevente reencontrar o resultado no histórico e o custo entrar no relatório.
+router.post('/:slug/executar', async (req, res) => {
+  try {
+    const ag = await dba.obterAgente(req.params.slug);
+    if (!ag || !ag.ativo) return erro(res, 404, 'agente não encontrado');
+    if (ag.categoria === 'escritura') {
+      return erro(res, 400, 'este agente redige escritura — use o fluxo de extração e minuta');
+    }
+
+    const arquivos = Array.isArray(req.body.arquivos) ? req.body.arquivos : [];
+    const campos = req.body.campos && typeof req.body.campos === 'object' ? req.body.campos : {};
+    const temCampo = Object.values(campos).some(v => v != null && String(v).trim() !== '');
+    if (!arquivos.length && !temCampo && !req.body.observacoes) {
+      return erro(res, 400, 'anexe um documento ou preencha o formulário');
+    }
+
+    const { texto, uso } = await gemini.executar({
+      agente: ag, arquivos, campos, observacoes: req.body.observacoes
+    });
+
+    const m = await dba.criarMinuta({
+      protocolo: req.body.protocolo ? parseInt(req.body.protocolo, 10) : null,
+      agente: ag.slug,
+      usuario: req.usuario.login,
+      titulo: req.body.titulo || ag.nome,
+      dados: campos, alertas: []
+    });
+    await dba.atualizarMinuta(m.id, { texto, status: 'pronto' });
+    await dba.registrarTurno(m.id, 'agente', texto);
+    await dba.registrarConsumo({
+      minuta_id: m.id, usuario: req.usuario.login, agente: ag.slug, etapa: 'redacao', uso
+    });
+
+    res.json({
+      minuta_id: m.id, texto,
+      uso: { modelo: uso.modelo, tokens_entrada: uso.tokens_entrada, tokens_saida: uso.tokens_saida, custo_usd: uso.custo_usd }
+    });
+  } catch (e) { erro(res, 502, 'falha ao executar o agente', e.message); }
 });
 
 // POST /agentes/minutas/:id/redigir
@@ -225,6 +314,12 @@ router.post('/minutas/:id/salvar', async (req, res) => {
     if (typeof req.body.titulo === 'string') campos.titulo = req.body.titulo;
     if (req.body.dados && typeof req.body.dados === 'object') campos.dados = req.body.dados;
     if (typeof req.body.status === 'string') campos.status = req.body.status;
+    // Depois de protocolar pela tela, a minuta guarda o número do ato.
+    if (req.body.protocolo != null && req.body.protocolo !== '') {
+      const n = parseInt(req.body.protocolo, 10);
+      if (!Number.isInteger(n)) return erro(res, 400, 'número de protocolo inválido');
+      campos.protocolo = n;
+    }
     if (!Object.keys(campos).length) return erro(res, 400, 'nada para salvar');
 
     res.json(await dba.atualizarMinuta(id, campos));
