@@ -34,6 +34,22 @@ function custoUsd(modelo, entrada, saida) {
   return (entrada / 1e6) * p[0] + (saida / 1e6) * p[1];
 }
 
+// O erro mais perigoso deste sistema seria uma minuta cortada no meio que parece
+// pronta. O Gemini avisa pelo finishReason quando estourou o limite de saída;
+// aqui isso vira erro, nunca um texto salvo pela metade.
+function exigirCompleto(r, oQue) {
+  if (r.finish === 'MAX_TOKENS') {
+    throw new Error(
+      `${oQue} excedeu o limite de saída do modelo e saiu truncada. ` +
+      'Nada foi gravado. Reduza o caso (menos documentos por vez) ou divida o ato.'
+    );
+  }
+  if (!r.texto) {
+    throw new Error(`${oQue} voltou vazia do modelo (motivo: ${r.finish || 'desconhecido'})`);
+  }
+  return r;
+}
+
 // Converte os anexos do formulário em "parts" que o Gemini lê nativamente.
 // O Gemini enxerga PDF e imagem direto — não precisa de OCR separado.
 function partesDeArquivos(arquivos = []) {
@@ -41,6 +57,11 @@ function partesDeArquivos(arquivos = []) {
     .filter(a => a && a.base64 && a.mime)
     .map(a => ({ inline_data: { mime_type: a.mime, data: a.base64 } }));
 }
+
+// Sem timeout explícito o fetch do Node espera para sempre. Como o serviço roda
+// com uma réplica só e divide o processo com o /protocolo do balcão, uma chamada
+// pendurada não trava só o agente: trava o cartório inteiro.
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 180000;
 
 async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false }) {
   const corpo = {
@@ -53,11 +74,20 @@ async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 
   };
   if (sistema) corpo.systemInstruction = { parts: [{ text: sistema }] };
 
-  const r = await fetch(`${API}/models/${modelo}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave() },
-    body: JSON.stringify(corpo)
-  });
+  let r;
+  try {
+    r = await fetch(`${API}/models/${modelo}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave() },
+      body: JSON.stringify(corpo),
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+  } catch (e) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      throw new Error(`o modelo não respondeu em ${Math.round(TIMEOUT_MS / 1000)}s — tente de novo`);
+    }
+    throw e;
+  }
 
   const txt = await r.text();
   if (!r.ok) throw new Error(`Gemini ${modelo} ${r.status}: ${txt.slice(0, 400)}`);
@@ -166,10 +196,10 @@ async function redigir({ agente, dados, observacoes, modelo }) {
     ].join('\n')
   }];
 
-  const r = await chamar({
+  const r = exigirCompleto(await chamar({
     modelo: modelo || agente.modelo_redacao || MODELO_REDACAO,
     sistema, partes, temperatura: 0.2, maxTokens: 32768
-  });
+  }), 'a minuta');
   return { texto: r.texto, uso: r };
 }
 
@@ -198,10 +228,37 @@ async function revisar({ agente, minutaAtual, pedido, historico = [], modelo }) 
     ].join('\n')
   }];
 
-  const r = await chamar({
+  const r = exigirCompleto(await chamar({
     modelo: modelo || agente.modelo_redacao || MODELO_REDACAO,
     sistema, partes, temperatura: 0.2, maxTokens: 32768
-  });
+  }), 'a revisão da minuta');
+  return { texto: r.texto, uso: r };
+}
+
+// ------------------------------------------------------- ETAPA ÚNICA
+// Ferramentas e comunicação não são escrituras: não têm template, não passam por
+// conferência de JSON e não viram minuta em três turnos. Entra documento ou
+// formulário, sai texto. Uma chamada só.
+async function executar({ agente, arquivos = [], campos = {}, observacoes, modelo }) {
+  const preenchidos = Object.entries(campos)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => `${k}: ${v}`);
+
+  const partes = [
+    ...partesDeArquivos(arquivos),
+    { text: [
+        preenchidos.length ? 'DADOS INFORMADOS:\n' + preenchidos.join('\n') : '',
+        observacoes ? `\nOBSERVAÇÕES:\n${observacoes}` : '',
+        arquivos.length ? '\nOs documentos acima fazem parte do pedido.' : '',
+        '\nExecute a sua função sobre o material acima. Responda apenas com o resultado, sem preâmbulo.'
+      ].filter(Boolean).join('\n') }
+  ];
+
+  const r = exigirCompleto(await chamar({
+    modelo: modelo || agente.modelo_redacao || MODELO_REDACAO,
+    sistema: agente.prompt_sistema,
+    partes, temperatura: 0.2, maxTokens: 32768
+  }), 'a resposta');
   return { texto: r.texto, uso: r };
 }
 
@@ -221,6 +278,6 @@ async function listarModelos() {
 }
 
 module.exports = {
-  extrair, redigir, revisar, listarModelos, custoUsd,
+  extrair, redigir, revisar, executar, listarModelos, custoUsd,
   MODELO_EXTRACAO, MODELO_REDACAO, PRECOS
 };
