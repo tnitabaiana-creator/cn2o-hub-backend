@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hub de Agentes · Cartório de Notas do 2º Ofício de Itabaiana</title>
+<style>
+/* ==========================================================================
+   CN2O — Hub de Agentes
+   Paleta e tipografia: papel de cartório, tinta ferro-gálica, selo verde.
+   Todas as cores vivem aqui em :root — nada de hex solto pelo CSS.
+   ========================================================================== */
+:root{
+  /* papel */
+  --papel:        #F5F1E8;   /* fundo da página, papel levemente quente */
+  --papel-alto:   #FFFCF6;   /* cartões, campos, superfícies elevadas */
+  --papel-baixo:  #EDE7DA;   /* faixas, cabeçalhos de tabela, zebra */
+  /* tinta */
+  --tinta:        #1B1916;   /* texto principal, quase preto */
+  --tinta-media:  #4C463C;
+  --tinta-fraca:  #7C7466;
+  --linha:        #DAD1BF;   /* filetes e bordas */
+  --linha-forte:  #C3B79E;
+  /* selo notarial (acento) */
+  --selo:         #2E6B4C;
+  --selo-escuro:  #22523A;
+  --selo-claro:   #E6EFE9;
+  --selo-tenue:   #F1F6F2;
+  /* carimbo de erro */
+  --carimbo:      #9E2B20;
+  --carimbo-claro:#FAEBE8;
+  /* âmbar — só para [VERIFICAR] e alertas */
+  --ambar:        #8A5B00;
+  --ambar-forte:  #C08A1E;
+  --ambar-claro:  #FBF1D9;
+  /* tipografia */
+  --serif: Georgia, "Times New Roman", "Liberation Serif", "Nimbus Roman", serif;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  /* medidas */
+  --raio: 3px;
+  --sombra: 0 1px 2px rgba(27,25,22,.06), 0 6px 18px -12px rgba(27,25,22,.35);
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0; background:var(--papel); color:var(--tinta);
+  font-family:var(--sans); font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{ font-family:var(--serif); font-weight:600; margin:0; letter-spacing:.005em; }
+a{ color:var(--selo-escuro); }
+button,input,select,textarea{ font:inherit; color:inherit; }
+[hidden]{ display:none !important; }
+.oculto{ display:none !important; }
+
+/* foco sempre visível — as escreventes usam Tab */
+:focus-visible{ outline:2px solid var(--selo); outline-offset:2px; border-radius:2px; }
+
+/* ---------------------------------------------------------------- estrutura */
+#app{ min-height:100%; display:flex; flex-direction:column; }
+.faixa-selo{ height:3px; background:linear-gradient(90deg,var(--selo) 0 60%,var(--ambar-forte) 60% 78%,var(--selo) 78%); }
+
+header.topo{
+  background:var(--papel-alto); border-bottom:1px solid var(--linha);
+  padding:12px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+.marca{ display:flex; align-items:center; gap:12px; min-width:0; }
+.marca svg{ display:block; flex:none; }
+.marca .nomes{ min-width:0; }
+.marca .casa{ font-family:var(--serif); font-size:17px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.marca .comarca{
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--tinta-fraca); margin-top:2px;
+}
+.topo .espaco{ flex:1 1 auto; }
+.usuario{ text-align:right; line-height:1.25; }
+.usuario .nome{ font-weight:600; }
+.usuario .cargo{ font-size:12px; color:var(--tinta-fraca); }
+
+nav.abas{
+  background:var(--papel-alto); border-bottom:1px solid var(--linha);
+  padding:0 24px; display:flex; gap:4px; align-items:flex-end;
+}
+nav.abas button{
+  background:none; border:none; border-bottom:2px solid transparent; cursor:pointer;
+  padding:10px 14px; color:var(--tinta-media); font-size:14px;
+}
+nav.abas button:hover{ color:var(--tinta); background:var(--selo-tenue); }
+nav.abas button[aria-current="page"]{ color:var(--selo-escuro); border-bottom-color:var(--selo); font-weight:600; }
+
+main{ flex:1 1 auto; padding:26px 24px 60px; max-width:1220px; width:100%; margin:0 auto; }
+footer.rodape{
+  border-top:1px solid var(--linha); padding:14px 24px; color:var(--tinta-fraca);
+  font-size:12px; display:flex; gap:16px; flex-wrap:wrap; justify-content:space-between;
+}
+
+/* ---------------------------------------------------------------- botões */
+.btn{
+  display:inline-flex; align-items:center; gap:8px; justify-content:center;
+  background:var(--papel-alto); color:var(--tinta); border:1px solid var(--linha-forte);
+  border-radius:var(--raio); padding:9px 16px; cursor:pointer; text-decoration:none;
+  transition:background .12s, border-color .12s, transform .04s;
+}
+.btn:hover{ background:var(--papel-baixo); }
+.btn:active{ transform:translateY(1px); }
+.btn[disabled]{ opacity:.5; cursor:not-allowed; }
+.btn-principal{ background:var(--selo); border-color:var(--selo-escuro); color:#fff; font-weight:600; }
+.btn-principal:hover{ background:var(--selo-escuro); }
+.btn-fantasma{ background:transparent; border-color:transparent; color:var(--selo-escuro); padding:6px 10px; }
+.btn-fantasma:hover{ background:var(--selo-claro); }
+.btn-pequeno{ padding:5px 10px; font-size:13px; }
+.btn-perigo{ color:var(--carimbo); border-color:var(--linha-forte); }
+
+/* ---------------------------------------------------------------- formulário */
+.campo{ display:block; margin-bottom:14px; }
+.campo > label, .rot{
+  display:block; font-size:12.5px; font-weight:600; color:var(--tinta-media);
+  margin-bottom:5px; letter-spacing:.01em;
+}
+.obrig{ color:var(--carimbo); margin-left:3px; }
+input[type=text], input[type=password], input[type=search], input[type=number], textarea, select{
+  width:100%; background:var(--papel-alto); border:1px solid var(--linha-forte);
+  border-radius:var(--raio); padding:9px 11px; color:var(--tinta);
+}
+input:hover, textarea:hover{ border-color:var(--tinta-fraca); }
+textarea{ resize:vertical; min-height:76px; line-height:1.5; }
+.ajuda{ font-size:12px; color:var(--tinta-fraca); margin-top:4px; }
+
+/* ---------------------------------------------------------------- avisos */
+.aviso{ border-radius:var(--raio); padding:11px 14px; margin:0 0 16px; border:1px solid; font-size:14px; }
+.aviso-erro{ background:var(--carimbo-claro); border-color:var(--carimbo); color:#5F1A13; }
+.aviso-erro .detalhe{ display:block; font-size:12px; opacity:.8; margin-top:4px; font-family:var(--mono); word-break:break-word; }
+.aviso-ambar{ background:var(--ambar-claro); border-color:var(--ambar-forte); color:#5C3D00; }
+.aviso-ok{ background:var(--selo-claro); border-color:var(--selo); color:var(--selo-escuro); }
+.aviso-neutro{ background:var(--papel-baixo); border-color:var(--linha-forte); color:var(--tinta-media); }
+.aviso ul{ margin:6px 0 0; padding-left:20px; }
+.aviso li{ margin:3px 0; }
+.aviso h4{ font-size:14px; margin-bottom:2px; }
+
+/* carregando: honesto, com relógio */
+.carregando{ display:flex; align-items:center; gap:10px; color:var(--tinta-media); font-size:14px; padding:10px 0; }
+.girando{
+  width:15px; height:15px; flex:none; border:2px solid var(--linha-forte);
+  border-top-color:var(--selo); border-radius:50%; animation:girar .8s linear infinite;
+}
+@keyframes girar{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .girando{ animation-duration:2.4s; } }
+
+/* ---------------------------------------------------------------- login */
+.tela-login{
+  flex:1 1 auto; display:flex; align-items:center; justify-content:center; padding:40px 20px;
+  background:
+    radial-gradient(ellipse at 50% -10%, var(--selo-tenue), transparent 60%),
+    var(--papel);
+}
+.cartao-login{
+  width:100%; max-width:400px; background:var(--papel-alto); border:1px solid var(--linha);
+  border-radius:var(--raio); box-shadow:var(--sombra); padding:30px 30px 26px;
+}
+.cartao-login .selo-topo{ display:flex; justify-content:center; margin-bottom:14px; }
+.cartao-login h1{ font-size:21px; text-align:center; line-height:1.25; }
+.cartao-login .sub{
+  text-align:center; font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--tinta-fraca); margin:6px 0 22px;
+}
+.cartao-login .btn{ width:100%; margin-top:6px; }
+
+/* ---------------------------------------------------------------- painel */
+.cabeca-secao{ display:flex; align-items:flex-end; gap:20px; flex-wrap:wrap; margin-bottom:20px; }
+.cabeca-secao h2{ font-size:23px; }
+.cabeca-secao p{ margin:4px 0 0; color:var(--tinta-fraca); font-size:13.5px; }
+.busca{ margin-left:auto; min-width:270px; }
+
+.grupo-titulo{
+  display:flex; align-items:center; gap:14px; margin:28px 0 14px;
+  font-family:var(--serif); font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--tinta-fraca);
+}
+.grupo-titulo::after{ content:""; flex:1 1 auto; height:1px; background:var(--linha); }
+
+.grade{ display:grid; grid-template-columns:repeat(auto-fill, minmax(272px,1fr)); gap:14px; }
+.card{
+  position:relative; text-align:left; background:var(--papel-alto); border:1px solid var(--linha);
+  border-left:3px solid var(--linha-forte); border-radius:var(--raio); padding:15px 16px 14px;
+  cursor:pointer; display:flex; flex-direction:column; gap:7px; min-height:132px;
+  transition:border-color .12s, box-shadow .12s, transform .08s;
+}
+.card:hover{ border-left-color:var(--selo); box-shadow:var(--sombra); transform:translateY(-1px); }
+.card .nome-ato{ font-family:var(--serif); font-weight:600; font-size:16.5px; line-height:1.25; padding-right:52px; }
+.card .desc{ font-size:13px; color:var(--tinta-media); flex:1 1 auto; }
+.card .pe{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px; }
+.etiqueta{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--linha-forte); color:var(--tinta-fraca);
+  padding:1px 6px; border-radius:2px; background:var(--papel-baixo);
+}
+.selo-modelo{
+  display:inline-flex; align-items:center; gap:5px; font-size:11px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--selo-escuro); background:var(--selo-claro);
+  border:1px solid var(--selo); border-radius:20px; padding:1px 9px;
+}
+.card .campos-qtd{ font-size:11.5px; color:var(--tinta-fraca); margin-left:auto; font-variant-numeric:tabular-nums; }
+.card .canto{ position:absolute; top:12px; right:12px; opacity:.28; }
+.card:hover .canto{ opacity:.6; }
+
+/* ---------------------------------------------------------------- passos */
+.trilho{
+  display:flex; align-items:center; gap:0; margin:0 0 22px; padding:0; list-style:none;
+  background:var(--papel-alto); border:1px solid var(--linha); border-radius:var(--raio); overflow:hidden;
+}
+.trilho li{ flex:1 1 0; }
+.trilho button{
+  width:100%; display:flex; align-items:center; gap:10px; background:none; border:none; cursor:pointer;
+  padding:11px 16px; text-align:left; color:var(--tinta-fraca); border-right:1px solid var(--linha);
+}
+.trilho li:last-child button{ border-right:none; }
+.trilho button[disabled]{ cursor:not-allowed; }
+.trilho .num{
+  flex:none; width:24px; height:24px; border-radius:50%; border:1px solid var(--linha-forte);
+  display:grid; place-items:center; font-size:12.5px; font-variant-numeric:tabular-nums; background:var(--papel);
+}
+.trilho .rotulo{ font-size:13.5px; }
+.trilho .rotulo b{ display:block; font-size:11px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; opacity:.75; }
+.trilho li.atual button{ color:var(--tinta); background:var(--selo-tenue); }
+.trilho li.atual .num{ background:var(--selo); border-color:var(--selo-escuro); color:#fff; font-weight:700; }
+.trilho li.feito button{ color:var(--tinta-media); }
+.trilho li.feito .num{ border-color:var(--selo); color:var(--selo-escuro); background:var(--selo-claro); }
+
+.painel{
+  background:var(--papel-alto); border:1px solid var(--linha); border-radius:var(--raio);
+  padding:22px 24px; box-shadow:var(--sombra);
+}
+.painel + .painel{ margin-top:16px; }
+.painel h3{ font-size:17px; margin-bottom:4px; }
+.painel .legenda{ color:var(--tinta-fraca); font-size:13px; margin:0 0 18px; }
+.barra-acoes{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:20px; padding-top:18px; border-top:1px solid var(--linha); }
+.barra-acoes .direita{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+
+/* ---------------------------------------------------------------- upload */
+.solta{
+  border:2px dashed var(--linha-forte); border-radius:var(--raio); background:var(--papel);
+  padding:30px 20px; text-align:center; cursor:pointer; transition:border-color .12s, background .12s;
+}
+.solta:hover, .solta.sobre{ border-color:var(--selo); background:var(--selo-tenue); }
+.solta .titulo{ font-family:var(--serif); font-size:16px; }
+.solta .sub{ font-size:12.5px; color:var(--tinta-fraca); margin-top:4px; }
+.lista-arq{ list-style:none; margin:14px 0 0; padding:0; }
+.lista-arq li{
+  display:flex; align-items:center; gap:12px; padding:8px 10px; border:1px solid var(--linha);
+  border-radius:var(--raio); background:var(--papel); margin-bottom:6px;
+}
+.lista-arq .nome{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; }
+.lista-arq .tam{ font-size:12px; color:var(--tinta-fraca); font-variant-numeric:tabular-nums; flex:none; }
+.total-arq{ font-size:12.5px; color:var(--tinta-fraca); margin-top:8px; font-variant-numeric:tabular-nums; }
+
+/* ---------------------------------------------------------------- conferência */
+.contador-verificar{
+  display:flex; align-items:center; gap:10px; background:var(--ambar-claro); border:1px solid var(--ambar-forte);
+  color:#5C3D00; border-radius:var(--raio); padding:10px 14px; margin-bottom:16px; font-size:14px;
+}
+.contador-verificar .n{ font-weight:700; font-variant-numeric:tabular-nums; }
+.contador-verificar.limpo{ background:var(--selo-claro); border-color:var(--selo); color:var(--selo-escuro); }
+.contador-verificar .btn{ margin-left:auto; }
+
+fieldset.grupo{ border:1px solid var(--linha); border-radius:var(--raio); padding:14px 16px 4px; margin:0 0 16px; background:var(--papel); }
+fieldset.grupo legend{
+  font-family:var(--serif); font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--selo-escuro); padding:0 7px; background:var(--papel-alto); border:1px solid var(--linha); border-radius:2px;
+}
+.linha-campos{ display:grid; grid-template-columns:repeat(auto-fit, minmax(268px,1fr)); gap:0 16px; }
+.campo-caixa{ padding:2px 0 0; }
+.campo-caixa.largo{ grid-column:1 / -1; }
+.campo-caixa.verificar input, .campo-caixa.verificar textarea{
+  border-color:var(--ambar-forte); background:var(--ambar-claro); box-shadow:inset 3px 0 0 var(--ambar-forte);
+}
+.campo-caixa.verificar > label{ color:var(--ambar); }
+.marca-verificar{
+  display:none; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+  background:var(--ambar-forte); color:#fff; border-radius:2px; padding:0 5px; margin-left:7px; vertical-align:1px;
+}
+.campo-caixa.verificar .marca-verificar{ display:inline-block; }
+
+/* ---------------------------------------------------------------- minuta */
+.editor-minuta{
+  width:100%; min-height:520px; font-family:var(--serif); font-size:16px; line-height:1.75;
+  padding:26px 30px; background:var(--papel-alto); border:1px solid var(--linha-forte);
+  border-radius:var(--raio); text-align:justify; hyphens:auto;
+}
+.custo{ font-size:12px; color:var(--tinta-fraca); font-variant-numeric:tabular-nums; }
+.historico{ margin-top:18px; }
+.historico ol{ list-style:none; margin:8px 0 0; padding:0; counter-reset:aj; }
+.historico li{
+  counter-increment:aj; position:relative; padding:7px 10px 7px 34px; border-left:2px solid var(--linha-forte);
+  font-size:13.5px; color:var(--tinta-media); background:var(--papel); margin-bottom:4px;
+}
+.historico li::before{
+  content:counter(aj); position:absolute; left:9px; top:7px; width:17px; height:17px; border-radius:50%;
+  background:var(--papel-baixo); border:1px solid var(--linha-forte); display:grid; place-items:center;
+  font-size:10.5px; font-variant-numeric:tabular-nums; color:var(--tinta-fraca);
+}
+.historico li .quando{ display:block; font-size:11.5px; color:var(--tinta-fraca); margin-top:2px; }
+
+/* ---------------------------------------------------------------- tabelas */
+.tabela-caixa{ overflow-x:auto; border:1px solid var(--linha); border-radius:var(--raio); background:var(--papel-alto); }
+table{ width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums; }
+th, td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--linha); vertical-align:middle; }
+thead th{
+  background:var(--papel-baixo); font-size:11px; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--tinta-media); font-weight:600; white-space:nowrap; border-bottom:1px solid var(--linha-forte);
+}
+tbody tr:hover{ background:var(--selo-tenue); }
+tbody tr:last-child td{ border-bottom:none; }
+td.num, th.num{ text-align:right; }
+td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
+.status{
+  display:inline-block; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+  border-radius:20px; padding:1px 9px; border:1px solid var(--linha-forte); background:var(--papel-baixo); color:var(--tinta-media);
+}
+.status.redigida, .status.revisada{ background:var(--selo-claro); border-color:var(--selo); color:var(--selo-escuro); }
+.status.extraida, .status.rascunho{ background:var(--ambar-claro); border-color:var(--ambar-forte); color:#5C3D00; }
+
+.cartoes-numero{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin-bottom:20px; }
+.cartao-numero{ background:var(--papel-alto); border:1px solid var(--linha); border-left:3px solid var(--selo); border-radius:var(--raio); padding:14px 16px; }
+.cartao-numero .rot{ margin:0 0 4px; }
+.cartao-numero .valor{ font-family:var(--serif); font-size:26px; font-variant-numeric:tabular-nums; line-height:1.1; }
+.cartao-numero .obs{ font-size:12px; color:var(--tinta-fraca); margin-top:3px; font-variant-numeric:tabular-nums; }
+
+.checkbox-linha{ display:inline-flex; align-items:center; gap:8px; font-size:13.5px; color:var(--tinta-media); cursor:pointer; }
+.checkbox-linha input{ width:16px; height:16px; accent-color:var(--selo); }
+
+.vazio{ text-align:center; padding:46px 20px; color:var(--tinta-fraca); }
+.vazio h3{ font-size:17px; color:var(--tinta-media); margin-bottom:6px; }
+
+/* notebook de 1366px: cabe, sem quebrar */
+@media (max-width:1100px){
+  .grade{ grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+}
+@media (max-width:760px){
+  main{ padding:18px 14px 44px; }
+  #grade-passo1{ grid-template-columns:1fr !important; }
+  header.topo, nav.abas{ padding-left:14px; padding-right:14px; }
+  .trilho{ flex-direction:column; }
+  .trilho button{ border-right:none; border-bottom:1px solid var(--linha); }
+  .busca{ margin-left:0; width:100%; }
+  .painel{ padding:16px; }
+  .editor-minuta{ padding:18px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="faixa-selo"></div>
+
+  <!-- ====================================================== TELA DE LOGIN -->
+  <section id="tela-login" class="tela-login">
+    <div class="cartao-login">
+      <div class="selo-topo">
+        <svg width="54" height="54" viewBox="0 0 54 54" aria-hidden="true">
+          <circle cx="27" cy="27" r="25" fill="none" stroke="#2E6B4C" stroke-width="1.2"/>
+          <circle cx="27" cy="27" r="21" fill="none" stroke="#2E6B4C" stroke-width=".8" stroke-dasharray="2 3"/>
+          <circle cx="27" cy="27" r="17" fill="none" stroke="#2E6B4C" stroke-width="1.6"/>
+          <text x="27" y="32" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#2E6B4C">2º</text>
+        </svg>
+      </div>
+      <h1 id="titulo-login">Hub de Agentes</h1>
+      <p class="sub">Cartório de Notas do 2º Ofício · Itabaiana/SE</p>
+
+      <div id="login-erro" class="aviso aviso-erro oculto" role="alert"></div>
+      <div id="login-aviso" class="aviso aviso-ambar oculto" role="status"></div>
+
+      <!-- entrada normal -->
+      <form id="form-login" novalidate>
+        <div class="campo">
+          <label for="login-usuario">Seu login</label>
+          <input id="login-usuario" name="login" type="text" autocomplete="username"
+                 placeholder="nome.sobrenome" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="campo">
+          <label for="login-senha">Senha</label>
+          <input id="login-senha" name="senha" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-principal" id="btn-entrar">Entrar</button>
+      </form>
+
+      <!-- primeiro acesso: define a senha -->
+      <form id="form-senha" class="oculto" novalidate>
+        <p class="ajuda" style="margin-bottom:14px">
+          Este é o seu primeiro acesso. Escolha uma senha só sua, com no mínimo 8 caracteres.
+        </p>
+        <div class="campo">
+          <label for="senha-nova">Nova senha</label>
+          <input id="senha-nova" type="password" autocomplete="new-password" minlength="8" required>
+          <p class="ajuda">Mínimo de 8 caracteres.</p>
+        </div>
+        <div class="campo">
+          <label for="senha-confirma">Repita a senha</label>
+          <input id="senha-confirma" type="password" autocomplete="new-password" minlength="8" required>
+        </div>
+        <button type="submit" class="btn btn-principal" id="btn-definir">Definir senha e entrar</button>
+        <button type="button" class="btn btn-fantasma" id="btn-voltar-login" style="width:100%;margin-top:8px">Voltar</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ==================================================== ÁREA AUTENTICADA -->
+  <div id="area-app" class="oculto" style="display:flex;flex-direction:column;flex:1 1 auto">
+    <header class="topo">
+      <div class="marca">
+        <svg width="38" height="38" viewBox="0 0 54 54" aria-hidden="true">
+          <circle cx="27" cy="27" r="25" fill="none" stroke="#2E6B4C" stroke-width="1.4"/>
+          <circle cx="27" cy="27" r="20" fill="none" stroke="#2E6B4C" stroke-width=".9" stroke-dasharray="2 3"/>
+          <circle cx="27" cy="27" r="16" fill="none" stroke="#2E6B4C" stroke-width="1.8"/>
+          <text x="27" y="32" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#2E6B4C">2º</text>
+        </svg>
+        <div class="nomes">
+          <div class="casa">Cartório de Notas do 2º Ofício</div>
+          <div class="comarca">Itabaiana · Sergipe · Hub de Agentes</div>
+        </div>
+      </div>
+      <div class="espaco"></div>
+      <div class="usuario">
+        <div class="nome" id="topo-nome">&nbsp;</div>
+        <div class="cargo" id="topo-cargo">&nbsp;</div>
+      </div>
+      <button type="button" class="btn btn-pequeno" id="btn-sair">Sair</button>
+    </header>
+
+    <nav class="abas" aria-label="Seções do hub">
+      <button type="button" data-secao="painel" id="aba-painel">Atos e ferramentas</button>
+      <button type="button" data-secao="minutas" id="aba-minutas">Minhas minutas</button>
+      <button type="button" data-secao="consumo" id="aba-consumo" class="oculto">Consumo</button>
+    </nav>
+
+    <main>
+      <!-- ------------------------------------------------ PAINEL DE CARDS -->
+      <section id="secao-painel" class="secao">
+        <div class="cabeca-secao">
+          <div>
+            <h2>O que você vai lavrar hoje?</h2>
+            <p>Escolha o ato. O agente lê os documentos, você confere os dados e a minuta sai pronta para o Word.</p>
+          </div>
+          <div class="busca campo" style="margin-bottom:0">
+            <label for="busca-agentes">Buscar ato ou ferramenta</label>
+            <input id="busca-agentes" type="search" placeholder="ex.: compra e venda, procuração, certidão"
+                   autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="painel-estado"></div>
+        <div id="painel-grupos"></div>
+      </section>
+
+      <!-- ------------------------------------------------------- NOVO ATO -->
+      <section id="secao-ato" class="secao oculto">
+        <div class="cabeca-secao">
+          <div>
+            <h2 id="ato-titulo">Novo ato</h2>
+            <p id="ato-subtitulo"></p>
+          </div>
+          <button type="button" class="btn btn-fantasma" id="btn-voltar-painel" style="margin-left:auto">← Voltar aos atos</button>
+        </div>
+
+        <ol class="trilho" id="trilho">
+          <li data-passo="1"><button type="button"><span class="num">1</span><span class="rotulo"><b>Passo 1</b>Documentos</span></button></li>
+          <li data-passo="2"><button type="button"><span class="num">2</span><span class="rotulo"><b>Passo 2</b>Conferência</span></button></li>
+          <li data-passo="3"><button type="button"><span class="num">3</span><span class="rotulo"><b>Passo 3</b>Minuta</span></button></li>
+        </ol>
+
+        <!-- PASSO 1 -->
+        <div id="passo-1" class="painel">
+          <h3>Documentos do caso</h3>
+          <p class="legenda">Anexe as certidões, matrículas, documentos pessoais e guias. Aceita PDF e imagens (JPG, PNG, HEIC).</p>
+          <div id="erro-passo1"></div>
+
+          <div class="solta" id="area-solta" tabindex="0" role="button"
+               aria-label="Escolher arquivos: clique, tecle Enter ou arraste os documentos para cá">
+            <div class="titulo">Arraste os documentos para cá</div>
+            <div class="sub">ou clique para escolher no computador · PDF, JPG, PNG</div>
+          </div>
+          <input type="file" id="input-arquivos" multiple accept="application/pdf,image/*" class="oculto">
+          <ul class="lista-arq" id="lista-arquivos"></ul>
+          <div class="total-arq" id="total-arquivos"></div>
+          <div id="aviso-tamanho"></div>
+
+          <div style="display:grid;grid-template-columns:220px 1fr;gap:0 20px;margin-top:20px" id="grade-passo1">
+            <div class="campo">
+              <label for="ato-protocolo">Protocolo nº <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+              <input id="ato-protocolo" type="text" inputmode="numeric" autocomplete="off" placeholder="ex.: 1042">
+              <p class="ajuda">Ao sair do campo, buscamos o que o balcão já cadastrou.</p>
+            </div>
+            <div class="campo">
+              <label for="ato-titulo-minuta">Título desta minuta <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+              <input id="ato-titulo-minuta" type="text" autocomplete="off" placeholder="ex.: CV — Maria da Silva para João Souza">
+              <p class="ajuda">Serve para você achar a minuta depois na lista.</p>
+            </div>
+          </div>
+          <div id="resumo-protocolo"></div>
+
+          <div class="campo">
+            <label for="ato-observacoes">Observações sobre este caso</label>
+            <textarea id="ato-observacoes" rows="4"
+              placeholder="O que o agente precisa saber e não está nos documentos: combinados das partes, forma de pagamento, pendências, o que ignorar…"></textarea>
+          </div>
+
+          <div class="barra-acoes">
+            <button type="button" class="btn btn-principal" id="btn-extrair">Ler documentos</button>
+            <span class="ajuda" style="margin:0">Leva de 10 a 40 segundos. Não feche a aba.</span>
+            <div class="direita"><div id="carregando-extrair"></div></div>
+          </div>
+        </div>
+
+        <!-- PASSO 2 -->
+        <div id="passo-2" class="painel oculto">
+          <h3>Confira o que o agente leu</h3>
+          <p class="legenda">Nada é lavrado com o que está errado aqui. Corrija o que precisar antes de gerar a minuta.</p>
+          <div id="erro-passo2"></div>
+          <div id="alertas-extracao"></div>
+          <div id="contador-verificar"></div>
+          <form id="form-conferencia" autocomplete="off"></form>
+          <div class="campo" style="margin-top:6px">
+            <label for="obs-redacao">Observações para a redação <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
+            <textarea id="obs-redacao" rows="3"
+              placeholder="Cláusulas específicas, dispensas, forma de pagamento, o que destacar na minuta…"></textarea>
+          </div>
+          <div class="barra-acoes">
+            <button type="button" class="btn" id="btn-voltar-passo1">← Documentos</button>
+            <button type="button" class="btn btn-principal" id="btn-redigir">Gerar minuta</button>
+            <span class="ajuda" style="margin:0">Leva de 30 a 90 segundos.</span>
+            <div class="direita"><div id="carregando-redigir"></div></div>
+          </div>
+        </div>
+
+        <!-- PASSO 3 -->
+        <div id="passo-3" class="painel oculto">
+          <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div>
+              <h3 id="minuta-titulo">Minuta</h3>
+              <p class="legenda" id="minuta-legenda">Edite livremente. O texto abaixo é o que vai para o Word.</p>
+            </div>
+            <div style="margin-left:auto;text-align:right">
+              <div class="custo" id="minuta-custo"></div>
+              <div class="custo" id="minuta-salvo"></div>
+            </div>
+          </div>
+          <div id="erro-passo3"></div>
+          <label class="rot" for="editor-minuta">Texto da minuta</label>
+          <textarea id="editor-minuta" class="editor-minuta" spellcheck="true"></textarea>
+
+          <div class="barra-acoes">
+            <button type="button" class="btn btn-principal" id="btn-baixar">Baixar Word</button>
+            <button type="button" class="btn" id="btn-salvar">Salvar alterações</button>
+            <div class="direita"><div id="carregando-minuta"></div></div>
+          </div>
+
+          <div style="margin-top:22px;border-top:1px solid var(--linha);padding-top:18px">
+            <div class="campo">
+              <label for="pedido-revisao">O que você quer ajustar?</label>
+              <textarea id="pedido-revisao" rows="3"
+                placeholder="ex.: trocar o regime de bens para comunhão parcial; incluir a cláusula de continuidade registral; tirar o parágrafo do ITBI"></textarea>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button type="button" class="btn" id="btn-revisar">Pedir ajuste</button>
+              <span class="ajuda" style="margin:0">O agente reescreve a minuta inteira com o ajuste. O texto atual é substituído.</span>
+            </div>
+            <div class="historico" id="historico-ajustes"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------- MINHAS MINUTAS -->
+      <section id="secao-minutas" class="secao oculto">
+        <div class="cabeca-secao">
+          <div>
+            <h2>Minhas minutas</h2>
+            <p>Tudo o que você já mandou o agente ler ou redigir, da mais recente para a mais antiga.</p>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
+            <label class="checkbox-linha oculto" id="rot-todas-minutas">
+              <input type="checkbox" id="chk-todas-minutas"> ver de todas as escreventes
+            </label>
+            <button type="button" class="btn btn-pequeno" id="btn-recarregar-minutas">Atualizar</button>
+          </div>
+        </div>
+        <div id="minutas-estado"></div>
+        <div id="minutas-conteudo"></div>
+      </section>
+
+      <!-- ---------------------------------------------------------- CONSUMO -->
+      <section id="secao-consumo" class="secao oculto">
+        <div class="cabeca-secao">
+          <div>
+            <h2>Consumo da plataforma</h2>
+            <p>Quanto os agentes custaram no período, por escrevente, ato e etapa.</p>
+          </div>
+          <div class="campo" style="margin-left:auto;margin-bottom:0;min-width:180px">
+            <label for="consumo-dias">Período</label>
+            <select id="consumo-dias">
+              <option value="7">últimos 7 dias</option>
+              <option value="30" selected>últimos 30 dias</option>
+              <option value="90">últimos 90 dias</option>
+              <option value="365">últimos 12 meses</option>
+            </select>
+          </div>
+        </div>
+        <div id="consumo-estado"></div>
+        <div id="consumo-conteudo"></div>
+      </section>
+    </main>
+
+    <footer class="rodape">
+      <span>Cartório de Notas do 2º Ofício de Itabaiana/SE · uso interno</span>
+      <span>A minuta é rascunho. A conferência e a lavratura continuam sendo da escrevente e do tabelião.</span>
+    </footer>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   CN2O — Hub de Agentes · JavaScript puro, sem framework, sem CDN.
+   Organização: (1) utilidades, (2) estado, (3) API, (4) autenticação,
+   (5) navegação, (6) painel, (7) assistente do ato, (8) minutas, (9) consumo.
+   ========================================================================== */
+
+/* ------------------------------------------------------------ 1. utilidades */
+
+var CAMBIO = 5.12;              // conversão dólar→real usada nos custos exibidos
+var LIMITE_MB = 20;             // acima disso avisamos (o servidor aceita ~24 MB em base64)
+
+// Escapa TUDO que vem do servidor antes de entrar em innerHTML.
+function esc(v){
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function $(sel){ return document.querySelector(sel); }
+function $$(sel){ return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+function mostrar(el, sim){ if (el) el.classList.toggle('oculto', !sim); }
+
+// sessionStorage pode estar bloqueado (política de grupo, modo restrito) — nunca deixe quebrar.
+function guardar(chave, valor){
+  try { window.sessionStorage.setItem(chave, valor); } catch (e) { /* segue sem persistir */ }
+}
+function ler(chave){
+  try { return window.sessionStorage.getItem(chave); } catch (e) { return null; }
+}
+function apagar(chave){
+  try { window.sessionStorage.removeItem(chave); } catch (e) { /* ignora */ }
+}
+
+function fmtBRL(n){
+  var v = Number(n) || 0;
+  try { return v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' }); }
+  catch (e) { return 'R$ ' + v.toFixed(2); }
+}
+function fmtUSD(n){
+  // notação brasileira para dólar: "US$ 0,13"
+  var v = Number(n) || 0;
+  try { return v.toLocaleString('pt-BR', { style:'currency', currency:'USD' }); }
+  catch (e) { return 'US$ ' + v.toFixed(2); }
+}
+function fmtNum(n){
+  var v = Number(n) || 0;
+  try { return v.toLocaleString('pt-BR'); } catch (e) { return String(v); }
+}
+function fmtTamanho(bytes){
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+  return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+function fmtData(iso){
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  function p(n){ return (n < 10 ? '0' : '') + n; }
+  return p(d.getDate()) + '/' + p(d.getMonth()+1) + '/' + d.getFullYear() +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// "vendedor_estado_civil" → "Vendedor estado civil" (rótulo de emergência)
+function humanizar(chave){
+  var t = String(chave).replace(/_/g, ' ').trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Blocos de aviso reaproveitados em toda tela.
+function html_erro(mensagem, detalhe){
+  return '<div class="aviso aviso-erro" role="alert">' + esc(mensagem) +
+    (detalhe ? '<span class="detalhe">' + esc(detalhe) + '</span>' : '') + '</div>';
+}
+function pintaErro(el, e){
+  if (!el) return;
+  var msg = (e && e.mensagem) || (e && e.message) || 'não deu certo — tente de novo';
+  var det = e && e.detalhe ? e.detalhe : '';
+  el.innerHTML = html_erro(msg, det);
+}
+function limpa(el){ if (el) el.innerHTML = ''; }
+
+// Carregando com relógio: a escrevente vê que a tela não travou.
+function iniciarCronometro(el, texto){
+  if (!el) return function(){};
+  var t0 = Date.now();
+  function pinta(){
+    var s = Math.round((Date.now() - t0)/1000);
+    el.innerHTML = '<div class="carregando"><span class="girando"></span><span>' +
+      esc(texto) + ' <span style="font-variant-numeric:tabular-nums">' + s + 's</span></span></div>';
+  }
+  pinta();
+  var id = window.setInterval(pinta, 1000);
+  return function parar(){ window.clearInterval(id); el.innerHTML = ''; };
+}
+
+/* ---------------------------------------------------------------- 2. estado */
+
+var estado = {
+  token: null,
+  usuario: null,            // { nome, cargo, login }
+  ehAdmin: false,
+  loginPendente: '',        // login digitado, guardado para o primeiro acesso
+  secao: 'painel',
+  agentes: [],
+  busca: '',
+  minutas: [],
+  ato: null                 // ver novoAto()
+};
+
+var CARGOS_ADMIN = ['Tabelião', 'Substituta do Tabelião'];
+
+function novoAto(agente){
+  return {
+    agente: agente || null,       // objeto do catálogo
+    passo: 1,
+    arquivos: [],                 // [{ nome, mime, tamanho, file }]
+    protocolo: '',
+    protocoloDados: null,
+    titulo: '',
+    obsCaso: '',
+    minutaId: null,
+    campos: [],                   // [{id, rotulo, tipo, obrigatorio}]
+    dados: {},
+    alertas: [],
+    texto: '',
+    turnos: [],
+    custoUsd: 0,
+    passosLiberados: { 1:true, 2:false, 3:false }
+  };
+}
+
+/* ------------------------------------------------------------------ 3. API */
+
+function ErroApi(mensagem, status, detalhe){
+  this.mensagem = mensagem; this.status = status; this.detalhe = detalhe;
+}
+ErroApi.prototype = Object.create(Error.prototype);
+
+// Toda chamada passa por aqui: token no header, 401 derruba a sessão,
+// erro do servidor vira o texto do campo `erro`.
+function api(caminho, opcoes){
+  opcoes = opcoes || {};
+  var cfg = { method: opcoes.metodo || 'GET', headers: {} };
+  if (estado.token) cfg.headers['X-Auth-Token'] = estado.token;
+  if (opcoes.corpo !== undefined){
+    cfg.headers['Content-Type'] = 'application/json';
+    cfg.body = JSON.stringify(opcoes.corpo);
+  }
+  return fetch(caminho, cfg).then(function(r){
+    if (r.status === 401 && !opcoes.semSessao){
+      sessaoExpirou();
+      throw new ErroApi('sua sessão expirou — entre de novo', 401);
+    }
+    var tipo = r.headers.get('content-type') || '';
+    var lido = tipo.indexOf('application/json') >= 0
+      ? r.json().catch(function(){ return null; })
+      : r.text().then(function(t){ return { erro: t }; }).catch(function(){ return null; });
+    return lido.then(function(corpo){
+      if (!r.ok){
+        var msg = (corpo && corpo.erro) || ('o servidor respondeu com erro ' + r.status);
+        throw new ErroApi(msg, r.status, corpo && corpo.detalhe);
+      }
+      return corpo;
+    });
+  }, function(){
+    // falha de rede: fetch rejeitou antes de qualquer resposta
+    throw new ErroApi('não consegui falar com o servidor. Confira a conexão e tente de novo.', 0);
+  });
+}
+
+/* --------------------------------------------------------- 4. autenticação */
+
+function sessaoExpirou(){
+  estado.token = null; estado.usuario = null; estado.ehAdmin = false;
+  apagar('cn2o_token'); apagar('cn2o_usuario');
+  mostrarLogin('sua sessão expirou — entre de novo');
+}
+
+function mostrarLogin(avisoTexto){
+  mostrar($('#area-app'), false);
+  $('#area-app').style.display = 'none';
+  mostrar($('#tela-login'), true);
+  $('#tela-login').style.display = 'flex';
+  mostrar($('#form-login'), true);
+  mostrar($('#form-senha'), false);
+  limpa($('#login-erro')); mostrar($('#login-erro'), false);
+  var av = $('#login-aviso');
+  if (avisoTexto){ av.textContent = avisoTexto; mostrar(av, true); }
+  else { av.textContent = ''; mostrar(av, false); }
+  var campo = $('#login-usuario');
+  if (campo) campo.focus();
+}
+
+function erroLogin(e){
+  var el = $('#login-erro');
+  el.innerHTML = esc((e && e.mensagem) || (e && e.message) || 'não deu certo — tente de novo') +
+    (e && e.detalhe ? '<span class="detalhe">' + esc(e.detalhe) + '</span>' : '');
+  mostrar(el, true);
+  mostrar($('#login-aviso'), false);
+}
+
+function entrarComSessao(resp, login){
+  estado.token = resp.token;
+  estado.usuario = { nome: resp.nome, cargo: resp.cargo, login: login };
+  estado.ehAdmin = CARGOS_ADMIN.indexOf(resp.cargo) >= 0;
+  guardar('cn2o_token', resp.token);
+  guardar('cn2o_usuario', JSON.stringify(estado.usuario));
+  abrirApp();
+}
+
+function abrirApp(){
+  $('#tela-login').style.display = 'none';
+  mostrar($('#tela-login'), false);
+  mostrar($('#area-app'), true);
+  $('#area-app').style.display = 'flex';
+  $('#topo-nome').textContent = (estado.usuario && estado.usuario.nome) || '';
+  $('#topo-cargo').textContent = (estado.usuario && estado.usuario.cargo) || '';
+  mostrar($('#aba-consumo'), estado.ehAdmin);
+  mostrar($('#rot-todas-minutas'), estado.ehAdmin);
+  irPara('painel');
+  carregarAgentes();
+}
+
+$('#form-login').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  var login = $('#login-usuario').value.trim();
+  var senha = $('#login-senha').value;
+  if (!login){ erroLogin({ mensagem:'digite o seu login (nome.sobrenome)' }); return; }
+  var btn = $('#btn-entrar');
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  mostrar($('#login-erro'), false);
+  api('/login', { metodo:'POST', corpo:{ login: login, senha: senha }, semSessao:true })
+    .then(function(r){
+      if (r && r.primeiro_acesso){
+        // usuário existe mas ainda não tem senha: troca para a tela de definição
+        estado.loginPendente = login;
+        mostrar($('#form-login'), false);
+        mostrar($('#form-senha'), true);
+        mostrar($('#login-erro'), false);
+        var av = $('#login-aviso');
+        av.textContent = 'Primeiro acesso de ' + login + '. Defina a sua senha.';
+        mostrar(av, true);
+        $('#senha-nova').focus();
+        return;
+      }
+      entrarComSessao(r, login);
+    })
+    .catch(erroLogin)
+    .then(function(){ btn.disabled = false; btn.textContent = 'Entrar'; });
+});
+
+$('#form-senha').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  var a = $('#senha-nova').value, b = $('#senha-confirma').value;
+  if (a.length < 8){ erroLogin({ mensagem:'a senha precisa ter no mínimo 8 caracteres' }); return; }
+  if (a !== b){ erroLogin({ mensagem:'as duas senhas não conferem — digite de novo' }); return; }
+  var btn = $('#btn-definir');
+  btn.disabled = true; btn.textContent = 'Definindo…';
+  api('/definir-senha', { metodo:'POST', corpo:{ login: estado.loginPendente, senha: a }, semSessao:true })
+    .then(function(r){ entrarComSessao(r, estado.loginPendente); })
+    .catch(erroLogin)
+    .then(function(){ btn.disabled = false; btn.textContent = 'Definir senha e entrar'; });
+});
+
+$('#btn-voltar-login').addEventListener('click', function(){
+  mostrar($('#form-senha'), false);
+  mostrar($('#form-login'), true);
+  mostrar($('#login-erro'), false);
+  mostrar($('#login-aviso'), false);
+  $('#login-usuario').focus();
+});
+
+$('#btn-sair').addEventListener('click', function(){
+  var fim = function(){
+    estado.token = null; estado.usuario = null; estado.ehAdmin = false;
+    apagar('cn2o_token'); apagar('cn2o_usuario');
+    $('#login-senha').value = '';
+    mostrarLogin('');
+  };
+  api('/logout', { metodo:'POST' }).then(fim, fim);
+});
+
+/* -------------------------------------------------------- 5. navegação SPA */
+
+var SECOES = ['painel','ato','minutas','consumo'];
+
+function irPara(secao){
+  estado.secao = secao;
+  SECOES.forEach(function(s){ mostrar($('#secao-' + s), s === secao); });
+  // a aba "Atos" fica marcada também enquanto o assistente do ato está aberto
+  $$('nav.abas button').forEach(function(b){
+    var alvo = b.getAttribute('data-secao');
+    var ativa = alvo === secao || (secao === 'ato' && alvo === 'painel');
+    if (ativa) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+  });
+  window.scrollTo(0, 0);
+}
+
+$$('nav.abas button').forEach(function(b){
+  b.addEventListener('click', function(){
+    var s = b.getAttribute('data-secao');
+    irPara(s);
+    if (s === 'minutas') carregarMinutas();
+    if (s === 'consumo') carregarConsumo();
+  });
+});
+
+/* ------------------------------------------------------- 6. painel de cards */
+
+var ORDEM_CATEGORIAS = ['ferramenta','escritura','comunicacao'];
+var TITULO_CATEGORIA = {
+  ferramenta:  'Ferramentas de apoio',
+  escritura:   'Escrituras e atos notariais',
+  comunicacao: 'Comunicação e documentos'
+};
+var EXPLICA_CATEGORIA = {
+  ferramenta:  'apoiam a redação — não geram o ato final',
+  escritura:   'geram a minuta do ato para conferência e lavratura',
+  comunicacao: 'ofícios, cartas, respostas e textos do dia a dia'
+};
+
+function carregarAgentes(){
+  var alvo = $('#painel-estado');
+  alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Carregando os agentes…</span></div>';
+  api('/agentes')
+    .then(function(lista){
+      limpa(alvo);
+      estado.agentes = Array.isArray(lista) ? lista : [];
+      renderPainel();
+    })
+    .catch(function(e){
+      if (e && e.status === 401) return;
+      alvo.innerHTML = html_erro('não consegui carregar os agentes: ' + ((e && e.mensagem) || ''),
+        e && e.detalhe) +
+        '<button type="button" class="btn btn-pequeno" id="btn-tentar-agentes">Tentar de novo</button>';
+      var b = $('#btn-tentar-agentes');
+      if (b) b.addEventListener('click', carregarAgentes);
+    });
+}
+
+function renderPainel(){
+  var termo = estado.busca.trim().toLowerCase();
+  var visiveis = estado.agentes.filter(function(a){
+    if (a.ativo === false) return false;
+    if (!termo) return true;
+    return ((a.nome || '') + ' ' + (a.descricao || '') + ' ' + (a.codigo_ato || ''))
+      .toLowerCase().indexOf(termo) >= 0;
+  });
+
+  var alvo = $('#painel-grupos');
+  if (!visiveis.length){
+    alvo.innerHTML = '<div class="vazio"><h3>Nada encontrado</h3><p>' +
+      (termo ? 'Nenhum ato combina com “' + esc(estado.busca) + '”. Tente outra palavra.'
+             : 'Nenhum agente cadastrado ainda. Fale com o tabelião.') + '</p></div>';
+    return;
+  }
+
+  // agrupa por categoria na ordem do cartório: ferramentas, escrituras, comunicação
+  var grupos = {};
+  visiveis.forEach(function(a){
+    var c = a.categoria || 'escritura';
+    if (!grupos[c]) grupos[c] = [];
+    grupos[c].push(a);
+  });
+  var ordemChaves = ORDEM_CATEGORIAS.filter(function(c){ return grupos[c]; })
+    .concat(Object.keys(grupos).filter(function(c){ return ORDEM_CATEGORIAS.indexOf(c) < 0; }).sort());
+
+  var html = '';
+  ordemChaves.forEach(function(cat){
+    var itens = grupos[cat].slice().sort(function(x, y){
+      return (x.ordem || 999) - (y.ordem || 999) || String(x.nome).localeCompare(String(y.nome), 'pt-BR');
+    });
+    var titulo = TITULO_CATEGORIA[cat] || humanizar(cat);
+    var explica = EXPLICA_CATEGORIA[cat] || '';
+    html += '<div class="grupo-titulo"><span>' + esc(titulo) +
+            (explica ? ' <span style="text-transform:none;letter-spacing:0;font-family:var(--sans);font-size:12px">· ' + esc(explica) + '</span>' : '') +
+            '</span></div><div class="grade">';
+    itens.forEach(function(a){
+      html += '<button type="button" class="card" data-slug="' + esc(a.slug) + '">' +
+        '<span class="canto" aria-hidden="true">' +
+          '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E6B4C" stroke-width="1.2">' +
+          '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" stroke-dasharray="1.5 2"/></svg>' +
+        '</span>' +
+        '<span class="nome-ato">' + esc(a.nome) + '</span>' +
+        '<span class="desc">' + esc(a.descricao || 'Sem descrição cadastrada.') + '</span>' +
+        '<span class="pe">' +
+          (a.codigo_ato ? '<span class="etiqueta">' + esc(a.codigo_ato) + '</span>' : '') +
+          (a.tem_template ? '<span class="selo-modelo">modelo próprio</span>' : '') +
+          '<span class="campos-qtd">' + esc(a.qtd_campos || 0) + ' campos</span>' +
+        '</span></button>';
+    });
+    html += '</div>';
+  });
+  alvo.innerHTML = html;
+
+  $$('#painel-grupos .card').forEach(function(c){
+    c.addEventListener('click', function(){ abrirAto(c.getAttribute('data-slug')); });
+  });
+}
+
+$('#busca-agentes').addEventListener('input', function(ev){
+  estado.busca = ev.target.value;
+  renderPainel();
+});
+
+/* ------------------------------------------------- 7. assistente do ato */
+
+function abrirAto(slug){
+  var ag = estado.agentes.filter(function(a){ return a.slug === slug; })[0];
+  if (!ag) return;
+  estado.ato = novoAto(ag);
+  $('#ato-titulo').textContent = ag.nome;
+  $('#ato-subtitulo').textContent = ag.descricao || '';
+  // limpa a tela do ato anterior
+  $('#input-arquivos').value = '';
+  $('#ato-protocolo').value = '';
+  $('#ato-titulo-minuta').value = '';
+  $('#ato-observacoes').value = '';
+  $('#obs-redacao').value = '';
+  $('#pedido-revisao').value = '';
+  $('#editor-minuta').value = '';
+  limpa($('#resumo-protocolo')); limpa($('#erro-passo1'));
+  limpa($('#erro-passo2')); limpa($('#erro-passo3'));
+  limpa($('#minuta-salvo')); limpa($('#minuta-custo'));
+  renderArquivos();
+  irPara('ato');
+  irParaPasso(1);
+}
+
+$('#btn-voltar-painel').addEventListener('click', function(){ irPara('painel'); });
+
+function irParaPasso(n){
+  if (!estado.ato) return;
+  estado.ato.passo = n;
+  [1,2,3].forEach(function(i){ mostrar($('#passo-' + i), i === n); });
+  $$('#trilho li').forEach(function(li){
+    var p = parseInt(li.getAttribute('data-passo'), 10);
+    li.classList.toggle('atual', p === n);
+    li.classList.toggle('feito', p < n || (estado.ato.passosLiberados[p] && p !== n));
+    var b = li.querySelector('button');
+    b.disabled = !estado.ato.passosLiberados[p];
+    b.setAttribute('aria-current', p === n ? 'step' : 'false');
+  });
+  window.scrollTo(0, 0);
+}
+
+$$('#trilho button').forEach(function(b){
+  b.addEventListener('click', function(){
+    var p = parseInt(b.parentNode.getAttribute('data-passo'), 10);
+    if (estado.ato && estado.ato.passosLiberados[p]) irParaPasso(p);
+  });
+});
+
+/* ---- passo 1: arquivos ---- */
+
+var areaSolta = $('#area-solta');
+var inputArq  = $('#input-arquivos');
+
+areaSolta.addEventListener('click', function(){ inputArq.click(); });
+areaSolta.addEventListener('keydown', function(ev){
+  if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); inputArq.click(); }
+});
+['dragenter','dragover'].forEach(function(evt){
+  areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.add('sobre'); });
+});
+['dragleave','drop'].forEach(function(evt){
+  areaSolta.addEventListener(evt, function(ev){ ev.preventDefault(); areaSolta.classList.remove('sobre'); });
+});
+areaSolta.addEventListener('drop', function(ev){
+  if (ev.dataTransfer && ev.dataTransfer.files) adicionarArquivos(ev.dataTransfer.files);
+});
+inputArq.addEventListener('change', function(){
+  adicionarArquivos(inputArq.files);
+  inputArq.value = ''; // permite escolher o mesmo arquivo de novo depois de remover
+});
+
+function adicionarArquivos(lista){
+  if (!estado.ato) return;
+  Array.prototype.forEach.call(lista, function(f){
+    // evita duplicata óbvia (mesmo nome e mesmo tamanho)
+    var repetido = estado.ato.arquivos.some(function(a){ return a.nome === f.name && a.tamanho === f.size; });
+    if (repetido) return;
+    estado.ato.arquivos.push({ nome: f.name, mime: f.type || 'application/octet-stream', tamanho: f.size, file: f });
+  });
+  renderArquivos();
+}
+
+function renderArquivos(){
+  var ul = $('#lista-arquivos');
+  var arqs = (estado.ato && estado.ato.arquivos) || [];
+  if (!arqs.length){
+    ul.innerHTML = '';
+    $('#total-arquivos').textContent = '';
+    limpa($('#aviso-tamanho'));
+    return;
+  }
+  ul.innerHTML = arqs.map(function(a, i){
+    return '<li><span class="nome" title="' + esc(a.nome) + '">' + esc(a.nome) + '</span>' +
+      '<span class="tam">' + esc(fmtTamanho(a.tamanho)) + '</span>' +
+      '<button type="button" class="btn btn-pequeno btn-perigo" data-remover="' + i + '" ' +
+      'aria-label="Remover ' + esc(a.nome) + '">Remover</button></li>';
+  }).join('');
+  $$('#lista-arquivos [data-remover]').forEach(function(b){
+    b.addEventListener('click', function(){
+      estado.ato.arquivos.splice(parseInt(b.getAttribute('data-remover'), 10), 1);
+      renderArquivos();
+    });
+  });
+  var total = arqs.reduce(function(s, a){ return s + a.tamanho; }, 0);
+  $('#total-arquivos').textContent = arqs.length + (arqs.length === 1 ? ' arquivo · ' : ' arquivos · ') + fmtTamanho(total);
+  // acima de ~20 MB o envio costuma ser recusado pelo servidor
+  var av = $('#aviso-tamanho');
+  if (total > LIMITE_MB * 1024 * 1024){
+    av.innerHTML = '<div class="aviso aviso-ambar" role="status">São ' + esc(fmtTamanho(total)) +
+      ' no total — acima do limite de ' + LIMITE_MB + ' MB. O servidor pode recusar o envio. ' +
+      'Tire os documentos que não interessam ou envie em duas levas.</div>';
+  } else { limpa(av); }
+}
+
+// FileReader devolve dataURL; a API quer só o que vem depois da vírgula.
+function lerBase64(file){
+  return new Promise(function(ok, falha){
+    var fr = new FileReader();
+    fr.onload = function(){
+      var s = String(fr.result || '');
+      var i = s.indexOf(',');
+      ok(i >= 0 ? s.slice(i + 1) : s);
+    };
+    fr.onerror = function(){ falha(new ErroApi('não consegui ler o arquivo "' + file.name + '"', 0)); };
+    fr.readAsDataURL(file);
+  });
+}
+
+// Consulta do protocolo ao sair do campo — 404 não trava nada.
+$('#ato-protocolo').addEventListener('blur', function(){
+  var num = $('#ato-protocolo').value.trim();
+  var alvo = $('#resumo-protocolo');
+  if (!estado.ato) return;
+  estado.ato.protocolo = num;
+  if (!num){ limpa(alvo); estado.ato.protocoloDados = null; return; }
+  alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Buscando o protocolo ' + esc(num) + '…</span></div>';
+  api('/agentes/protocolo/' + encodeURIComponent(num))
+    .then(function(p){
+      estado.ato.protocoloDados = p;
+      var d = (p && p.dados) || {};
+      var linhas = Object.keys(d).slice(0, 10).map(function(k){
+        var v = d[k];
+        if (v && typeof v === 'object') v = Array.isArray(v) ? v.length + ' item(ns)' : JSON.stringify(v).slice(0, 90);
+        if (v === null || v === undefined || v === '') return '';
+        return '<li><b>' + esc(humanizar(k)) + ':</b> ' + esc(String(v).slice(0, 160)) + '</li>';
+      }).filter(Boolean).join('');
+      alvo.innerHTML = '<div class="aviso aviso-ok"><h4>Protocolo ' + esc(p.numero) + ' encontrado</h4>' +
+        '<div style="font-size:12px;opacity:.85">aberto por ' + esc(p.usuario || '—') + ' em ' + esc(fmtData(p.criado_em)) + '</div>' +
+        (linhas ? '<ul>' + linhas + '</ul>' : '<div style="font-size:13px">sem dados cadastrados no balcão</div>') +
+        '</div>';
+    })
+    .catch(function(e){
+      if (e && e.status === 401) return;
+      estado.ato.protocoloDados = null;
+      // aviso discreto: seguir sem protocolo é perfeitamente possível
+      alvo.innerHTML = '<div class="aviso aviso-neutro">Protocolo ' + esc(num) + ': ' +
+        esc((e && e.mensagem) || 'não encontrado') + '. Pode seguir normalmente — ele é opcional.</div>';
+    });
+});
+
+$('#btn-extrair').addEventListener('click', function(){
+  if (!estado.ato) return;
+  var ato = estado.ato;
+  var btn = $('#btn-extrair');
+  var erroEl = $('#erro-passo1');
+  limpa(erroEl);
+  ato.obsCaso = $('#ato-observacoes').value.trim();
+  ato.titulo  = $('#ato-titulo-minuta').value.trim();
+  ato.protocolo = $('#ato-protocolo').value.trim();
+
+  if (!ato.arquivos.length && !ato.obsCaso){
+    erroEl.innerHTML = html_erro('anexe ao menos um documento ou escreva as observações do caso.');
+    return;
+  }
+
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-extrair'), 'Lendo os documentos… isso leva de 10 a 40 segundos.');
+
+  Promise.all(ato.arquivos.map(function(a){
+    return lerBase64(a.file).then(function(b64){
+      return { nome: a.nome, mime: a.mime, base64: b64 };
+    });
+  })).then(function(arquivos){
+    var corpo = { arquivos: arquivos };
+    if (ato.obsCaso) corpo.observacoes = ato.obsCaso;
+    if (ato.protocolo) corpo.protocolo = ato.protocolo;
+    if (ato.titulo) corpo.titulo = ato.titulo;
+    return api('/agentes/' + encodeURIComponent(ato.agente.slug) + '/extrair', { metodo:'POST', corpo: corpo });
+  }).then(function(r){
+    ato.minutaId = r.minuta_id;
+    ato.dados = r.dados || {};
+    ato.alertas = r.alertas || [];
+    ato.campos = Array.isArray(r.campos) ? r.campos : [];
+    if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
+    ato.passosLiberados[2] = true;
+    renderConferencia();
+    irParaPasso(2);
+  }).catch(function(e){
+    if (e && e.status === 401) return;
+    pintaErro(erroEl, e);
+  }).then(function(){
+    parar(); btn.disabled = false;
+  });
+});
+
+$('#btn-voltar-passo1').addEventListener('click', function(){ irParaPasso(1); });
+
+/* ---- passo 2: conferência (o coração do produto) ---- */
+
+var MARCA_VERIFICAR = '[VERIFICAR]';
+
+// Delegação registrada UMA vez: recontagem ao vivo conforme a escrevente corrige.
+$('#form-conferencia').addEventListener('input', aoEditarCampo);
+// O formulário não tem submit próprio; Enter num campo não pode recarregar a página.
+$('#form-conferencia').addEventListener('submit', function(ev){ ev.preventDefault(); });
+
+// Rótulos de grupo para os prefixos que o cadastro usa (vendedor_nome, imovel_matricula…).
+var ROTULO_GRUPO = {
+  imovel:'Imóvel', preco:'Preço e pagamento', fiscal:'Tributos e guias', ato:'Do ato',
+  vendedor:'Vendedor', comprador:'Comprador', cedente:'Cedente', cessionario:'Cessionário',
+  outorgante:'Outorgante', outorgado:'Outorgado', doador:'Doador', donatario:'Donatário',
+  devedor:'Devedor', credor:'Credor', falecido:'Falecido(a)', autor:'Autor da herança',
+  viuvo:'Viúvo(a) / meeiro(a)', meeiro:'Meeiro(a)', herdeiro:'Herdeiros', herdeiros:'Herdeiros',
+  inventariante:'Inventariante', testador:'Testador', requerente:'Requerente',
+  declarante1:'Primeiro declarante', declarante2:'Segundo declarante',
+  primeiro:'Primeiro cônjuge', segundo:'Segundo cônjuge',
+  instituidor1:'Primeiro instituidor', instituidor2:'Segundo instituidor'
+};
+
+function grupoDoCampo(id){
+  var p = String(id).split('_')[0];
+  return { chave: p, rotulo: ROTULO_GRUPO[p] || humanizar(p) };
+}
+
+function valorTexto(v){
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') { try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); } }
+  return String(v);
+}
+
+function renderConferencia(){
+  var ato = estado.ato;
+  var form = $('#form-conferencia');
+
+  // 1) alertas do agente, em destaque, acima de tudo
+  var elAl = $('#alertas-extracao');
+  if (ato.alertas && ato.alertas.length){
+    elAl.innerHTML = '<div class="aviso aviso-ambar" role="status"><h4>O agente apontou ' +
+      ato.alertas.length + (ato.alertas.length === 1 ? ' ponto de atenção' : ' pontos de atenção') + '</h4><ul>' +
+      ato.alertas.map(function(a){ return '<li>' + esc(valorTexto(a)) + '</li>'; }).join('') + '</ul></div>';
+  } else { limpa(elAl); }
+
+  // 2) campos do cadastro, agrupados pelo prefixo do id
+  var idsConhecidos = {};
+  var grupos = [];
+  var indice = {};
+  (ato.campos || []).forEach(function(c){
+    idsConhecidos[c.id] = true;
+    var g = grupoDoCampo(c.id);
+    if (!indice[g.chave]){ indice[g.chave] = { rotulo: g.rotulo, itens: [] }; grupos.push(indice[g.chave]); }
+    indice[g.chave].itens.push(c);
+  });
+  // grupos de um campo só viram um bloco geral, para não picotar a tela
+  var soltos = [];
+  grupos = grupos.filter(function(g){
+    if (g.itens.length === 1){ soltos.push(g.itens[0]); return false; }
+    return true;
+  });
+  if (soltos.length) grupos.push({ rotulo:'Dados do ato', itens: soltos });
+
+  var html = '';
+  grupos.forEach(function(g){
+    html += '<fieldset class="grupo"><legend>' + esc(g.rotulo) + '</legend><div class="linha-campos">' +
+      g.itens.map(function(c){ return campoHTML(c, ato.dados[c.id]); }).join('') +
+      '</div></fieldset>';
+  });
+
+  // 3) chaves que vieram do agente e não estão no cadastro — não se perde nada
+  var extras = Object.keys(ato.dados || {}).filter(function(k){
+    return !idsConhecidos[k] && k.charAt(0) !== '_';
+  });
+  if (extras.length){
+    html += '<fieldset class="grupo"><legend>Outros dados encontrados</legend>' +
+      '<p class="ajuda" style="margin:-4px 0 10px">Não estão no cadastro deste ato, mas o agente leu nos documentos. Serão enviados junto.</p>' +
+      '<div class="linha-campos">' +
+      extras.map(function(k){
+        var v = ato.dados[k];
+        var tipo = (typeof v === 'object' || valorTexto(v).length > 110) ? 'longo' : 'texto';
+        return campoHTML({ id:k, rotulo: humanizar(k), tipo: tipo, extra: (v && typeof v === 'object') }, v);
+      }).join('') + '</div></fieldset>';
+  }
+
+  if (!html){
+    html = '<div class="aviso aviso-neutro">Este agente não devolveu campos estruturados. ' +
+      'Siga para gerar a minuta — as observações abaixo orientam a redação.</div>';
+  }
+  form.innerHTML = html;
+
+  // selecionar tudo ao focar num [VERIFICAR] poupa apagar à mão
+  $$('#form-conferencia [data-campo]').forEach(function(el){
+    el.addEventListener('focus', function(){
+      if (el.value.trim() === MARCA_VERIFICAR && el.select) el.select();
+    });
+  });
+  atualizarContador();
+}
+
+function campoHTML(c, valor){
+  var v = valorTexto(valor);
+  var precisa = v.trim() === MARCA_VERIFICAR;
+  var id = 'campo_' + String(c.id).replace(/[^A-Za-z0-9_-]/g, '_');
+  var longo = c.tipo === 'longo';
+  var classe = 'campo-caixa' + (longo ? ' largo' : '') + (precisa ? ' verificar' : '');
+  var rot = '<label for="' + esc(id) + '">' + esc(c.rotulo || humanizar(c.id)) +
+    (c.obrigatorio ? '<span class="obrig" title="campo obrigatório">*</span>' : '') +
+    '<span class="marca-verificar">conferir</span></label>';
+  var attrs = 'id="' + esc(id) + '" data-campo="' + esc(c.id) + '"' +
+    (c.extra ? ' data-json="1"' : '') +
+    (c.tipo === 'data' ? ' placeholder="dd/mm/aaaa"' : '');
+  // "data" fica como texto: o agente devolve "12/03/1980" e um input[type=date]
+  // recusaria o valor, apagando o que foi extraído.
+  var controle = longo
+    ? '<textarea ' + attrs + ' rows="' + (v.length > 400 ? 7 : 4) + '">' + esc(v) + '</textarea>'
+    : '<input type="text" ' + attrs + ' value="' + esc(v) + '">';
+  return '<div class="' + classe + '">' + rot + controle + '</div>';
+}
+
+function aoEditarCampo(ev){
+  var el = ev.target;
+  if (!el || !el.getAttribute || !el.getAttribute('data-campo')) return;
+  var caixa = el.closest ? el.closest('.campo-caixa') : null;
+  if (caixa) caixa.classList.toggle('verificar', el.value.trim() === MARCA_VERIFICAR);
+  atualizarContador();
+}
+
+function camposPendentes(){
+  return $$('#form-conferencia [data-campo]').filter(function(el){
+    return el.value.trim() === MARCA_VERIFICAR;
+  });
+}
+
+function atualizarContador(){
+  var pend = camposPendentes();
+  var el = $('#contador-verificar');
+  // sem nenhum campo na tela não há o que contar
+  if (!$$('#form-conferencia [data-campo]').length){ el.className = ''; el.innerHTML = ''; return; }
+  if (!pend.length){
+    el.className = 'contador-verificar limpo';
+    el.innerHTML = '<span>Nenhum campo pendente de conferência. Revise o resto e gere a minuta.</span>';
+    return;
+  }
+  el.className = 'contador-verificar';
+  el.innerHTML = '<span><span class="n">' + pend.length + '</span> ' +
+    (pend.length === 1 ? 'campo precisa' : 'campos precisam') + ' da sua conferência — ' +
+    'o agente não achou o dado nos documentos.</span>' +
+    '<button type="button" class="btn btn-pequeno" id="btn-proximo-verificar">Ir ao próximo</button>';
+  var b = $('#btn-proximo-verificar');
+  if (b) b.addEventListener('click', function(){
+    var alvo = camposPendentes()[0];
+    if (alvo){ alvo.focus(); alvo.scrollIntoView({ block:'center' }); }
+  });
+}
+
+// Lê o formulário de volta para um objeto de dados.
+function colherDados(){
+  var out = {};
+  $$('#form-conferencia [data-campo]').forEach(function(el){
+    var chave = el.getAttribute('data-campo');
+    var v = el.value;
+    if (el.getAttribute('data-json') === '1'){
+      // veio como objeto/lista do agente: tenta devolver no mesmo formato
+      try { out[chave] = JSON.parse(v); return; } catch (e) { /* segue como texto */ }
+    }
+    out[chave] = v;
+  });
+  return out;
+}
+
+$('#btn-redigir').addEventListener('click', function(){
+  var ato = estado.ato;
+  if (!ato || !ato.minutaId) return;
+  var erroEl = $('#erro-passo2');
+  limpa(erroEl);
+
+  var pend = camposPendentes();
+  if (pend.length){
+    // não bloqueia: às vezes o dado realmente não existe. Mas confirma.
+    var ok = window.confirm('Ainda há ' + pend.length + ' campo(s) marcado(s) como [VERIFICAR].\n' +
+      'A minuta vai sair com essa marca no texto. Quer gerar assim mesmo?');
+    if (!ok){ pend[0].focus(); pend[0].scrollIntoView({ block:'center' }); return; }
+  }
+
+  ato.dados = colherDados();
+  var obs = $('#obs-redacao').value.trim();
+  var btn = $('#btn-redigir');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-redigir'), 'Redigindo a minuta… isso leva de 30 a 90 segundos.');
+
+  api('/agentes/minutas/' + ato.minutaId + '/redigir', {
+    metodo:'POST', corpo: obs ? { dados: ato.dados, observacoes: obs } : { dados: ato.dados }
+  }).then(function(r){
+    ato.texto = r.texto || '';
+    if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
+    ato.passosLiberados[3] = true;
+    renderMinuta();
+    irParaPasso(3);
+  }).catch(function(e){
+    if (e && e.status === 401) return;
+    pintaErro(erroEl, e);
+  }).then(function(){
+    parar(); btn.disabled = false;
+  });
+});
+
+/* ---- passo 3: minuta ---- */
+
+function renderMinuta(){
+  var ato = estado.ato;
+  $('#editor-minuta').value = ato.texto || '';
+  $('#minuta-titulo').textContent = ato.titulo || (ato.agente && ato.agente.nome) || 'Minuta';
+  $('#minuta-legenda').textContent = ato.minutaId
+    ? ('Minuta nº ' + ato.minutaId + (ato.protocolo ? ' · protocolo ' + ato.protocolo : '') +
+       ' · edite livremente; o texto abaixo é o que vai para o Word.')
+    : 'Edite livremente. O texto abaixo é o que vai para o Word.';
+  renderCusto();
+  renderHistorico();
+}
+
+function renderCusto(){
+  var ato = estado.ato;
+  var el = $('#minuta-custo');
+  if (!ato || !ato.custoUsd){ el.textContent = ''; return; }
+  el.textContent = 'custo desta minuta: ' + fmtBRL(ato.custoUsd * CAMBIO) +
+    ' (' + fmtUSD(ato.custoUsd) + ')';
+}
+
+function renderHistorico(){
+  var ato = estado.ato;
+  var el = $('#historico-ajustes');
+  var pedidos = (ato.turnos || []).filter(function(t){ return t.papel === 'usuario'; });
+  if (!pedidos.length){
+    el.innerHTML = '<p class="ajuda">Nenhum ajuste pedido ainda nesta minuta.</p>';
+    return;
+  }
+  el.innerHTML = '<div class="rot">Ajustes já pedidos</div><ol>' +
+    pedidos.map(function(t){
+      return '<li>' + esc(t.conteudo) +
+        (t.criado ? '<span class="quando">' + esc(fmtData(t.criado)) + '</span>' : '') + '</li>';
+    }).join('') + '</ol>';
+}
+
+$('#btn-revisar').addEventListener('click', function(){
+  var ato = estado.ato;
+  if (!ato || !ato.minutaId) return;
+  var pedido = $('#pedido-revisao').value.trim();
+  var erroEl = $('#erro-passo3');
+  limpa(erroEl); limpa($('#minuta-salvo'));
+  if (!pedido){
+    erroEl.innerHTML = html_erro('escreva o ajuste que você quer na minuta.');
+    $('#pedido-revisao').focus();
+    return;
+  }
+  var btn = $('#btn-revisar');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-minuta'), 'Reescrevendo a minuta com o seu ajuste…');
+
+  // O texto que está na tela pode ter edições manuais: salva antes de revisar,
+  // para o agente não reescrever por cima de uma versão antiga.
+  var atual = $('#editor-minuta').value;
+  var antes = (atual !== ato.texto)
+    ? api('/agentes/minutas/' + ato.minutaId + '/salvar', { metodo:'POST', corpo:{ texto: atual } })
+        .then(function(){ ato.texto = atual; })
+    : Promise.resolve();
+
+  antes.then(function(){
+    return api('/agentes/minutas/' + ato.minutaId + '/revisar', { metodo:'POST', corpo:{ pedido: pedido } });
+  }).then(function(r){
+    ato.texto = r.texto || '';
+    if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
+    ato.turnos = (ato.turnos || []).concat([{ papel:'usuario', conteudo: pedido, criado: new Date().toISOString() }]);
+    $('#editor-minuta').value = ato.texto;
+    $('#pedido-revisao').value = '';
+    renderCusto(); renderHistorico();
+    $('#minuta-salvo').textContent = 'ajuste aplicado às ' + fmtData(new Date().toISOString()).slice(11);
+  }).catch(function(e){
+    if (e && e.status === 401) return;
+    pintaErro(erroEl, e);
+  }).then(function(){
+    parar(); btn.disabled = false;
+  });
+});
+
+$('#btn-salvar').addEventListener('click', function(){
+  var ato = estado.ato;
+  if (!ato || !ato.minutaId) return;
+  var erroEl = $('#erro-passo3');
+  limpa(erroEl);
+  var btn = $('#btn-salvar');
+  btn.disabled = true;
+  var parar = iniciarCronometro($('#carregando-minuta'), 'Salvando…');
+  var texto = $('#editor-minuta').value;
+  api('/agentes/minutas/' + ato.minutaId + '/salvar', { metodo:'POST', corpo:{ texto: texto } })
+    .then(function(m){
+      ato.texto = texto;
+      $('#minuta-salvo').textContent = 'salvo às ' + fmtData((m && m.atualizado) || new Date().toISOString()).slice(11);
+    })
+    .catch(function(e){ if (e && e.status === 401) return; pintaErro(erroEl, e); })
+    .then(function(){ parar(); btn.disabled = false; });
+});
+
+// O download exige o header X-Auth-Token, então nada de <a href> direto:
+// busca o arquivo, vira blob e um link temporário dispara o "salvar como".
+function baixarWord(minutaId, nomeSugerido, erroEl, carregandoEl){
+  var parar = iniciarCronometro(carregandoEl, 'Preparando o arquivo do Word…');
+  return fetch('/agentes/minutas/' + minutaId + '/arquivo', {
+    headers: estado.token ? { 'X-Auth-Token': estado.token } : {}
+  }).then(function(r){
+    if (r.status === 401){ sessaoExpirou(); throw new ErroApi('sua sessão expirou — entre de novo', 401); }
+    if (!r.ok){
+      return r.json().catch(function(){ return null; }).then(function(c){
+        throw new ErroApi((c && c.erro) || ('não consegui gerar o arquivo (erro ' + r.status + ')'), r.status, c && c.detalhe);
+      });
+    }
+    return r.blob();
+  }).then(function(blob){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = (nomeSugerido || ('minuta-' + minutaId)).replace(/[\\/:*?"<>|]/g, '-') + '.doc';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // revoga só depois: o Chrome precisa do blob vivo até começar o download
+    window.setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }).catch(function(e){
+    if (e && e.status === 401) return;
+    if (erroEl) pintaErro(erroEl, e);
+  }).then(function(){ parar(); });
+}
+
+$('#btn-baixar').addEventListener('click', function(){
+  var ato = estado.ato;
+  if (!ato || !ato.minutaId) return;
+  limpa($('#erro-passo3'));
+  var nome = ato.titulo || (ato.agente && ato.agente.nome) || ('minuta-' + ato.minutaId);
+  baixarWord(ato.minutaId, nome, $('#erro-passo3'), $('#carregando-minuta'));
+});
+
+/* ------------------------------------------------------- 8. minhas minutas */
+
+function carregarMinutas(){
+  var alvo = $('#minutas-estado');
+  alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Carregando as minutas…</span></div>';
+  var todos = estado.ehAdmin && $('#chk-todas-minutas').checked;
+  api('/agentes/minutas?limite=50' + (todos ? '&todos=1' : ''))
+    .then(function(lista){
+      limpa(alvo);
+      estado.minutas = Array.isArray(lista) ? lista : [];
+      renderMinutas(todos);
+    })
+    .catch(function(e){
+      if (e && e.status === 401) return;
+      pintaErro(alvo, e);
+      limpa($('#minutas-conteudo'));
+    });
+}
+
+$('#btn-recarregar-minutas').addEventListener('click', carregarMinutas);
+$('#chk-todas-minutas').addEventListener('change', carregarMinutas);
+
+function renderMinutas(todos){
+  var alvo = $('#minutas-conteudo');
+  if (!estado.minutas.length){
+    alvo.innerHTML = '<div class="vazio"><h3>Nenhuma minuta ainda</h3>' +
+      '<p>Escolha um ato em “Atos e ferramentas” para começar.</p></div>';
+    return;
+  }
+  var html = '<div class="tabela-caixa"><table><thead><tr>' +
+    '<th style="width:88px">Protocolo</th><th style="width:180px">Ato</th><th>Título</th>' +
+    (todos ? '<th style="width:130px">Escrevente</th>' : '') +
+    '<th style="width:106px">Situação</th><th style="width:130px">Atualizada</th>' +
+    '<th style="width:170px"></th></tr></thead><tbody>';
+  estado.minutas.forEach(function(m){
+    var st = String(m.status || '').toLowerCase();
+    html += '<tr>' +
+      '<td>' + (m.protocolo ? esc(m.protocolo) : '<span style="color:var(--tinta-fraca)">—</span>') + '</td>' +
+      '<td>' + esc(m.agente_nome || m.agente || '—') + '</td>' +
+      '<td>' + esc(m.titulo || '—') +
+        (m.qtd_alertas ? ' <span class="etiqueta" style="border-color:var(--ambar-forte);color:var(--ambar);background:var(--ambar-claro)">' +
+          esc(m.qtd_alertas) + ' alerta' + (m.qtd_alertas > 1 ? 's' : '') + '</span>' : '') + '</td>' +
+      (todos ? '<td>' + esc(m.usuario || '—') + '</td>' : '') +
+      '<td><span class="status ' + esc(st) + '">' + esc(m.status || '—') + '</span></td>' +
+      '<td>' + esc(fmtData(m.atualizado)) + '</td>' +
+      '<td><div class="acoes">' +
+        '<button type="button" class="btn btn-pequeno" data-abrir="' + esc(m.id) + '">Abrir</button>' +
+        (m.tem_texto ? '<button type="button" class="btn btn-pequeno" data-baixar="' + esc(m.id) + '">Baixar</button>' : '') +
+      '</div></td></tr>';
+  });
+  html += '</tbody></table></div><div id="minutas-acao-estado" style="margin-top:10px"></div>';
+  alvo.innerHTML = html;
+
+  $$('#minutas-conteudo [data-abrir]').forEach(function(b){
+    b.addEventListener('click', function(){ abrirMinuta(parseInt(b.getAttribute('data-abrir'), 10)); });
+  });
+  $$('#minutas-conteudo [data-baixar]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var id = parseInt(b.getAttribute('data-baixar'), 10);
+      var m = estado.minutas.filter(function(x){ return x.id === id; })[0];
+      baixarWord(id, (m && m.titulo) || ('minuta-' + id), $('#minutas-estado'), $('#minutas-acao-estado'));
+    });
+  });
+}
+
+// Abre uma minuta já existente: com texto vai direto ao passo 3;
+// sem texto (só extraída) volta ao passo 2 para conferir e redigir.
+function abrirMinuta(id){
+  var alvo = $('#minutas-estado');
+  alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Abrindo a minuta…</span></div>';
+  api('/agentes/minutas/' + id)
+    .then(function(m){
+      limpa(alvo);
+      var ag = estado.agentes.filter(function(a){ return a.slug === m.agente; })[0] ||
+               { slug: m.agente, nome: m.agente, descricao: '' };
+      var ato = novoAto(ag);
+      ato.minutaId = m.id;
+      ato.titulo = m.titulo || '';
+      ato.protocolo = m.protocolo || '';
+      ato.dados = m.dados || {};
+      ato.alertas = m.alertas || [];
+      ato.texto = m.texto || '';
+      ato.turnos = m.turnos || [];
+      // o catálogo não devolve os campos do agente; reconstruímos a partir dos dados
+      ato.campos = camposDeDados(ato.dados);
+      ato.passosLiberados = { 1:false, 2:true, 3: !!m.texto };
+      estado.ato = ato;
+
+      $('#ato-titulo').textContent = ag.nome;
+      $('#ato-subtitulo').textContent = 'Minuta nº ' + m.id + (m.usuario ? ' · ' + m.usuario : '');
+      $('#pedido-revisao').value = ''; $('#obs-redacao').value = '';
+      limpa($('#erro-passo2')); limpa($('#erro-passo3')); limpa($('#minuta-salvo'));
+      renderConferencia();
+      renderMinuta();
+      irPara('ato');
+      irParaPasso(m.texto ? 3 : 2);
+    })
+    .catch(function(e){ if (e && e.status === 401) return; pintaErro(alvo, e); });
+}
+
+// Campos sintéticos quando não temos o cadastro do agente à mão.
+function camposDeDados(dados){
+  return Object.keys(dados || {}).filter(function(k){ return k.charAt(0) !== '_'; }).map(function(k){
+    var v = dados[k];
+    var tipo = (typeof v === 'object' || valorTexto(v).length > 110) ? 'longo' : 'texto';
+    return { id:k, rotulo: humanizar(k), tipo: tipo, extra: (v && typeof v === 'object') };
+  });
+}
+
+/* ------------------------------------------------------------- 9. consumo */
+
+function carregarConsumo(){
+  if (!estado.ehAdmin) return;
+  var alvo = $('#consumo-estado');
+  var dias = $('#consumo-dias').value;
+  alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Apurando o consumo…</span></div>';
+  api('/agentes/consumo?dias=' + encodeURIComponent(dias))
+    .then(function(r){ limpa(alvo); renderConsumo(r, dias); })
+    .catch(function(e){
+      if (e && e.status === 401) return;
+      if (e && e.status === 403){
+        // sem permissão: some com a seção inteira e volta para o painel
+        estado.ehAdmin = false;
+        mostrar($('#aba-consumo'), false);
+        mostrar($('#rot-todas-minutas'), false);
+        irPara('painel');
+        return;
+      }
+      pintaErro(alvo, e);
+      limpa($('#consumo-conteudo'));
+    });
+}
+
+$('#consumo-dias').addEventListener('change', carregarConsumo);
+
+function renderConsumo(r, dias){
+  var alvo = $('#consumo-conteudo');
+  var total = (r && r.total) || { minutas:0, usd:0 };
+  var usd = Number(total.usd) || 0;
+  var cambio = Number(r && r.cambio) || CAMBIO;
+  var brl = r && r.total_brl !== undefined ? Number(r.total_brl) : usd * cambio;
+  var linhas = (r && r.linhas) || [];
+
+  var html = '<div class="cartoes-numero">' +
+    '<div class="cartao-numero"><div class="rot">Total no período</div>' +
+      '<div class="valor">' + esc(fmtBRL(brl)) + '</div>' +
+      '<div class="obs">' + esc(fmtUSD(usd)) + ' · câmbio ' + esc(cambio.toFixed(2)) + '</div></div>' +
+    '<div class="cartao-numero"><div class="rot">Minutas geradas</div>' +
+      '<div class="valor">' + esc(fmtNum(total.minutas || 0)) + '</div>' +
+      '<div class="obs">últimos ' + esc(dias) + ' dias</div></div>' +
+    '<div class="cartao-numero"><div class="rot">Custo médio por minuta</div>' +
+      '<div class="valor">' + esc(total.minutas ? fmtBRL(brl / total.minutas) : '—') + '</div>' +
+      '<div class="obs">' + esc(linhas.length) + ' combinações apuradas</div></div>' +
+  '</div>';
+
+  if (!linhas.length){
+    html += '<div class="vazio"><h3>Nenhum consumo no período</h3><p>Ninguém usou os agentes nos últimos ' +
+      esc(dias) + ' dias.</p></div>';
+    alvo.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="tabela-caixa"><table><thead><tr>' +
+    '<th>Escrevente</th><th>Ato</th><th>Etapa</th><th>Modelo</th>' +
+    '<th class="num">Chamadas</th><th class="num">Tokens entrada</th><th class="num">Tokens saída</th>' +
+    '<th class="num">US$</th><th class="num">R$</th></tr></thead><tbody>';
+  linhas.forEach(function(l){
+    var u = Number(l.usd) || 0;
+    html += '<tr>' +
+      '<td>' + esc(l.usuario || '—') + '</td>' +
+      '<td>' + esc(l.agente || '—') + '</td>' +
+      '<td>' + esc(l.etapa || '—') + '</td>' +
+      '<td style="font-size:12px;color:var(--tinta-fraca)">' + esc(l.modelo || '—') + '</td>' +
+      '<td class="num">' + esc(fmtNum(l.chamadas)) + '</td>' +
+      '<td class="num">' + esc(fmtNum(l.entrada)) + '</td>' +
+      '<td class="num">' + esc(fmtNum(l.saida)) + '</td>' +
+      '<td class="num">' + esc(fmtUSD(u)) + '</td>' +
+      '<td class="num">' + esc(fmtBRL(u * cambio)) + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+  alvo.innerHTML = html;
+}
+
+/* -------------------------------------------------------------- 10. início */
+
+// Retoma a sessão da aba, se houver. A validade quem diz é o servidor.
+(function iniciar(){
+  var t = ler('cn2o_token');
+  var u = ler('cn2o_usuario');
+  if (t && u){
+    try {
+      estado.token = t;
+      estado.usuario = JSON.parse(u);
+      estado.ehAdmin = CARGOS_ADMIN.indexOf(estado.usuario && estado.usuario.cargo) >= 0;
+      abrirApp();
+      return;
+    } catch (e) {
+      apagar('cn2o_token'); apagar('cn2o_usuario');
+    }
+  }
+  mostrarLogin('');
+})();
+</script>
+</body>
+</html>
