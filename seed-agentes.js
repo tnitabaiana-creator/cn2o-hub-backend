@@ -160,9 +160,14 @@ const AGENTES = [
       { id: 'conteudo', rotulo: 'O que precisa ser dito', tipo: 'longo', obrigatorio: true },
       { id: 'prazo', rotulo: 'Prazo ou providência pedida', tipo: 'texto' }] },
 
+  // Ferramenta do setor de Cadastro e Protocolo, NÃO redige escritura: entrega a
+  // qualificação em parágrafo único, a tabela do sistema e os alertas.
+  // usa_busca: a Seção 3 do prompt manda pesquisar valores de mercado. Sem a
+  // ferramenta de busca declarada, essa seção não teria como existir.
+  // temperatura 0: o prompt exige transcrição ipsis litteris.
   { slug: 'qualificacao-imovel', nome: 'Qualificação do Imóvel', codigo_ato: null, ordem: 5, categoria: 'ferramenta',
-    descricao: 'Matrícula e documentos fiscais entram; sai a qualificação em parágrafo único, a tabela do sistema e os alertas. Use antes de montar qualquer ato.',
-    prompt: 'not-extrator.md', template: null,
+    descricao: 'Matrícula e documentos fiscais entram; sai a qualificação em parágrafo único, a tabela de preenchimento do sistema, o comparativo de valores e os alertas. Não redige escritura.',
+    prompt: 'not-extrator.md', template: null, usa_busca: true, temperatura: 0,
     campos: [
       { id: 'observacoes_caso', rotulo: 'Instruções pontuais para este caso', tipo: 'longo' }] },
 
@@ -315,10 +320,11 @@ const AGENTES = [
     await dba.salvarAgente({
       slug: d.slug, nome: d.nome, descricao: d.descricao,
       categoria: d.categoria || 'escritura', codigo_ato: d.codigo_ato,
-      ordem: d.ordem, prompt_sistema, template, campos: d.campos || [], ativo: true
+      ordem: d.ordem, prompt_sistema, template, campos: d.campos || [], ativo: true,
+      usa_busca: !!d.usa_busca, temperatura: d.temperatura
     }, 'seed');
 
-    console.log(`  prompt ${prompt_sistema.length} car.${template ? ` · template ${template.length} car.` : ' · sem template'} · ${(d.campos || []).length} campos`);
+    console.log(`  prompt ${prompt_sistema.length} car.${template ? ` · template ${template.length} car.` : ' · sem template'} · ${(d.campos || []).length} campos${d.usa_busca ? ' · COM BUSCA' : ''}${d.temperatura != null ? ` · temp ${d.temperatura}` : ''}`);
     ok++;
   }
 
