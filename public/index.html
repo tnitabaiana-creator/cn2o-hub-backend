@@ -2111,6 +2111,18 @@ var CAMPOS_FIXOS = {
 };
 function chaveDoCampo(c){ return c.chave || c.id; }
 
+// Texto de apoio por ferramenta. A Qualificação do Imóvel atende também posse
+// sem matrícula — e a escrevente precisa saber que pode colar o descritivo
+// quando não há documento nenhum. Os demais usam o texto padrão.
+var COPIA_FERRAMENTA = {
+  'qualificacao-imovel': {
+    legenda: 'Anexe a matrícula com o carnê de IPTU ou a guia de ITBI. Para POSSE sem matrícula, anexe a escritura de cessão anterior, o contrato, a declaração ou o croqui. Não há documento nenhum? Cole o descritivo do imóvel no campo de observações.',
+    rotuloArquivos: 'Matrícula ou documento descritivo',
+    rotuloObs: 'Observações — ou o descritivo do imóvel, quando não houver documento',
+    placeholderObs: 'Instruções para este caso. Se for posse sem documento, cole aqui a descrição do imóvel exatamente como consta na fonte (medidas, confrontações, situação). O agente transcreve literalmente e marca o que faltar.'
+  }
+};
+
 function abrirExecucao(ag){
   var ex = novaExecucao(ag);
   var comunicacao = ag.categoria === 'comunicacao';
@@ -2126,14 +2138,20 @@ function abrirExecucao(ag){
   limpa($('#erro-exec')); limpa($('#erro-saida'));
   limpa($('#saida-custo')); limpa($('#saida-salvo'));
 
+  var copia = COPIA_FERRAMENTA[ag.slug] || {};
   $('#exec-painel-titulo').textContent = comunicacao ? 'O que o documento precisa dizer' : 'Material de trabalho';
   $('#exec-painel-legenda').textContent = comunicacao
     ? 'Preencha o essencial. O agente devolve o texto pronto para copiar.'
-    : 'Anexe as certidões, matrículas e documentos. Aceita PDF e imagens (JPG, PNG, HEIC).';
-  $('#exec-rot-arquivos').textContent = comunicacao ? 'Anexos (opcional)' : 'Documentos';
+    : (copia.legenda || 'Anexe as certidões, matrículas e documentos. Aceita PDF e imagens (JPG, PNG, HEIC).');
+  $('#exec-rot-arquivos').textContent = comunicacao ? 'Anexos (opcional)' : (copia.rotuloArquivos || 'Documentos');
   $('#exec-solta-sub').textContent = comunicacao
     ? 'opcional — anexe o que o documento cita · PDF, JPG, PNG'
     : 'ou clique para escolher no computador · PDF, JPG, PNG';
+  // Rótulo e dica das observações mudam por ferramenta (posse sem documento
+  // entra por aqui). Sempre redefinidos, para um agente não herdar do anterior.
+  var rotObs = document.querySelector('label[for="exec-observacoes"]');
+  if (rotObs) rotObs.textContent = copia.rotuloObs || 'Observações';
+  $('#exec-observacoes').placeholder = copia.placeholderObs || 'O que o agente precisa saber e não está no material anexado.';
 
   renderCamposExec();
   uploaderExec.render();
