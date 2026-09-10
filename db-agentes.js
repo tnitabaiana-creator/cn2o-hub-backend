@@ -24,6 +24,12 @@ async function init() {
       atualizado_por   TEXT
     );
 
+    -- usa_busca: liga a ferramenta de busca do Gemini para este agente. No app
+    -- do Gemini o Gem pesquisa sozinho; pela API é preciso declarar.
+    -- temperatura: 0 para transcrição literal, mais alto para redação.
+    ALTER TABLE agentes ADD COLUMN IF NOT EXISTS usa_busca   BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE agentes ADD COLUMN IF NOT EXISTS temperatura NUMERIC(3,2);
+
     CREATE TABLE IF NOT EXISTS agente_versoes (
       id              SERIAL PRIMARY KEY,
       slug            TEXT NOT NULL,
@@ -100,8 +106,9 @@ async function salvarAgente(a, porQuem) {
     `INSERT INTO agentes
        (slug, nome, descricao, categoria, codigo_ato, ordem,
         modelo_extracao, modelo_redacao, prompt_sistema, template, campos,
-        ativo, atualizado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,COALESCE($12,true),$13)
+        ativo, atualizado_por, usa_busca, temperatura)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,COALESCE($12,true),$13,
+             COALESCE($14,false),$15)
      ON CONFLICT (slug) DO UPDATE SET
        nome            = EXCLUDED.nome,
        descricao       = EXCLUDED.descricao,
@@ -114,6 +121,8 @@ async function salvarAgente(a, porQuem) {
        template        = EXCLUDED.template,
        campos          = EXCLUDED.campos,
        ativo           = EXCLUDED.ativo,
+       usa_busca       = EXCLUDED.usa_busca,
+       temperatura     = EXCLUDED.temperatura,
        versao          = agentes.versao + 1,
        atualizado      = now(),
        atualizado_por  = EXCLUDED.atualizado_por
@@ -121,7 +130,7 @@ async function salvarAgente(a, porQuem) {
     [a.slug, a.nome, a.descricao || null, a.categoria || 'escritura', a.codigo_ato || null,
      a.ordem == null ? 100 : a.ordem, a.modelo_extracao || null, a.modelo_redacao || null,
      a.prompt_sistema, a.template || null, JSON.stringify(a.campos || []),
-     a.ativo, porQuem || null]
+     a.ativo, porQuem || null, a.usa_busca, a.temperatura == null ? null : a.temperatura]
   );
   const salvo = rows[0];
   // Histórico: toda gravação vira uma versão, para dar para voltar atrás.
