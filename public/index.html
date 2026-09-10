@@ -547,7 +547,7 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
 
           <div class="barra-acoes">
             <button type="button" class="btn btn-principal" id="btn-extrair">Ler documentos</button>
-            <span class="ajuda" style="margin:0">Leva de 10 a 40 segundos. Não feche a aba.</span>
+            <span class="ajuda" style="margin:0">Normalmente 10 a 40 segundos; em horário de pico, mais. Não feche a aba.</span>
             <div class="direita"><div id="carregando-extrair"></div></div>
           </div>
         </div>
@@ -660,7 +660,7 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
 
           <div class="barra-acoes">
             <button type="button" class="btn btn-principal" id="btn-executar">Executar</button>
-            <span class="ajuda" style="margin:0">Leva de 20 a 60 segundos. Não feche a aba.</span>
+            <span class="ajuda" style="margin:0">Normalmente 20 a 60 segundos; em horário de pico, até 3 minutos. Não feche a aba.</span>
             <div class="direita"><div id="carregando-exec"></div></div>
           </div>
         </div>
@@ -943,13 +943,19 @@ function pintaErro(el, e){
 function limpa(el){ if (el) el.innerHTML = ''; }
 
 // Carregando com relógio: a escrevente vê que a tela não travou.
+// Depois de 75s o texto muda: o servidor está repetindo a chamada porque o
+// Google devolveu "alta demanda" — a escrevente precisa saber que não travou.
+// Depois de 3 minutos, avisa que pode desistir sem perder o material.
 function iniciarCronometro(el, texto){
   if (!el) return function(){};
   var t0 = Date.now();
   function pinta(){
     var s = Math.round((Date.now() - t0)/1000);
+    var msg = texto;
+    if (s >= 180) msg = 'Ainda tentando. O Google está lento hoje — se preferir, cancele e execute de novo daqui a alguns minutos; o material fica na tela.';
+    else if (s >= 75) msg = 'Demorando mais que o normal: o Google sinalizou alta demanda e o servidor está tentando de novo, inclusive num modelo de reserva.';
     el.innerHTML = '<div class="carregando"><span class="girando"></span><span>' +
-      esc(texto) + ' <span style="font-variant-numeric:tabular-nums">' + s + 's</span></span></div>';
+      esc(msg) + ' <span style="font-variant-numeric:tabular-nums">' + s + 's</span></span></div>';
   }
   pinta();
   var id = window.setInterval(pinta, 1000);
