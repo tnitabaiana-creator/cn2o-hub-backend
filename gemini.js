@@ -10,6 +10,10 @@ const API = 'https://generativelanguage.googleapis.com/v1beta';
 
 const MODELO_EXTRACAO = process.env.GEMINI_MODEL_EXTRACAO || 'gemini-3.5-flash-lite';
 const MODELO_REDACAO  = process.env.GEMINI_MODEL_REDACAO  || 'gemini-3.8-flash';
+// Modelo de reserva quando o principal devolve 503 (alta demanda) repetidas
+// vezes. "gemini-flash-latest" é o alias que o Google mantém apontando para
+// um Flash corrente — sempre existe, mesmo quando o 3.8 está sobrecarregado.
+const MODELO_RESERVA  = process.env.GEMINI_MODEL_RESERVA  || 'gemini-flash-latest';
 
 // Preço de tabela em USD por 1 milhão de tokens: [entrada, saída].
 // Serve só para o log de consumo — errar aqui não quebra nada, só a estimativa.
@@ -20,7 +24,9 @@ const PRECOS = {
   'gemini-3.5-flash-lite': [0.30, 2.50],
   'gemini-3.8-flash':      [0.75, 3.75],
   'gemini-3.7-flash':      [0.75, 3.75],
-  'gemini-3.1-pro':        [2.00, 12.00]
+  'gemini-3.1-pro':        [2.00, 12.00],
+  // alias de reserva: preço aproximado ao do Flash corrente
+  'gemini-flash-latest':   [0.75, 3.75]
 };
 
 function chave() {
@@ -63,7 +69,44 @@ function partesDeArquivos(arquivos = []) {
 // pendurada não trava só o agente: trava o cartório inteiro.
 const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 180000;
 
-async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false, busca = false }) {
+// Erro que vale a pena repetir: sobrecarga do Google (503), limite de taxa
+// (429), falha interna (500) e o nosso próprio timeout. Tudo o mais — 400 de
+// pedido malformado, 403 de chave, bloqueio de segurança — repetir só atrasa.
+class ErroTransitorio extends Error {
+  constructor(msg, status) { super(msg); this.transitorio = true; this.status = status; }
+}
+const dormir = ms => new Promise(r => setTimeout(r, ms));
+
+// Plano de tentativas: 2 no modelo pedido, com pausa entre elas; se o Google
+// seguir em alta demanda, 1 no modelo de reserva. O `uso.modelo` devolvido diz
+// qual respondeu de fato — o relatório de consumo mostra quando a reserva entrou.
+async function chamar(opts) {
+  const principal = opts.modelo;
+  const plano = [
+    { modelo: principal, esperaAntes: 0 },
+    { modelo: principal, esperaAntes: 4000 },
+    ...(MODELO_RESERVA && MODELO_RESERVA !== principal
+        ? [{ modelo: MODELO_RESERVA, esperaAntes: 2000 }] : [{ modelo: principal, esperaAntes: 10000 }])
+  ];
+  let ultimo;
+  for (const passo of plano) {
+    if (passo.esperaAntes) await dormir(passo.esperaAntes);
+    try {
+      return await chamarUmaVez({ ...opts, modelo: passo.modelo });
+    } catch (e) {
+      ultimo = e;
+      if (!e.transitorio) throw e;
+      console.warn(`gemini ${passo.modelo}: ${e.message.slice(0, 120)} — tentando de novo`);
+    }
+  }
+  throw new Error(
+    `O Google está com alta demanda no modelo agora (${ultimo && ultimo.status ? ultimo.status : 'sem resposta'}). ` +
+    'Tentei três vezes, inclusive no modelo de reserva. Aguarde alguns minutos e execute de novo — ' +
+    'o material anexado continua na tela.'
+  );
+}
+
+async function chamarUmaVez({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false, busca = false }) {
   const corpo = {
     contents: [{ role: 'user', parts: partes }],
     generationConfig: {
@@ -90,13 +133,20 @@ async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 
     });
   } catch (e) {
     if (e.name === 'TimeoutError' || e.name === 'AbortError') {
-      throw new Error(`o modelo não respondeu em ${Math.round(TIMEOUT_MS / 1000)}s — tente de novo`);
+      throw new ErroTransitorio(`o modelo não respondeu em ${Math.round(TIMEOUT_MS / 1000)}s`, 'timeout');
     }
-    throw e;
+    // Falha de rede (DNS, conexão recusada) também é passageira.
+    throw new ErroTransitorio(`falha de rede ao chamar o modelo: ${e.message}`, 'rede');
   }
 
   const txt = await r.text();
-  if (!r.ok) throw new Error(`Gemini ${modelo} ${r.status}: ${txt.slice(0, 400)}`);
+  if (!r.ok) {
+    const msg = `Gemini ${modelo} ${r.status}: ${txt.slice(0, 400)}`;
+    if (r.status === 503 || r.status === 429 || r.status === 500 || r.status === 502 || r.status === 504) {
+      throw new ErroTransitorio(msg, r.status);
+    }
+    throw new Error(msg);
+  }
 
   let j;
   try { j = JSON.parse(txt); }
@@ -295,5 +345,5 @@ async function listarModelos() {
 
 module.exports = {
   extrair, redigir, revisar, executar, listarModelos, custoUsd,
-  MODELO_EXTRACAO, MODELO_REDACAO, PRECOS
+  MODELO_EXTRACAO, MODELO_REDACAO, MODELO_RESERVA, PRECOS
 };
