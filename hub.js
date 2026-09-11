@@ -13,6 +13,7 @@
 //   GET  /hub/ia/status        → { configurada, modelo }
 //   POST /hub/ia/:ferramenta   → qualificacao | matricula — { texto, arquivos[] } → { texto, … }
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
+//   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
 // vale 'cesar.bravo'. A IA usa o gemini.js da Plataforma (GEMINI_API_KEY).
@@ -227,6 +228,64 @@ router.get('/mural/historico', exigeSessao, exigeAdmin, async (req, res) => {
   } catch (e) {
     console.error('hub histórico:', e.message);
     res.status(500).json({ erro: 'falha ao ler o histórico' });
+  }
+});
+
+// ---------------------------------------------------------------- equipe (admin)
+// O Tabelião cadastra quem entra no Hub (inclusive quem não é escrevente) e zera
+// senha esquecida. Sem senha, a pessoa cria a própria no próximo acesso — por
+// isso zere/cadastre só quando ela for entrar em seguida.
+const RE_LOGIN = /^[a-z0-9]+(\.[a-z0-9]+)+$/;
+router.get('/admin/equipe', exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const r = await q(
+      `SELECT u.login, u.nome, u.cargo, (u.senha_hash IS NOT NULL) AS tem_senha,
+              (SELECT max(s.criado) FROM sessoes s WHERE s.login = u.login) AS ultimo_acesso
+         FROM usuarios u
+        ORDER BY u.nome`
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('hub equipe:', e.message);
+    res.status(500).json({ erro: 'falha ao ler a equipe' });
+  }
+});
+router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const login = txt(b.login, 60).toLowerCase();
+    const nome = txt(b.nome, 80);
+    const cargo = txt(b.cargo, 60) || 'Colaborador(a)';
+    if (!nome) return res.status(400).json({ erro: 'informe o nome da pessoa' });
+    if (!RE_LOGIN.test(login)) return res.status(400).json({ erro: 'o usuário segue o padrão nome.sobrenome — só letras minúsculas, sem acento' });
+    const r = await q(
+      `INSERT INTO usuarios (login, nome, cargo) VALUES ($1, $2, $3)
+       ON CONFLICT (login) DO NOTHING RETURNING login`,
+      [login, nome, cargo]
+    );
+    if (!r.rows.length) return res.status(409).json({ erro: 'esse usuário já existe' });
+    console.log(`hub: ${req.usuario.login} cadastrou ${login}`);
+    res.json({ ok: true, login });
+  } catch (e) {
+    console.error('hub equipe (cadastrar):', e.message);
+    res.status(500).json({ erro: 'falha ao cadastrar' });
+  }
+});
+router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const login = txt((req.body || {}).login, 60).toLowerCase();
+    if (login === String(req.usuario.login).toLowerCase()) {
+      return res.status(400).json({ erro: 'a sua própria senha não se zera por aqui' });
+    }
+    const u = await db.buscarUsuario(login);
+    if (!u) return res.status(404).json({ erro: 'usuário não encontrado' });
+    await db.gravarSenha(u.login, null);
+    await q('DELETE FROM sessoes WHERE login = $1', [u.login]);
+    console.log(`hub: ${req.usuario.login} zerou a senha de ${u.login}`);
+    res.json({ ok: true, login: u.login });
+  } catch (e) {
+    console.error('hub equipe (zerar):', e.message);
+    res.status(500).json({ erro: 'falha ao zerar a senha' });
   }
 });
 
