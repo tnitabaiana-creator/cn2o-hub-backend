@@ -307,6 +307,13 @@ function aguardarLimite(login) {
   return 0;
 }
 function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO; }
+// O Not-Extrator usa por padrão o modelo mais capaz da tabela (OCR de alto
+// nível pedido pelo Tabelião — qualidade acima do custo). Troca sem deploy:
+// variável HUB_MODELO_EXTRATOR no Railway.
+function modeloDe(ferramenta) {
+  if (ferramenta === 'qualificacao') return process.env.HUB_MODELO_EXTRATOR || 'gemini-3.1-pro';
+  return process.env.HUB_MODELO_IA || undefined;
+}
 // O custo entra na mesma tabela `consumo` da Plataforma de Agentes: um extrato
 // só de IA para o cartório inteiro (agente = hub-qualificacao / hub-matricula).
 function registrarUso(login, ferramenta, uso) {
@@ -324,7 +331,7 @@ function registrarUso(login, ferramenta, uso) {
 }
 
 router.get('/ia/status', exigeSessao, (req, res) => {
-  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null });
+  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao') });
 });
 
 router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
@@ -385,7 +392,7 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
       agente: { prompt_sistema: PROMPTS[nome].prompt, temperatura: 0, usa_busca: false },
       arquivos,
       observacoes,
-      modelo: process.env.HUB_MODELO_IA || undefined
+      modelo: modeloDe(nome)
     });
     const uso = r.uso || {};
     registrarUso(req.usuario.login, nome, uso);
