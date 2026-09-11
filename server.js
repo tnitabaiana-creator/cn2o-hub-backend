@@ -6,11 +6,12 @@ const { dispararRecibos } = require('./whats');
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
 
 const app = express();
-// Corpo pequeno mantem o limite antigo; /agentes tem parser proprio (24 MB)
-// porque recebe PDF e imagem em base64.
+// Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
+// (24 MB) porque recebem PDF e imagem em base64.
 const jsonPequeno = express.json({ limit: '256kb' });
 app.use((req, res, next) =>
-  req.path.startsWith('/agentes') ? next() : jsonPequeno(req, res, next));
+  (req.path.startsWith('/agentes') || req.path.startsWith('/hub/'))
+    ? next() : jsonPequeno(req, res, next));
 
 // CORS: o formulário roda no Netlify
 app.use((req, res, next) => {
@@ -266,6 +267,10 @@ app.get('/saude', (_req, res) => res.json({ ok: true }));
 // --- Hub de Agentes (redacao de atos) ------------------------------------
 // Herda sessao, banco e usuarios do hub de protocolo que ja roda aqui.
 app.use('/agentes', exigeSessao, require('./agentes'));
+
+// --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
+// Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
+app.use('/hub', require('./hub'));
 
 // A interface (public/index.html). Fica por ultimo entre os middlewares
 // para nao sombrear nenhuma rota da API.
