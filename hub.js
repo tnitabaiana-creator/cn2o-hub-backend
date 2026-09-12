@@ -13,6 +13,7 @@
 //   GET  /hub/ia/status        → { configurada, modelo }
 //   POST /hub/ia/:ferramenta   → qualificacao | matricula — { texto, arquivos[] } → { texto, … }
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
+//   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
@@ -22,6 +23,7 @@ const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
 const gemini = require('./gemini');    // cliente Gemini da Plataforma CN2O (GEMINI_API_KEY)
 const PROMPTS = require('./hub-prompts');
+const trello = require('./trello');    // cliente da API do Trello (t genérico + operações)
 
 const router = express.Router();
 const jsonMural = express.json({ limit: '8mb' });
@@ -367,6 +369,131 @@ router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
   } catch (e) {
     console.error('hub uso (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler o consumo' });
+  }
+});
+
+// ---------------------------------------------------------------- T-Consulta
+// Extrato do andamento pelo número do protocolo de entrada: junta o registro
+// canônico do banco (partes, ato, quem protocolou) com o cartão do Trello
+// (quadro e fase atuais, com quem está, movimentações e dossiê pendente).
+const NOMES_ATO = {
+  'CV-Urbano': 'Compra e venda — imóvel urbano',
+  'CV-Rural': 'Compra e venda — imóvel rural',
+  'DOA': 'Doação',
+  'PER': 'Permuta',
+  'INV': 'Inventário e partilha',
+  'CDH': 'Cessão de direitos hereditários',
+  'CDP': 'Cessão de direitos possessórios',
+  'TEST': 'Testamento',
+  'DUE': 'Declaração de união estável',
+  'PACTO': 'Pacto antenupcial',
+  'RERRAT': 'Rerratificação'
+};
+function quadrosDaCasa() {
+  const ids = [process.env.BOARD_00, process.env.BOARD_01]
+    .concat(String(process.env.BOARDS_ESCREVENTES || '').split(','));
+  return ids.map(s => String(s || '').trim()).filter(Boolean);
+}
+// regra da casa: o protocolo é o PRIMEIRO número do título do cartão
+// ("Prot. (CV-Urbano) 1400 - FULANO DE TAL")
+function primeiroNumero(nome) {
+  const m = /\d{3,6}/.exec(String(nome || ''));
+  return m ? parseInt(m[0], 10) : null;
+}
+async function cartaoCompleto(cardId) {
+  const campos = 'fields=name,desc,url,shortUrl,due,dateLastActivity,closed,idBoard,idList';
+  const extras = 'list=true&list_fields=name&board=true&board_fields=name&members=true&member_fields=fullName';
+  const card = await trello.t('GET', '/cards/' + cardId + '?' + campos + '&' + extras);
+  const acoes = await trello.t('GET', '/cards/' + cardId +
+    '/actions?filter=createCard,updateCard:idList,moveCardToBoard&limit=50').catch(() => []);
+  const checklists = await trello.t('GET', '/cards/' + cardId +
+    '/checklists?checkItems=all&checkItem_fields=name,state&fields=name').catch(() => []);
+  return { card, acoes, checklists };
+}
+function montarFases(acoes) {
+  const fases = [];
+  (acoes || []).slice().reverse().forEach(a => { // a API devolve do mais novo para o mais velho
+    const d = a.data || {};
+    if (a.type === 'createCard') {
+      fases.push({ em: a.date, fase: 'Entrada — ' + ((d.list && d.list.name) || 'protocolo'), tipo: 'entrada' });
+    } else if (a.type === 'updateCard' && d.listAfter) {
+      fases.push({ em: a.date, fase: d.listAfter.name, de: d.listBefore && d.listBefore.name, tipo: 'lista' });
+    } else if (a.type === 'moveCardToBoard') {
+      fases.push({ em: a.date, fase: 'Quadro ' + ((d.board && d.board.name) || ''), de: d.boardSource && d.boardSource.name, tipo: 'quadro' });
+    }
+  });
+  return fases;
+}
+router.get('/consulta/:numero', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const numero = parseInt(String(req.params.numero || '').replace(/\D/g, ''), 10);
+    if (!numero || numero < 1 || numero > 999999) {
+      return res.status(400).json({ erro: 'informe o número do protocolo (só dígitos)' });
+    }
+
+    // 1) registro canônico do hub de protocolo (quando o cartão nasceu por aqui)
+    let reg = null;
+    try {
+      const r = await q('SELECT numero, dados, card_id, criado_em FROM protocolos WHERE numero = $1', [numero]);
+      reg = r.rows[0] || null;
+    } catch (e) { /* instalação sem a tabela: segue só pelo Trello */ }
+
+    // 2) cartão: pelo vínculo do banco ou procurando o 1º número do título nos quadros da casa
+    let cardId = reg && reg.card_id;
+    if (!cardId) {
+      const busca = await trello.t('GET', '/search?query=' + encodeURIComponent('"' + numero + '"') +
+        '&modelTypes=cards&card_fields=name&cards_limit=20&idBoards=' + quadrosDaCasa().join(','))
+        .catch(() => null);
+      const achado = busca && (busca.cards || []).find(cd => primeiroNumero(cd.name) === numero);
+      if (achado) cardId = achado.id;
+    }
+    if (!cardId) return res.status(404).json({ erro: 'protocolo não encontrado — confira o número' });
+
+    // 3) extrato
+    const dados = (reg && reg.dados) || {};
+    const extrato = {
+      numero: numero,
+      protocolo: String(numero).padStart(4, '0'),
+      ato: dados.ato || null,
+      ato_nome: NOMES_ATO[dados.ato] || dados.ato || null,
+      entrada: (reg && reg.criado_em) || null,
+      urgente: !!dados.urgente,
+      partes: {
+        apresentante: dados.apresentante ? { nome: txt(dados.apresentante.nome, 120), telefone: txt(dados.apresentante.telefone, 30) } : null,
+        parte: dados.parte_envolvida ? { nome: txt(dados.parte_envolvida.nome, 120), telefone: txt(dados.parte_envolvida.telefone, 30) } : null,
+        vendedor: (dados.vendedor && dados.vendedor.nome) ? { nome: txt(dados.vendedor.nome, 120) } : null
+      },
+      escrevente_protocolo: dados.escrevente || null
+    };
+    try {
+      const { card, acoes, checklists } = await cartaoCompleto(cardId);
+      const dossie = (checklists || []).find(cl => /^DOSSI/i.test(cl.name || ''));
+      extrato.titulo = card.name;
+      extrato.link = card.shortUrl || card.url || null;
+      extrato.prazo = card.due || null;
+      extrato.arquivado = !!card.closed;
+      extrato.ultima_atividade = card.dateLastActivity || null;
+      extrato.quadro = (card.board && card.board.name) || '';
+      extrato.lista = (card.list && card.list.name) || '';
+      extrato.com_quem = (card.members || []).map(m => m.fullName).filter(Boolean);
+      extrato.fases = montarFases(acoes);
+      if (!extrato.entrada && extrato.fases.length) extrato.entrada = extrato.fases[0].em;
+      extrato.dossie_pendentes = dossie
+        ? (dossie.checkItems || []).filter(i => i.state !== 'complete').map(i => i.name)
+        : [];
+      if (!extrato.ato) { // cartão antigo, sem registro no hub: deduz o ato do título "Prot. (ATO) …"
+        const m = /\(([^)]{2,12})\)/.exec(card.name || '');
+        if (m) { extrato.ato = m[1]; extrato.ato_nome = NOMES_ATO[m[1]] || m[1]; }
+      }
+    } catch (e) {
+      console.error('hub consulta (trello):', e.message);
+      extrato.trello_indisponivel = true;
+    }
+    res.json(extrato);
+  } catch (e) {
+    console.error('hub consulta:', e.message);
+    res.status(500).json({ erro: 'falha na consulta — tente de novo' });
   }
 });
 
