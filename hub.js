@@ -334,7 +334,9 @@ function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 // Troca sem deploy: variáveis HUB_MODELO_* no Railway. E, se o modelo
 // configurado não existir mais (NOT_FOUND), a chamada cai sozinha para o
 // modelo comprovado da Plataforma (gemini.MODELO_REDACAO) em vez de parar
-// o balcão — a resposta registra qual modelo respondeu de fato.
+// o balcão — a resposta registra qual modelo respondeu de fato. O mesmo vale
+// para falta de cota (429): a chave no plano gratuito não cobre o tier pro,
+// então a ferramenta responde pelo flash até o faturamento ser habilitado.
 const MODELO_PRO_PADRAO = 'gemini-pro-latest';
 function modeloDe(ferramenta) {
   if (ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
@@ -342,8 +344,10 @@ function modeloDe(ferramenta) {
   if (ferramenta === 'matricula') return process.env.HUB_MODELO_ANALISTA || process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
   return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 }
-function modeloInexistente(e) {
-  return /NOT_FOUND|is not found for API version/i.test((e && e.message) || '');
+function modeloIndisponivel(e) {
+  const m = (e && e.message) || '';
+  return /NOT_FOUND|is not found for API version/i.test(m) ||
+         /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(m);
 }
 // O custo entra na mesma tabela `consumo` da Plataforma de Agentes: um extrato
 // só de IA para o cartório inteiro (agente = hub-qualificacao / hub-matricula).
@@ -581,8 +585,8 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     try {
       r = await gemini.executar({ agente: agenteIA, arquivos, observacoes, modelo: modeloPreferido });
     } catch (e) {
-      if (!modeloInexistente(e) || modeloPreferido === gemini.MODELO_REDACAO) throw e;
-      console.error('hub ia ' + nome + ': modelo "' + modeloPreferido + '" inexistente na API — caindo para ' + gemini.MODELO_REDACAO);
+      if (!modeloIndisponivel(e) || modeloPreferido === gemini.MODELO_REDACAO) throw e;
+      console.error('hub ia ' + nome + ': modelo "' + modeloPreferido + '" indisponível (' + String(e.message).slice(0, 90) + ') — caindo para ' + gemini.MODELO_REDACAO);
       r = await gemini.executar({ agente: agenteIA, arquivos, observacoes, modelo: gemini.MODELO_REDACAO });
     }
     const uso = r.uso || {};
