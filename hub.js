@@ -350,6 +350,46 @@ function modeloIndisponivel(e) {
   return /NOT_FOUND|is not found for API version/i.test(m) ||
          /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(m);
 }
+// v1.21 — congestionamento do lado do Google (503 UNAVAILABLE / "experiencing
+// high demand" / "model is overloaded"). Não é defeito do Hub nem do documento:
+// é pico de uso no modelo. Some sozinho em segundos, então a regra é insistir
+// um pouco antes de desistir — e, se insistir não bastar, trocar de modelo.
+function ehSobrecarga(e) {
+  const m = (e && e.message) || '';
+  return /\b(503|529)\b/.test(m) ||
+         /UNAVAILABLE|overloaded|experiencing high demand/i.test(m) ||
+         /"status"\s*:\s*"INTERNAL"/i.test(m);
+}
+function ehCota(e) {
+  const m = (e && e.message) || '';
+  return /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(m);
+}
+function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
+// Esperas entre as retentativas (ms). Uma retentativa por padrão; dá para
+// afrouxar sem deploy pela variável HUB_IA_ESPERA_MS ("1500,4000").
+function esperasRetentativa() {
+  return String(process.env.HUB_IA_ESPERA_MS || '1500')
+    .split(',').map(s => parseInt(s.trim(), 10)).filter(n => n > 0);
+}
+// O socorro é sempre o outro degrau: se o pro congestionou, vai de flash; se
+// foi o flash, tenta o pro. Assim nenhuma ferramenta fica sem plano B.
+function modeloAlternativo(preferido) {
+  const flash = gemini.MODELO_REDACAO;
+  if (preferido !== flash) return flash;
+  return MODELO_PRO_PADRAO !== flash ? MODELO_PRO_PADRAO : null;
+}
+async function chamarModelo(agenteIA, arquivos, observacoes, modelo, etiqueta) {
+  const esperas = esperasRetentativa();
+  for (let i = 0; ; i++) {
+    try {
+      return await gemini.executar({ agente: agenteIA, arquivos, observacoes, modelo });
+    } catch (e) {
+      if (!ehSobrecarga(e) || i >= esperas.length) throw e;
+      console.error('hub ia ' + etiqueta + ': "' + modelo + '" congestionado — nova tentativa em ' + esperas[i] + 'ms');
+      await esperar(esperas[i]);
+    }
+  }
+}
 // O custo entra na mesma tabela `consumo` da Plataforma de Agentes: um extrato
 // só de IA para o cartório inteiro (agente = hub-qualificacao / hub-matricula).
 function registrarUso(login, ferramenta, uso) {
@@ -549,7 +589,7 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     return res.status(404).json({ erro: 'ferramenta desconhecida' });
   }
   if (!process.env.GEMINI_API_KEY) {
-    return res.status(503).json({ erro: 'a IA ainda não está configurada no servidor (falta a GEMINI_API_KEY no Railway)' });
+    return res.status(503).json({ motivo: 'sem_chave', erro: 'a IA ainda não está configurada no servidor (falta a GEMINI_API_KEY no Railway)' });
   }
   const corpo = req.body || {};
   const texto = typeof corpo.texto === 'string' ? corpo.texto.slice(0, 200000).trim() : '';
@@ -601,11 +641,17 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     const modeloPreferido = modeloDe(nome);
     let r;
     try {
-      r = await gemini.executar({ agente: agenteIA, arquivos, observacoes: observacoesFinais, modelo: modeloPreferido });
-    } catch (e) {
-      if (!modeloIndisponivel(e) || modeloPreferido === gemini.MODELO_REDACAO) throw e;
-      console.error('hub ia ' + nome + ': modelo "' + modeloPreferido + '" indisponível (' + String(e.message).slice(0, 90) + ') — caindo para ' + gemini.MODELO_REDACAO);
-      r = await gemini.executar({ agente: agenteIA, arquivos, observacoes: observacoesFinais, modelo: gemini.MODELO_REDACAO });
+      r = await chamarModelo(agenteIA, arquivos, observacoesFinais, modeloPreferido, nome);
+    } catch (e0) {
+      const socorro = modeloAlternativo(modeloPreferido);
+      if (!socorro || (!modeloIndisponivel(e0) && !ehSobrecarga(e0))) throw e0;
+      console.error('hub ia ' + nome + ': modelo "' + modeloPreferido + '" fora do ar (' + String(e0.message).slice(0, 90) + ') — socorro em ' + socorro);
+      try {
+        r = await chamarModelo(agenteIA, arquivos, observacoesFinais, socorro, nome);
+      } catch (e1) {
+        console.error('hub ia ' + nome + ': o socorro "' + socorro + '" também falhou (' + String(e1.message).slice(0, 90) + ')');
+        throw e0;   // o balcão precisa ver a causa de origem, não a do plano B
+      }
     }
     const uso = r.uso || {};
     registrarUso(req.usuario.login, nome, uso);
@@ -620,6 +666,20 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     });
   } catch (e) {
     console.error(`hub ia ${nome}:`, e.message);
+    // Nada de despejar o JSON cru do Google no balcão: o escrevente precisa
+    // saber o que fazer, não o código de erro de quem hospeda o modelo.
+    if (ehSobrecarga(e)) {
+      return res.status(503).json({
+        motivo: 'congestionado', tente_em_s: 20,
+        erro: 'o modelo de IA está congestionado neste momento (pico de uso no provedor) — aguarde alguns segundos e clique de novo'
+      });
+    }
+    if (ehCota(e)) {
+      return res.status(429).json({
+        motivo: 'cota', tente_em_s: 120,
+        erro: 'a cota de IA da serventia se esgotou por ora — tente de novo em alguns minutos ou avise o Tabelião'
+      });
+    }
     res.status(502).json({ erro: e.message || 'falha na IA' });
   }
 });
