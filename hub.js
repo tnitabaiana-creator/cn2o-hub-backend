@@ -24,7 +24,7 @@ const gemini = require('./gemini');    // cliente Gemini da Plataforma CN2O (GEM
 const PROMPTS = require('./hub-prompts');
 
 const router = express.Router();
-const jsonMural = express.json({ limit: '1mb' });
+const jsonMural = express.json({ limit: '8mb' });
 const jsonIA = express.json({ limit: '24mb' });
 
 // ---------------------------------------------------------------- banco
@@ -97,6 +97,15 @@ function htmlSeguro(v) {
   if (PERIGO.test(h)) throw erro400('o texto contém marcação não permitida');
   return h.trim();
 }
+// Fotos e imagens do mural: data URL de imagem, com teto de tamanho por item.
+const RE_IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+function imgSegura(v, max, rotulo) {
+  if (v == null || v === '') return '';
+  const s = String(v);
+  if (s.length > max) throw erro400(rotulo + ' ficou pesada demais — use uma imagem menor');
+  if (!RE_IMG.test(s)) throw erro400(rotulo + ' precisa ser uma imagem JPEG, PNG ou WebP');
+  return s;
+}
 function hojeBR() {
   try { return new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Maceio' }); }
   catch (_) {
@@ -121,7 +130,8 @@ function normalizarMural(d) {
       data: RE_DATA.test(a.data || '') ? a.data : hojeBR(),
       html,
       fixado: !!a.fixado,
-      estilo: ['padrao', 'importante', 'celebracao'].includes(a.estilo) ? a.estilo : 'padrao'
+      estilo: ['padrao', 'importante', 'celebracao'].includes(a.estilo) ? a.estilo : 'padrao',
+      imagem: imgSegura(a.imagem, 1200000, 'a imagem do aviso "' + titulo + '"')
     };
   }).filter(Boolean);
 
@@ -131,7 +141,8 @@ function normalizarMural(d) {
       const nome = txt(a.nome, LIM.nome);
       const dia = parseInt(a.dia, 10), mes = parseInt(a.mes, 10);
       if (!nome || !(dia >= 1 && dia <= 31) || !(mes >= 1 && mes <= 12)) return null;
-      return { nome, dia, mes };
+      const foto = imgSegura(a.foto, 160000, 'a foto de ' + nome);
+      return foto ? { nome, dia, mes, foto } : { nome, dia, mes };
     }).filter(Boolean);
 
   const m = d.metas && typeof d.metas === 'object' && !Array.isArray(d.metas)
