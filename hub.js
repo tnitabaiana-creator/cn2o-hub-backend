@@ -407,7 +407,7 @@ function registrarUso(login, ferramenta, uso) {
 }
 
 router.get('/ia/status', exigeSessao, (req, res) => {
-  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), ocr_dedicado: ocr.ativo() });
+  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor() });
 });
 
 router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
@@ -624,7 +624,7 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     // Nunca bloqueia: qualquer falha aqui e a análise segue só com o Gemini.
     let resumoOcr = ocr.ativo()
       ? (arquivos.length ? null : { ativo: false, motivo: 'sem arquivos anexados' })
-      : { ativo: false, motivo: 'OCR dedicado não configurado (aguardando credencial do Document AI)' };
+      : { ativo: false, motivo: 'OCR dedicado não configurado (falta a chave do Cloud Vision no servidor)' };
     let observacoesFinais = observacoes;
     if (resumoOcr === null) {
       try {
