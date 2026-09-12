@@ -41,6 +41,13 @@ function preparar() {
         atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
         atualizado_por TEXT
       );
+      CREATE TABLE IF NOT EXISTS hub_minutas (
+        id TEXT PRIMARY KEY,
+        titulo TEXT NOT NULL,
+        texto TEXT NOT NULL,
+        criado_por TEXT,
+        em TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
       CREATE TABLE IF NOT EXISTS hub_mural_historico (
         id SERIAL PRIMARY KEY,
         dados JSONB NOT NULL,
@@ -322,6 +329,7 @@ function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 // nível pedido pelo Tabelião — qualidade acima do custo). Troca sem deploy:
 // variável HUB_MODELO_EXTRATOR no Railway.
 function modeloDe(ferramenta) {
+  if (ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || 'gemini-3.1-pro';
   if (ferramenta === 'qualificacao') return process.env.HUB_MODELO_EXTRATOR || 'gemini-3.1-pro';
   return process.env.HUB_MODELO_IA || undefined;
 }
@@ -359,6 +367,37 @@ router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
   } catch (e) {
     console.error('hub uso (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler o consumo' });
+  }
+});
+
+// ---------------------------------------------------------------- minutas geradas
+router.post('/minutas', jsonMural, exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    const corpo = req.body || {};
+    const titulo = txt(corpo.titulo, 160) || 'Minuta';
+    const texto = String(corpo.texto == null ? '' : corpo.texto).slice(0, 200000).trim();
+    if (!texto) return res.status(400).json({ erro: 'minuta vazia' });
+    const id = novoId();
+    await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por) VALUES ($1,$2,$3,$4)',
+      [id, titulo, texto, req.usuario.login]);
+    res.json({ id });
+  } catch (e) {
+    console.error('hub minutas (gravar):', e.message);
+    res.status(500).json({ erro: 'falha ao guardar a minuta' });
+  }
+});
+router.get('/minutas/:id', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    await preparar();
+    const id = txt(req.params.id, 40);
+    const r = await q('SELECT id, titulo, texto, criado_por, em FROM hub_minutas WHERE id = $1', [id]);
+    if (!r.rows.length) return res.status(404).json({ erro: 'minuta não encontrada' });
+    res.json(r.rows[0]);
+  } catch (e) {
+    console.error('hub minutas (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a minuta' });
   }
 });
 
