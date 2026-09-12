@@ -11,7 +11,7 @@
 //   POST /hub/mural            → (admin) grava o mural inteiro e guarda histórico
 //   GET  /hub/mural/historico  → (admin) últimas versões publicadas
 //   GET  /hub/ia/status        → { configurada, modelo, ocr_dedicado }
-//   POST /hub/ia/:ferramenta   → qualificacao | matricula — { texto, arquivos[] } → { texto, … }
+//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta_ue — { texto, arquivos[] } → { texto, … }
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
@@ -341,7 +341,7 @@ function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 const MODELO_PRO_PADRAO = 'gemini-pro-latest';
 function modeloDe(ferramenta) {
   if (ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
-  if (ferramenta === 'qualificacao') return process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
+  if (ferramenta === 'qualificacao' || ferramenta === 'descricao') return process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
   if (ferramenta === 'matricula') return process.env.HUB_MODELO_ANALISTA || process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
   return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 }
