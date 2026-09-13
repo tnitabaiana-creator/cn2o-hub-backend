@@ -431,19 +431,7 @@ router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
 // Extrato do andamento pelo número do protocolo de entrada: junta o registro
 // canônico do banco (partes, ato, quem protocolou) com o cartão do Trello
 // (quadro e fase atuais, com quem está, movimentações e dossiê pendente).
-const NOMES_ATO = {
-  'CV-Urbano': 'Compra e venda — imóvel urbano',
-  'CV-Rural': 'Compra e venda — imóvel rural',
-  'DOA': 'Doação',
-  'PER': 'Permuta',
-  'INV': 'Inventário e partilha',
-  'CDH': 'Cessão de direitos hereditários',
-  'CDP': 'Cessão de direitos possessórios',
-  'TEST': 'Testamento',
-  'DUE': 'Declaração de união estável',
-  'PACTO': 'Pacto antenupcial',
-  'RERRAT': 'Rerratificação'
-};
+const { NOMES_ATO } = require('./atos'); // fonte única, compartilhada com o recibo do WhatsApp
 function quadrosDaCasa() {
   const ids = [process.env.BOARD_00, process.env.BOARD_01]
     .concat(String(process.env.BOARDS_ESCREVENTES || '').split(','));

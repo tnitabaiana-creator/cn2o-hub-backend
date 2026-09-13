@@ -1,22 +1,36 @@
 // whats.js — disparo do recibo de protocolo pela Meta Cloud API
 // -----------------------------------------------------------------------------
-// Template em uso: recibo_protocolo_2 (pt_BR, Utilidade), com UMA variável:
-//   {{1}} número do protocolo
+// Template do recibo: o nome vem de WHATS_TEMPLATE_RECIBO. Quem monta as
+// variáveis é o ./recibo.js, que ajusta a QUANTIDADE ao template configurado —
+// mandar número de parâmetros diferente do aprovado faz a Meta recusar (132000).
 //
-// Texto aprovado:
-//   Olá! Aqui é do Cartório de Notas do 2º Ofício de Itabaiana.
-//   Sua documentação foi recebida e autuada no processo {{1}}, que já está em
-//   andamento na serventia.
-//   Guarde esta referência para futuras consultas. Qualquer dúvida, estamos à
-//   disposição.
-//   Atenciosamente,
-//   Cartório de Notas do 2º Ofício de Itabaiana/SE
+//   recibo_protocolo_2 (aprovado, texto antigo) ....... 1 variável: o protocolo
+//   recibo_protocolo_3 (pt_BR, Utilidade) ............. 5 variáveis:
+//     {{1}} número do protocolo (o template imprime em negrito)
+//     {{2}} tipo de ato por extenso
+//     {{3}} apresentante
+//     {{4}} parte / comprador(a)
+//     {{5}} vendedor(a) / transmitente
+//
+// Texto do recibo_protocolo_3:
+//   Olá! Aqui é do Cartório de Notas do 2º Ofício de Itabaiana/SE.
+//   Recebemos e protocolamos a documentação apresentada.
+//   Protocolo nº *{{1}}*
+//   Tipo de ato: {{2}}
+//   Apresentante: {{3}}
+//   Parte/comprador(a): {{4}}
+//   Vendedor(a)/transmitente: {{5}}
+//   Guarde o número do protocolo: é por ele que o senhor(a) acompanha o
+//   andamento do serviço na serventia. Qualquer dúvida, estamos à disposição.
+//   (rodapé) Cartório de Notas do 2º Ofício de Itabaiana/SE
 //
 // Variáveis de ambiente:
 //   WHATS_URL    https://graph.facebook.com/v22.0/1249774464882525/messages
 //   WHATS_TOKEN  token permanente do System User (começa com EAA)
 //   WHATS_TEMPLATE_RECIBO  recibo_protocolo_2
 // -----------------------------------------------------------------------------
+
+const { variaveisDoRecibo } = require('./recibo'); // as variáveis do recibo
 
 const TEMPLATE = process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2';
 
@@ -110,12 +124,13 @@ async function enviarTemplate(telefone, variaveis) {
 /**
  * Dispara o recibo para o apresentante e, se houver telefone, para a parte.
  *
- * O template em uso tem apenas a variável do número do protocolo. Os dados de
- * ato, papel e nomes ficam disponíveis em `p` para quando houver um template
- * mais completo aprovado — ver observação no fim do arquivo.
+ * O recibo leva o protocolo, o tipo de ato por extenso, o apresentante, a parte/
+ * comprador(a) e o vendedor(a) — a mesma ordem do extrato do T-Consulta. Quem
+ * monta as variáveis é ./recibo.js, que divide o mapa de atos com o T-Consulta
+ * e ajusta a quantidade delas ao template que estiver configurado.
  */
 async function dispararRecibos(p, numero) {
-  const vars = [String(numero)];
+  const vars = variaveisDoRecibo(p, numero, TEMPLATE);
 
   const resultados = [];
 
@@ -140,16 +155,16 @@ async function dispararRecibos(p, numero) {
 module.exports = { dispararRecibos, enviarTemplate, normalizaTelefone, ATO_NOME };
 
 /* -----------------------------------------------------------------------------
- * PARA DEPOIS — template completo
+ * HISTÓRICO — por que este arquivo mudou
  *
- * A versão original deste arquivo previa 5 variáveis (ato, papel, nome da
- * parte, apresentante, protocolo). Esse template ainda não existe aprovado; a
- * Meta recusou duas tentativas de template com número, e só passou a versão
- * enxuta com o texto "autuada no processo {{1}}".
+ * A primeira versão mandava uma variável só (o número) porque a Meta havia
+ * recusado dois templates. O texto aprovado dizia "autuada no processo {{1}}",
+ * errado no vocabulário da casa: cartório de notas PROTOCOLA título, não autua
+ * processo — autuar processo é linguagem de juízo. O recibo_protocolo_3 corrige
+ * o termo, põe o número do protocolo em negrito e leva o padrão do extrato do
+ * T-Consulta: apresentante, parte/comprador(a), vendedor(a) e tipo de ato.
  *
- * Se um template de 5 variáveis vier a ser aprovado, bastam duas mudanças:
- *   1. WHATS_TEMPLATE_RECIBO aponta para o novo nome
- *   2. em dispararRecibos, trocar `vars` por:
- *        [ATO_NOME[p.ato] || p.ato, p.parte_envolvida.papel,
- *         p.parte_envolvida.nome, p.apresentante.nome, String(numero)]
+ * A troca é UMA LINHA na Railway (WHATS_TEMPLATE_RECIBO). Quem decide quantas
+ * variáveis mandar é o recibo.js, pelo nome do template — por isso nada aqui
+ * precisa mudar de novo quando um template novo for aprovado.
  * ---------------------------------------------------------------------------*/
