@@ -661,6 +661,7 @@ async function contextoRedator(corpo, usuario) {
 // MINUTANDO ===" (a escrevente logada, pela SESSÃO, nunca pelo formulário). Não lê
 // protocolo: a ficha da entrevista dirigida e os anexos são a única fonte de fatos
 // (itens 1.3 e 1.4 da camada).
+const RODAPE_MINUTA = 'Minuta de rascunho gerada pelo Hub CN2O — sujeita à conferência e ao aperfeiçoamento do Tabelião.';
 function contextoMinuta(usuario) {
   const h = hojeExtenso();
   // O nome vem do cadastro (só o Tabelião cadastra), mas entra numa linha do bloco
@@ -769,8 +770,15 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     }
     const uso = r.uso || {};
     registrarUso(req.usuario.login, nome, uso);
+    // v1.28 — o rodapé de rascunho do Gerador de Minuta é institucional (a minuta
+    // é rascunho sujeito à conferência do Tabelião). O prompt o exige, mas o
+    // modelo pode omiti-lo; o servidor garante a linha, uma única vez.
+    let textoFinal = r.texto;
+    if ((nome === 'minuta' || nome === 'minuta_ue') && typeof textoFinal === 'string' && textoFinal.trim() && !textoFinal.includes(RODAPE_MINUTA)) {
+      textoFinal = textoFinal.replace(/\s+$/, '') + '\n\n' + RODAPE_MINUTA;
+    }
     res.json({
-      texto: r.texto,
+      texto: textoFinal,
       modelo: uso.modelo || null,
       tokens_entrada: uso.tokens_entrada || 0,
       tokens_saida: uso.tokens_saida || 0,
