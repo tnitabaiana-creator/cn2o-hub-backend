@@ -17,7 +17,10 @@
 //                                'redator' recebe ainda a data de hoje, quem assina (pela
 //                                sessão) e, com 'protocolo', os dados reais do ato.
 //                                'minuta' (Gerador de Minuta) recebe a data de hoje e quem
-//                                está minutando (pela sessão) — nunca lê protocolo.
+//                                está minutando (pela sessão) — nunca lê protocolo. Seu
+//                                prompt (v1.28) = fatia de docs/prompt-mestre-bv-4.0.txt
+//                                + docs/hub-camada-integracao.txt (montados em hub-prompts.js
+//                                por backend/gerar-prompt-minuta.py).
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
@@ -651,13 +654,19 @@ async function contextoRedator(corpo, usuario) {
 }
 
 // ---------------------------------------------------------------- Gerador de Minuta
-// O prompt do Gerador (docs/prompt-gerador-minuta.txt) espera dois blocos que só o
-// servidor pode dar: "=== HOJE ===" (idade, prazos e datação — o modelo nunca
-// deduz a data) e "=== QUEM ESTÁ MINUTANDO ===" (a escrevente logada, pela
-// SESSÃO, nunca pelo formulário). Não lê protocolo: a ficha da entrevista
-// dirigida e os anexos são a única fonte de fatos (P1 do prompt).
+// O prompt do Gerador (v1.28: fatia de docs/prompt-mestre-bv-4.0.txt entre as tags
+// + docs/hub-camada-integracao.txt, montados em hub-prompts.js) espera dois blocos
+// que só o servidor pode dar (camada de integração, itens 1.1 e 1.2): "=== HOJE ==="
+// (idade, prazos e datação — o modelo nunca deduz a data) e "=== QUEM ESTÁ
+// MINUTANDO ===" (a escrevente logada, pela SESSÃO, nunca pelo formulário). Não lê
+// protocolo: a ficha da entrevista dirigida e os anexos são a única fonte de fatos
+// (itens 1.3 e 1.4 da camada).
 function contextoMinuta(usuario) {
   const h = hojeExtenso();
+  // O nome vem do cadastro (só o Tabelião cadastra), mas entra numa linha do bloco
+  // do servidor: qualquer quebra de linha ou espaço repetido no nome vira um espaço,
+  // para que o bloco tenha exatamente as linhas que a camada de integração descreve.
+  const escrevente = usuario && usuario.nome ? String(usuario.nome).replace(/\s+/g, ' ').trim() : '';
   return [
     '=== HOJE ===',
     '(use esta data; não a deduza)',
@@ -665,10 +674,15 @@ function contextoMinuta(usuario) {
     '',
     '=== QUEM ESTÁ MINUTANDO ===',
     '(vem da sessão do Hub, nunca do formulário)',
-    'Escrevente: ' + (usuario && usuario.nome ? usuario.nome : '[FALTA: nome da escrevente]'),
+    'Escrevente: ' + (escrevente || '[FALTA: nome da escrevente]'),
     'Tabelião: César Bravo'
   ].join('\n');
 }
+
+// Cabeçalhos que só o servidor escreve nas observações enviadas ao modelo. Uma linha
+// que comece por "===" seguido de um deles cai inteira (ver a rota /ia/:ferramenta).
+// Sem "u": o "i" já casa Á/á; [ÁA] cobre o cabeçalho digitado sem acento.
+const RE_CABECALHO_RESERVADO = /^[ \t]*===\s*(HOJE|QUEM\s+EST[ÁA]\s+MINUTANDO|QUEM\s+ASSINA|DADOS\s+DO\s+PROTOCOLO|LEITURA\s+OCR\s+DEDICADA|TEXTO\s+COLADO)\b[^\n]*\n?/gim;
 
 router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   const nome = req.params.ferramenta;
@@ -679,10 +693,14 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     return res.status(503).json({ motivo: 'sem_chave', erro: 'a IA ainda não está configurada no servidor (falta a GEMINI_API_KEY no Railway)' });
   }
   const corpo = req.body || {};
-  // Cabeçalho que só o servidor pode escrever (data, quem assina, dados do
-  // protocolo, OCR) não entra pelo texto do cliente: se vier, a linha cai.
+  // Cabeçalho que só o servidor pode escrever (data, quem assina/minuta, dados do
+  // protocolo, OCR, o próprio invólucro "TEXTO COLADO") não entra pelo texto do
+  // cliente: se vier, a linha cai — em qualquer ponto do texto, em qualquer caixa,
+  // com espaços a mais (inclusive o recuo de dois espaços que a tela dá às linhas
+  // de OBSERVACOES), sem acento, com ou sem "===" de fecho, com \r\n. O que sobra
+  // fica DEPOIS do bloco do servidor, dentro do bloco de DADOS.
   const texto = typeof corpo.texto === 'string'
-    ? corpo.texto.slice(0, 200000).replace(/^===\s*(HOJE|QUEM ESTÁ MINUTANDO|QUEM ASSINA|DADOS DO PROTOCOLO|LEITURA OCR DEDICADA)\b[^\n]*\n?/gm, '').trim()
+    ? corpo.texto.slice(0, 200000).replace(RE_CABECALHO_RESERVADO, '').trim()
     : '';
   const brutos = Array.isArray(corpo.arquivos) ? corpo.arquivos : [];
   if (brutos.length > 12) return res.status(400).json({ erro: 'no máximo 12 arquivos por análise' });
