@@ -11,10 +11,13 @@
 //   POST /hub/mural            → (admin) grava o mural inteiro e guarda histórico
 //   GET  /hub/mural/historico  → (admin) últimas versões publicadas
 //   GET  /hub/ia/status        → { configurada, modelo, ocr_dedicado }
-//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta_ue | redator
+//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta | redator
+//                                (minuta_ue = alias de compatibilidade de 'minuta')
 //                                { texto, arquivos[], protocolo? } → { texto, … }
 //                                'redator' recebe ainda a data de hoje, quem assina (pela
 //                                sessão) e, com 'protocolo', os dados reais do ato.
+//                                'minuta' (Gerador de Minuta) recebe a data de hoje e quem
+//                                está minutando (pela sessão) — nunca lê protocolo.
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
@@ -343,7 +346,7 @@ function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
 // então a ferramenta responde pelo flash até o faturamento ser habilitado.
 const MODELO_PRO_PADRAO = 'gemini-pro-latest';
 function modeloDe(ferramenta) {
-  if (ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
+  if (ferramenta === 'minuta' || ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
   if (ferramenta === 'qualificacao' || ferramenta === 'descricao') return process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
   if (ferramenta === 'matricula') return process.env.HUB_MODELO_ANALISTA || process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
   // Redator: tarefa de redação, não de leitura de documento sofrido. O flash escreve
@@ -647,6 +650,26 @@ async function contextoRedator(corpo, usuario) {
   return partes.join('\n');
 }
 
+// ---------------------------------------------------------------- Gerador de Minuta
+// O prompt do Gerador (docs/prompt-gerador-minuta.txt) espera dois blocos que só o
+// servidor pode dar: "=== HOJE ===" (idade, prazos e datação — o modelo nunca
+// deduz a data) e "=== QUEM ESTÁ MINUTANDO ===" (a escrevente logada, pela
+// SESSÃO, nunca pelo formulário). Não lê protocolo: a ficha da entrevista
+// dirigida e os anexos são a única fonte de fatos (P1 do prompt).
+function contextoMinuta(usuario) {
+  const h = hojeExtenso();
+  return [
+    '=== HOJE ===',
+    '(use esta data; não a deduza)',
+    'Data: ' + h.curta + ' (' + h.extenso + '), ' + h.diaSemana + '.',
+    '',
+    '=== QUEM ESTÁ MINUTANDO ===',
+    '(vem da sessão do Hub, nunca do formulário)',
+    'Escrevente: ' + (usuario && usuario.nome ? usuario.nome : '[FALTA: nome da escrevente]'),
+    'Tabelião: César Bravo'
+  ].join('\n');
+}
+
 router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   const nome = req.params.ferramenta;
   if (!Object.prototype.hasOwnProperty.call(PROMPTS, nome)) {
@@ -656,7 +679,11 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     return res.status(503).json({ motivo: 'sem_chave', erro: 'a IA ainda não está configurada no servidor (falta a GEMINI_API_KEY no Railway)' });
   }
   const corpo = req.body || {};
-  const texto = typeof corpo.texto === 'string' ? corpo.texto.slice(0, 200000).trim() : '';
+  // Cabeçalho que só o servidor pode escrever (data, quem assina, dados do
+  // protocolo, OCR) não entra pelo texto do cliente: se vier, a linha cai.
+  const texto = typeof corpo.texto === 'string'
+    ? corpo.texto.slice(0, 200000).replace(/^===\s*(HOJE|QUEM ESTÁ MINUTANDO|QUEM ASSINA|DADOS DO PROTOCOLO|LEITURA OCR DEDICADA)\b[^\n]*\n?/gm, '').trim()
+    : '';
   const brutos = Array.isArray(corpo.arquivos) ? corpo.arquivos : [];
   if (brutos.length > 12) return res.status(400).json({ erro: 'no máximo 12 arquivos por análise' });
 
@@ -685,6 +712,8 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     : '(Sem texto colado — o material está integralmente nos arquivos anexados; leia-os na ordem.)';
   if (nome === 'redator') {
     observacoes = (await contextoRedator(corpo, req.usuario)) + '\n\n' + observacoes;
+  } else if (nome === 'minuta' || nome === 'minuta_ue') {
+    observacoes = contextoMinuta(req.usuario) + '\n\n' + observacoes;
   }
   try {
     // Dupla leitura: OCR dedicado (Document AI) quando a credencial existir.
