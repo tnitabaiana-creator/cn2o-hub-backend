@@ -10,8 +10,8 @@
 //   GET  /hub/mural            → { dados, atualizado_em, atualizado_por }
 //   POST /hub/mural            → (admin) grava o mural inteiro e guarda histórico
 //   GET  /hub/mural/historico  → (admin) últimas versões publicadas
-//   GET  /hub/ia/status        → { configurada, modelo, ocr_dedicado }
-//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta | redator
+//   GET  /hub/ia/status        → { configurada, modelo, modelo_extrator, ocr_dedicado, ocr_motor, docs_ativo }
+//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta | transpor | redator
 //                                (minuta_ue = alias de compatibilidade de 'minuta')
 //                                { texto, arquivos[], protocolo? } → { texto, … }
 //                                'redator' recebe ainda a data de hoje, quem assina (pela
@@ -20,13 +20,30 @@
 //                                está minutando (pela sessão) — nunca lê protocolo. Seu
 //                                prompt (v1.28) = fatia de docs/prompt-mestre-bv-4.0.txt
 //                                + docs/hub-camada-integracao.txt (montados em hub-prompts.js
-//                                por backend/gerar-prompt-minuta.py).
+//                                por backend/gerar-prompt-minuta.py). v1.29: com a ponte
+//                                do Google Docs configurada (docs.js), a resposta PRONTA ou
+//                                PRELIMINAR ganha `doc: { url, id, titulo }` (o documento
+//                                criado na pasta do Gerador) ou `doc_erro: <mensagem>`;
+//                                aceita ainda { titulo_base?, protocolo? } só para o título
+//                                do documento.
+//                                'transpor' (v1.29, botão "Extrair e transpor dados" do
+//                                Gerador): exige arquivos; texto opcional (observações da
+//                                escrevente, como DADOS); prompt docs/prompt-transposicao.txt;
+//                                o servidor faz o parse do JSON e responde
+//                                { dados: { pessoas[], casamento, alertas[] }, modelo,
+//                                tokens_entrada, tokens_saida, custo_usd, ms, ocr } — ou
+//                                502 { motivo: 'json' } quando o modelo não devolve JSON.
+//   POST /hub/minutas          → guarda a minuta gerada (link permanente); aceita doc_url
+//                                (só URL de documento do Google Docs); GET /hub/minutas/:id
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
 // vale 'cesar.bravo'. A IA usa o gemini.js da Plataforma (GEMINI_API_KEY).
+// Modelos por ferramenta: HUB_MODELO_MINUTAS, HUB_MODELO_EXTRATOR, HUB_MODELO_TRANSPOR,
+// HUB_MODELO_ANALISTA, HUB_MODELO_REDATOR, HUB_MODELO_IA (ver modeloDe). Google Docs:
+// HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js).
 
 const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
@@ -34,6 +51,7 @@ const gemini = require('./gemini');    // cliente Gemini da Plataforma CN2O (GEM
 const PROMPTS = require('./hub-prompts');
 const trello = require('./trello');    // cliente da API do Trello (t genérico + operações)
 const ocr = require('./ocr');          // dupla leitura: OCR dedicado (Document AI), liga por env
+const docs = require('./docs');        // v1.29: minuta → Google Doc pelo Apps Script, liga por env
 
 const router = express.Router();
 const jsonMural = express.json({ limit: '8mb' });
@@ -66,6 +84,8 @@ function preparar() {
         em TIMESTAMPTZ NOT NULL DEFAULT now(),
         por TEXT
       );
+      -- v1.29: link do Google Doc criado para a minuta (quando a ponte está ligada)
+      ALTER TABLE hub_minutas ADD COLUMN IF NOT EXISTS doc_url TEXT;
     `).catch(e => { pronto = null; throw e; });
   }
   return pronto;
@@ -351,6 +371,9 @@ const MODELO_PRO_PADRAO = 'gemini-pro-latest';
 function modeloDe(ferramenta) {
   if (ferramenta === 'minuta' || ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
   if (ferramenta === 'qualificacao' || ferramenta === 'descricao') return process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
+  // Transposição (v1.29): é leitura de documento sofrido, como o Extrator — mesmo
+  // degrau (pro), com variável própria para o Tabelião aferir separadamente.
+  if (ferramenta === 'transpor') return process.env.HUB_MODELO_TRANSPOR || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
   if (ferramenta === 'matricula') return process.env.HUB_MODELO_ANALISTA || process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
   // Redator: tarefa de redação, não de leitura de documento sofrido. O flash escreve
   // bem e custa pouco; HUB_MODELO_REDATOR existe para o Tabelião trocar por aferição.
@@ -419,7 +442,9 @@ function registrarUso(login, ferramenta, uso) {
 }
 
 router.get('/ia/status', exigeSessao, (req, res) => {
-  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor() });
+  // docs_ativo (v1.29): a tela do Gerador sabe de antemão se a minuta vai nascer
+  // também como Google Doc (ponte docs.js configurada) — só informação, sem segredo.
+  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor(), docs_ativo: docs.ativo() });
 });
 
 router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
@@ -562,6 +587,16 @@ router.get('/consulta/:numero', exigeSessao, async (req, res) => {
 });
 
 // ---------------------------------------------------------------- minutas geradas
+// v1.29 — o link permanente pode guardar também a URL do Google Doc criado pela
+// ponte (docs.js). Só entra o que é, sem dúvida, um documento do Google Docs: a
+// tela vai pôr isso num href, então nada de javascript:, outro domínio, espaço
+// ou aspas — qualquer outra coisa é ignorada em silêncio (a minuta se guarda igual).
+const RE_DOC_URL = /^https:\/\/docs\.google\.com\/document\/d\/[\w-]+/;
+function docUrlSegura(v) {
+  if (typeof v !== 'string' || v.length > 300) return null;
+  if (!RE_DOC_URL.test(v) || /[\s"'<>\\\u0000-\u001f]/.test(v)) return null;
+  return v;
+}
 router.post('/minutas', jsonMural, exigeSessao, async (req, res) => {
   try {
     await preparar();
@@ -570,8 +605,8 @@ router.post('/minutas', jsonMural, exigeSessao, async (req, res) => {
     const texto = String(corpo.texto == null ? '' : corpo.texto).slice(0, 200000).trim();
     if (!texto) return res.status(400).json({ erro: 'minuta vazia' });
     const id = novoId();
-    await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por) VALUES ($1,$2,$3,$4)',
-      [id, titulo, texto, req.usuario.login]);
+    await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por, doc_url) VALUES ($1,$2,$3,$4,$5)',
+      [id, titulo, texto, req.usuario.login, docUrlSegura(corpo.doc_url)]);
     res.json({ id });
   } catch (e) {
     console.error('hub minutas (gravar):', e.message);
@@ -583,7 +618,7 @@ router.get('/minutas/:id', exigeSessao, async (req, res) => {
   try {
     await preparar();
     const id = txt(req.params.id, 40);
-    const r = await q('SELECT id, titulo, texto, criado_por, em FROM hub_minutas WHERE id = $1', [id]);
+    const r = await q('SELECT id, titulo, texto, criado_por, em, doc_url FROM hub_minutas WHERE id = $1', [id]);
     if (!r.rows.length) return res.status(404).json({ erro: 'minuta não encontrada' });
     res.json(r.rows[0]);
   } catch (e) {
@@ -685,6 +720,128 @@ function contextoMinuta(usuario) {
 // Sem "u": o "i" já casa Á/á; [ÁA] cobre o cabeçalho digitado sem acento.
 const RE_CABECALHO_RESERVADO = /^[ \t]*===\s*(HOJE|QUEM\s+EST[ÁA]\s+MINUTANDO|QUEM\s+ASSINA|DADOS\s+DO\s+PROTOCOLO|LEITURA\s+OCR\s+DEDICADA|TEXTO\s+COLADO)\b[^\n]*\n?/gim;
 
+// ---------------------------------------------------------------- Transposição de dados (v1.29)
+// O botão "Extrair e transpor dados" da tela do Gerador manda só os documentos das
+// partes (e, se a escrevente quiser, observações — nunca a ficha, que ainda não
+// existe nessa hora). O prompt (docs/prompt-transposicao.txt, embutido em
+// hub-prompts.js pelo gerador) devolve JSON; o executar() do gemini.js não tem modo
+// JSON, então o servidor faz o parse aqui e entrega à tela um objeto de FORMA FIXA
+// (spec §9.2): todas as chaves sempre presentes, "" por padrão, nada fora do contrato,
+// tamanhos com teto. A tela nunca precisa se defender de chave faltante ou de lixo.
+const CHAVES_PESSOA = ['nome', 'nacionalidade', 'estado_civil', 'regime_bens', 'profissao', 'data_nascimento',
+  'naturalidade', 'filiacao', 'rg', 'cnh', 'cpf', 'endereco'];
+const CHAVES_CERTIDAO = ['tipo', 'serventia', 'matricula', 'livro', 'folha', 'termo', 'data_ato', 'data_emissao', 'averbacoes'];
+const CHAVES_CASAMENTO = ['data', 'serventia', 'matricula', 'regime', 'pacto', 'data_emissao_certidao'];
+const LIM_TRANSPOR = { pessoas: 12, texto: 2000, lista: 40 };
+const ehObjeto = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+// Texto transposto: string com trim, sem caracteres de controle, no máximo 2000
+// caracteres. Número ou booleano vira texto (um CPF sem aspas ainda é dado); objeto
+// ou lista onde se esperava texto não é dado — vira "".
+function textoTransposto(v) {
+  if (v == null) return '';
+  if (typeof v === 'number' || typeof v === 'boolean') v = String(v);
+  if (typeof v !== 'string') return '';
+  return v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '').trim().slice(0, LIM_TRANSPOR.texto);
+}
+function listaTransposta(v) {
+  return (Array.isArray(v) ? v : []).map(textoTransposto).filter(Boolean).slice(0, LIM_TRANSPOR.lista);
+}
+function normalizarPessoa(p) {
+  const o = ehObjeto(p) ? p : {};
+  const pessoa = {};
+  CHAVES_PESSOA.forEach(k => { pessoa[k] = textoTransposto(o[k]); });
+  const c = ehObjeto(o.certidao) ? o.certidao : {};
+  pessoa.certidao = {};
+  CHAVES_CERTIDAO.forEach(k => { pessoa.certidao[k] = textoTransposto(c[k]); });
+  pessoa.documentos = listaTransposta(o.documentos);
+  pessoa.qualificacao = textoTransposto(o.qualificacao);
+  return pessoa;
+}
+// casamento: null sem certidão de casamento; senão o objeto do contrato, na ordem do
+// contrato. nome_solteiro é um mapa NOME → nome anterior (só pares com os dois lados).
+function normalizarCasamento(c) {
+  if (!ehObjeto(c)) return null;
+  const cas = { conjuges: listaTransposta(c.conjuges) };
+  CHAVES_CASAMENTO.forEach(k => { cas[k] = textoTransposto(c[k]); });
+  cas.nome_solteiro = {};
+  if (ehObjeto(c.nome_solteiro)) {
+    Object.keys(c.nome_solteiro).slice(0, LIM_TRANSPOR.pessoas).forEach(chave => {
+      const nome = textoTransposto(chave), anterior = textoTransposto(c.nome_solteiro[chave]);
+      if (nome && anterior && nome !== '__proto__') cas.nome_solteiro[nome] = anterior;
+    });
+  }
+  cas.averbacoes = textoTransposto(c.averbacoes);
+  return cas;
+}
+function normalizarTransposicao(j) {
+  return {
+    pessoas: (Array.isArray(j.pessoas) ? j.pessoas : []).filter(ehObjeto).slice(0, LIM_TRANSPOR.pessoas).map(normalizarPessoa),
+    casamento: normalizarCasamento(j.casamento),
+    alertas: listaTransposta(j.alertas)
+  };
+}
+// O prompt proíbe markdown e texto fora do objeto, mas o servidor não confia: tira as
+// cercas (```json … ```) e o que vier antes do primeiro "{" ou depois do último "}".
+// Devolve o objeto ou null (e null vira 502 "tente de novo" na rota).
+function extrairJson(texto) {
+  const s = String(texto == null ? '' : texto).replace(/```[a-zA-Z]*/g, '');
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a < 0 || b < a) return null;
+  try {
+    const j = JSON.parse(s.slice(a, b + 1));
+    return ehObjeto(j) ? j : null;
+  } catch (_) { return null; }
+}
+
+// ---------------------------------------------------------------- Minuta → Google Docs (v1.29)
+// Com a ponte ligada (docs.js), a minuta PRONTA ou PRELIMINAR nasce como Google Doc
+// na pasta do Gerador: o corpo do documento é o trecho entre os marcadores do
+// envelope; o resto (DECISÃO DO ROTEADOR, PENDÊNCIAS, ⚠ CONFERIR, rodapé) vai como
+// anotações. Os estados fechados (BLOQUEADA, DECISÃO DO TABELIÃO, FORA DO ESCOPO)
+// não têm minuta e não criam documento. A falha do Docs nunca derruba a resposta:
+// a minuta volta como sempre, com `doc_erro` no lugar de `doc`.
+const MARCA_MINUTA_INI = '===MINUTA_COPIAVEL===', MARCA_MINUTA_FIM = '===FIM_MINUTA===';
+function separarMinuta(texto) {
+  const t = String(texto == null ? '' : texto);
+  const a = t.indexOf(MARCA_MINUTA_INI);
+  const b = a < 0 ? -1 : t.indexOf(MARCA_MINUTA_FIM, a + MARCA_MINUTA_INI.length);
+  if (a < 0 || b < 0) return null;
+  const minuta = t.slice(a + MARCA_MINUTA_INI.length, b).trim();
+  const anotacoes = (t.slice(0, a) + t.slice(b + MARCA_MINUTA_FIM.length)).replace(/\n{3,}/g, '\n\n').trim();
+  // a linha "Estado:" (com ou sem o "- " do item) fica no bloco DECISÃO DO ROTEADOR, antes da minuta
+  const m = /^[ \t]*(?:-[ \t]*)?Estado:[ \t]*(.+?)[ \t]*$/m.exec(t.slice(0, a));
+  return { minuta, anotacoes, estado: m ? m[1] : '' };
+}
+function estadoFechado(estado) {
+  return /BLOQUEADA|BLOCKED|DECIS[ÃA]O DO TABELI[ÃA]O|REQUIRES_NOTARY_DECISION|FORA DO ESCOPO|OUT_OF_SCOPE/i.test(estado || '');
+}
+function agoraMaceio() {   // 'dd/mm/aaaa HH:mm' no fuso da serventia, para o título do documento
+  const p = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_CN2O, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date()).reduce((o, x) => (o[x.type] = x.value, o), {});
+  return p.day + '/' + p.month + '/' + p.year + ' ' + p.hour + ':' + p.minute;
+}
+// Monta o pedido ao Apps Script. O título é "MINUTA — Hub — <titulo_base ou ATO> —
+// dd/mm/aaaa HH:mm[ — PRELIMINAR]": titulo_base é o que a escrevente quiser (o nome
+// das partes, em geral), em uma linha e até 120 caracteres; sem ele, o ATO da ficha.
+function pedidoDocs(partes, corpo, ficha, usuario, modelo) {
+  const preliminar = /PRELIMINAR|PRELIMINARY_WITH_PENDING_ITEMS/i.test(partes.estado);
+  const mAto = /^[ \t]*ATO:[ \t]*([A-Za-z0-9_-]{1,20})/m.exec(ficha || '');
+  const ato = mAto ? mAto[1].toUpperCase() : 'MINUTA';
+  const tituloBase = txt(corpo.titulo_base, 120).replace(/\s+/g, ' ').trim();
+  const digitos = String(corpo.protocolo == null ? '' : corpo.protocolo).replace(/\D/g, '');
+  return {
+    titulo: 'MINUTA — Hub — ' + (tituloBase || ato) + ' — ' + agoraMaceio() + (preliminar ? ' — PRELIMINAR' : ''),
+    ato,
+    estado: partes.estado,
+    minuta: partes.minuta,
+    anotacoes: partes.anotacoes,
+    escrevente: usuario && usuario.nome ? String(usuario.nome).replace(/\s+/g, ' ').trim() : '',
+    modelo: modelo || '',
+    protocolo: digitos.length >= 1 && digitos.length <= 6 ? digitos : '',
+    gerada_em: new Date().toISOString()
+  };
+}
+
 router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   const nome = req.params.ferramenta;
   if (!Object.prototype.hasOwnProperty.call(PROMPTS, nome)) {
@@ -720,6 +877,8 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   if (total > LIMITE_B64) {
     return res.status(413).json({ erro: 'arquivos grandes demais para uma análise só (máx. ≈ 13 MB somados) — envie só as páginas necessárias' });
   }
+  // Transposição: a matéria-prima são os documentos; texto sozinho não tem o que transpor.
+  if (nome === 'transpor' && !arquivos.length) return res.status(400).json({ erro: 'anexe os documentos das partes para transpor' });
   if (!texto && !arquivos.length) return res.status(400).json({ erro: 'cole o texto ou anexe os documentos' });
 
   const espera = aguardarLimite(req.usuario.login);
@@ -769,7 +928,26 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
       }
     }
     const uso = r.uso || {};
+    // O consumo é cobrado pela resposta dada — inclusive quando, na transposição, a
+    // resposta vier sem JSON: o modelo trabalhou e o extrato do Tabelião tem de bater.
     registrarUso(req.usuario.login, nome, uso);
+    const consumo = {
+      modelo: uso.modelo || null,
+      tokens_entrada: uso.tokens_entrada || 0,
+      tokens_saida: uso.tokens_saida || 0,
+      custo_usd: uso.custo_usd || 0
+    };
+    // v1.29 — Transposição: a tela recebe dados, não texto. Resposta sem JSON
+    // aproveitável é 502 com motivo 'json' (a tela oferece "tente de novo"); o
+    // começo da resposta vai ao log para o Tabelião ver o que o modelo devolveu.
+    if (nome === 'transpor') {
+      const bruto = extrairJson(r.texto);
+      if (!bruto) {
+        console.error('hub transpor: o modelo não devolveu JSON — início da resposta: ' + JSON.stringify(String(r.texto == null ? '' : r.texto).slice(0, 300)));
+        return res.status(502).json({ erro: 'o modelo não devolveu dados estruturados — tente de novo', motivo: 'json' });
+      }
+      return res.json(Object.assign({ dados: normalizarTransposicao(bruto) }, consumo, { ms: Date.now() - inicio, ocr: resumoOcr }));
+    }
     // v1.28 — o rodapé de rascunho do Gerador de Minuta é institucional (a minuta
     // é rascunho sujeito à conferência do Tabelião). O prompt o exige, mas o
     // modelo pode omiti-lo; o servidor garante a linha, uma única vez.
@@ -777,15 +955,24 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     if ((nome === 'minuta' || nome === 'minuta_ue') && typeof textoFinal === 'string' && textoFinal.trim() && !textoFinal.includes(RODAPE_MINUTA)) {
       textoFinal = textoFinal.replace(/\s+$/, '') + '\n\n' + RODAPE_MINUTA;
     }
-    res.json({
-      texto: textoFinal,
-      modelo: uso.modelo || null,
-      tokens_entrada: uso.tokens_entrada || 0,
-      tokens_saida: uso.tokens_saida || 0,
-      custo_usd: uso.custo_usd || 0,
-      ms: Date.now() - inicio,
-      ocr: resumoOcr
-    });
+    // v1.29 — Minuta → Google Docs (só com a ponte configurada e só nos estados com
+    // minuta). O gemini nunca vê nada disto; e a falha do Docs não é falha da minuta.
+    let doc = null, docErro = null;
+    if ((nome === 'minuta' || nome === 'minuta_ue') && docs.ativo()) {
+      const partes = separarMinuta(textoFinal);
+      if (partes && !estadoFechado(partes.estado)) {
+        try {
+          doc = await docs.criarMinuta(pedidoDocs(partes, corpo, texto, req.usuario, uso.modelo));
+        } catch (e) {
+          docErro = (e && e.message) || 'Google Docs: falha ao criar o documento';
+          console.error('hub docs ' + nome + ':', docErro);
+        }
+      }
+    }
+    const resposta = Object.assign({ texto: textoFinal }, consumo, { ms: Date.now() - inicio, ocr: resumoOcr });
+    if (doc) resposta.doc = doc;
+    if (docErro) resposta.doc_erro = docErro;
+    res.json(resposta);
   } catch (e) {
     console.error(`hub ia ${nome}:`, e.message);
     // Nada de despejar o JSON cru do Google no balcão: o escrevente precisa
