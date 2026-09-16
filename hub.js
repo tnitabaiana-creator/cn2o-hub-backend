@@ -86,6 +86,16 @@ function preparar() {
       );
       -- v1.29: link do Google Doc criado para a minuta (quando a ponte está ligada)
       ALTER TABLE hub_minutas ADD COLUMN IF NOT EXISTS doc_url TEXT;
+      -- v1.32: "Minha Agenda" — agenda pessoal de cada escrevente (uma célula por dia e faixa;
+      -- faixa 0 = dia inteiro / prazos, 7..18 = hora cheia). Só o dono lê e escreve.
+      CREATE TABLE IF NOT EXISTS hub_agenda (
+        login TEXT NOT NULL,
+        dia DATE NOT NULL,
+        faixa SMALLINT NOT NULL,
+        texto TEXT NOT NULL,
+        atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (login, dia, faixa)
+      );
     `).catch(e => { pronto = null; throw e; });
   }
   return pronto;
@@ -624,6 +634,66 @@ router.get('/minutas/:id', exigeSessao, async (req, res) => {
   } catch (e) {
     console.error('hub minutas (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler a minuta' });
+  }
+});
+
+// ---------------------------------------------------------------- Minha Agenda (v1.32)
+// Agenda pessoal do escrevente logado: observações, prazos e providências por dia e
+// faixa de horário. A tela salva sozinha a cada pausa na digitação (POST por célula —
+// o CORS do server.js só libera GET/POST, e a gravação é idempotente: um upsert);
+// texto vazio apaga a célula. O login vem SEMPRE da sessão — ninguém lê nem escreve a
+// agenda de outra pessoa. Faixas: 0 = "dia inteiro / prazos"; 1..23 = hora cheia.
+const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+const AGENDA_TEXTO_MAX = 2000;
+const AGENDA_JANELA_MAX_DIAS = 62;
+function diaValido(v) {
+  if (typeof v !== 'string' || !RE_DIA.test(v)) return null;
+  const d = new Date(v + 'T00:00:00Z');
+  return isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? null : v;
+}
+function faixaValida(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
+}
+router.get('/agenda', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    await preparar();
+    const de = diaValido(req.query.de), ate = diaValido(req.query.ate);
+    if (!de || !ate) return res.status(400).json({ erro: 'informe de e ate no formato aaaa-mm-dd' });
+    const dias = (Date.parse(ate + 'T00:00:00Z') - Date.parse(de + 'T00:00:00Z')) / 86400000;
+    if (dias < 0 || dias > AGENDA_JANELA_MAX_DIAS) return res.status(400).json({ erro: 'período inválido (até ' + AGENDA_JANELA_MAX_DIAS + ' dias, de ≤ ate)' });
+    const r = await q(
+      `SELECT to_char(dia, 'YYYY-MM-DD') AS dia, faixa, texto, atualizado_em
+         FROM hub_agenda WHERE login = $1 AND dia BETWEEN $2 AND $3 ORDER BY dia, faixa`,
+      [req.usuario.login, de, ate]);
+    res.json({ de, ate, itens: r.rows });
+  } catch (e) {
+    console.error('hub agenda (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a agenda' });
+  }
+});
+router.post('/agenda', jsonMural, exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    const corpo = req.body || {};
+    const dia = diaValido(corpo.dia), faixa = faixaValida(corpo.faixa);
+    if (!dia || faixa === null) return res.status(400).json({ erro: 'dia (aaaa-mm-dd) e faixa (0 a 23) são obrigatórios' });
+    const texto = txt(corpo.texto, AGENDA_TEXTO_MAX + 1);
+    if (texto.length > AGENDA_TEXTO_MAX) return res.status(400).json({ erro: 'anotação longa demais (máximo ' + AGENDA_TEXTO_MAX + ' caracteres)' });
+    if (!texto) {
+      await q('DELETE FROM hub_agenda WHERE login = $1 AND dia = $2 AND faixa = $3', [req.usuario.login, dia, faixa]);
+      return res.json({ ok: true, dia, faixa, texto: '', apagado: true });
+    }
+    const r = await q(
+      `INSERT INTO hub_agenda (login, dia, faixa, texto) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (login, dia, faixa) DO UPDATE SET texto = EXCLUDED.texto, atualizado_em = now()
+       RETURNING atualizado_em`,
+      [req.usuario.login, dia, faixa, texto]);
+    res.json({ ok: true, dia, faixa, texto, atualizado_em: r.rows[0].atualizado_em });
+  } catch (e) {
+    console.error('hub agenda (gravar):', e.message);
+    res.status(500).json({ erro: 'falha ao guardar a anotação' });
   }
 });
 
