@@ -38,12 +38,27 @@
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
+//   GET  /hub/agenda?de=&ate=  → (v1.32) agenda pessoal do login da sessão; POST grava a célula
+//   GET  /hub/notas            → (v1.33) Bloco de Notas pessoal; POST /hub/notas cria ou
+//                                atualiza; POST /hub/notas/apagar apaga (o CORS só tem GET/POST)
+//   GET  /hub/acervo/status?fonte=antigo1|cn2o
+//                              → (v1.33) 10 · Pesquisa / Acervo: { vinculado, fonte, fontes[],
+//                                planilha, atualizado_em, livros_total, atos_total, atos_vazio }
+//   GET  /hub/acervo?fonte=&livro=&tipo_livro=&folhas=&partes=&de=&ate=&ato=&texto=
+//                  &pagina_livros=&pagina_atos=
+//                              → as duas abas da planilha daquela fonte (CADASTRO_LIVROS e
+//                                INDICE_ATOS), lidas pelo acervo.js:
+//                                { vinculado, fonte, livros: { total, itens (≤ 50), pagina,
+//                                omitido }, atos: { … }, atos_vazio };
+//                                sem planilha vinculada: 200 com vinculado:false
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
 // vale 'cesar.bravo'. A IA usa o gemini.js da Plataforma (GEMINI_API_KEY).
 // Modelos por ferramenta: HUB_MODELO_MINUTAS, HUB_MODELO_EXTRATOR, HUB_MODELO_TRANSPOR,
 // HUB_MODELO_ANALISTA, HUB_MODELO_REDATOR, HUB_MODELO_IA (ver modeloDe). Google Docs:
-// HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js).
+// HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js). Acervo:
+// HUB_ACERVO_WEBAPP_URL, HUB_ACERVO_SECRET, HUB_ACERVO_CACHE_MIN, HUB_ACERVO_TIMEOUT_MS
+// (ver acervo.js e docs/apps-script/LeitorAcervo.gs).
 
 const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
@@ -96,6 +111,19 @@ function preparar() {
         atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (login, dia, faixa)
       );
+      -- v1.33: "Bloco de Notas" — ao lado da agenda, os textos que cada escrevente repete
+      -- todo dia (modelos de mensagem de WhatsApp/e-mail, comandos, trechos padrão), para
+      -- copiar com um clique. Pessoal: só o dono lê, escreve e apaga.
+      CREATE TABLE IF NOT EXISTS hub_notas (
+        id TEXT PRIMARY KEY,
+        login TEXT NOT NULL,
+        titulo TEXT NOT NULL,
+        texto TEXT NOT NULL,
+        ordem INT NOT NULL DEFAULT 0,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS hub_notas_login ON hub_notas (login);
     `).catch(e => { pronto = null; throw e; });
   }
   return pronto;
@@ -696,6 +724,200 @@ router.post('/agenda', jsonMural, exigeSessao, async (req, res) => {
     res.status(500).json({ erro: 'falha ao guardar a anotação' });
   }
 });
+
+// ---------------------------------------------------------------- Bloco de Notas (v1.33)
+// Ao lado da agenda, no mesmo quadro do mural: os textos de uso cotidiano de cada
+// escrevente — modelos de mensagem de WhatsApp e de e-mail, comandos e trechos padrão —
+// guardados para copiar com um clique. A tela salva sozinha a cada pausa na digitação.
+// O CORS do server.js só libera GET/POST: apagar é POST em /hub/notas/apagar.
+// O login vem SEMPRE da sessão — ninguém lê, altera nem apaga a nota de outra pessoa.
+const NOTA_TITULO_MAX = 80;
+const NOTA_TEXTO_MAX = 4000;
+const NOTAS_MAX = 60;
+// Sem título escrito, o título vira a primeira linha do texto (cortada) — a lista do
+// quadro precisa de um nome para mostrar, e a escrevente não é obrigada a inventar um.
+function tituloDaNota(titulo, texto) {
+  const t = txt(titulo, NOTA_TITULO_MAX);
+  if (t) return t;
+  const primeira = String(texto == null ? '' : texto).split(/\r?\n/).find(l => l.trim());
+  return txt(primeira || '', NOTA_TITULO_MAX);
+}
+function idNota(v) {
+  const s = txt(v, 60);
+  return /^[A-Za-z0-9_-]{4,60}$/.test(s) ? s : null;
+}
+router.get('/notas', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    await preparar();
+    const r = await q(
+      `SELECT id, titulo, texto, ordem, atualizado_em
+         FROM hub_notas WHERE login = $1 ORDER BY ordem, atualizado_em DESC`,
+      [req.usuario.login]);
+    res.json({ itens: r.rows });
+  } catch (e) {
+    console.error('hub notas (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler o bloco de notas' });
+  }
+});
+router.post('/notas', jsonMural, exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    const corpo = req.body || {};
+    const login = req.usuario.login;
+    const bruto = String(corpo.texto == null ? '' : corpo.texto);
+    if (bruto.length > NOTA_TEXTO_MAX) return res.status(400).json({ erro: 'nota longa demais (máximo ' + NOTA_TEXTO_MAX + ' caracteres)' });
+    if (String(corpo.titulo == null ? '' : corpo.titulo).length > NOTA_TITULO_MAX) {
+      return res.status(400).json({ erro: 'título longo demais (máximo ' + NOTA_TITULO_MAX + ' caracteres)' });
+    }
+    // o texto guarda as quebras de linha (é um modelo de mensagem); só os controles somem
+    const texto = bruto.replace(/[ --]/g, '').replace(/[ \t]+$/gm, '').trim();
+    const titulo = tituloDaNota(corpo.titulo, texto);
+    if (!titulo) return res.status(400).json({ erro: 'dê um título à nota (ou escreva o texto)' });
+    if (corpo.id !== undefined && corpo.id !== null && corpo.id !== '') {
+      const id = idNota(corpo.id);
+      if (!id) return res.status(400).json({ erro: 'nota inválida' });
+      const r = await q(
+        `UPDATE hub_notas SET titulo = $3, texto = $4, atualizado_em = now()
+           WHERE id = $1 AND login = $2
+         RETURNING id, titulo, texto, ordem, atualizado_em`,
+        [id, login, titulo, texto]);
+      if (!r.rows.length) return res.status(404).json({ erro: 'nota não encontrada' });
+      return res.json({ ok: true, nota: r.rows[0] });
+    }
+    const c = await q('SELECT count(*)::int AS n FROM hub_notas WHERE login = $1', [login]);
+    if (c.rows[0].n >= NOTAS_MAX) return res.status(400).json({ erro: 'o bloco chegou ao limite de ' + NOTAS_MAX + ' notas — apague alguma antes de criar outra' });
+    const r = await q(
+      `INSERT INTO hub_notas (id, login, titulo, texto) VALUES ($1, $2, $3, $4)
+       RETURNING id, titulo, texto, ordem, atualizado_em`,
+      [novoId(), login, titulo, texto]);
+    res.json({ ok: true, nota: r.rows[0] });
+  } catch (e) {
+    console.error('hub notas (gravar):', e.message);
+    res.status(500).json({ erro: 'falha ao guardar a nota' });
+  }
+});
+router.post('/notas/apagar', jsonMural, exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    const id = idNota((req.body || {}).id);
+    if (!id) return res.status(400).json({ erro: 'informe a nota a apagar' });
+    const r = await q('DELETE FROM hub_notas WHERE id = $1 AND login = $2 RETURNING id', [id, req.usuario.login]);
+    if (!r.rows.length) return res.status(404).json({ erro: 'nota não encontrada' });
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('hub notas (apagar):', e.message);
+    res.status(500).json({ erro: 'falha ao apagar a nota' });
+  }
+});
+
+// ---------------------------------------------------------------- 10 · Pesquisa / Acervo (v1.33)
+// O acervo da serventia em DUAS FONTES, cada uma numa planilha do Google Sheets do
+// Tabelião (cópias do modelo "PAINEL DO ACERVO DE LIVROS"):
+//   antigo1 → Acervo Antigo — 1º Ofício (incorporado ao acervo do CN2O)
+//   cn2o    → Acervo do 2º Ofício (antigo e atual)
+// De cada uma entram duas abas: CADASTRO_LIVROS (os livros físicos e onde estão) e
+// INDICE_ATOS (os atos lavrados). As planilhas são privadas — regra da casa: compartilhar
+// por conta, nunca por link —, então o site NÃO as lê: quem lê é o acervo.js, aqui no
+// servidor, por um Apps Script publicado como web app (mesmo padrão do docs.js).
+//
+//   GET /hub/acervo/status?fonte=antigo1|cn2o
+//        → { vinculado, fonte, fontes[], planilha, atualizado_em, livros_total,
+//            atos_total, atos_vazio }
+//   GET /hub/acervo?fonte=&livro=&tipo_livro=&folhas=&partes=&de=&ate=&ato=&texto=
+//                  &pagina_livros=&pagina_atos=
+//        → { vinculado, fonte, …, livros: { total, itens (≤50), pagina, omitido },
+//                                   atos:   { total, itens (≤50), pagina, omitido },
+//            atos_vazio: true quando a aba INDICE_ATOS só tem o cabeçalho }
+//
+// Sem HUB_ACERVO_WEBAPP_URL/HUB_ACERVO_SECRET a resposta é 200 com vinculado:false — NÃO
+// é erro: é o estado "o Tabelião ainda não indicou a planilha", e a tela diz isso com
+// todas as letras. Falha real da ponte (fora do ar, segredo trocado, JSON estranho) vira
+// 502 com uma frase humana. `?atualizar=1` fura o cache de 10 min daquela fonte e só vale
+// para o Tabelião (admin); para os demais é ignorado em silêncio.
+const acervo = require('./acervo');
+
+function filtrosDoPedido(q) {
+  return {
+    livro: txt(q.livro, 20),
+    tipo_livro: txt(q.tipo_livro, 120),
+    folhas: txt(q.folhas, 30),
+    partes: txt(q.partes, 200),
+    de: txt(q.de, 20),
+    ate: txt(q.ate, 20),
+    ato: txt(q.ato, 120),
+    texto: txt(q.texto, 200)
+  };
+}
+function recarga(req) {
+  return req.query.atualizar === '1' && ehAdmin(req.usuario);
+}
+function itemLivro(i) {
+  return {
+    id: i.id, tipo: i.tipo, numero: i.numero, codigo: i.codigo, status: i.status,
+    sala: i.sala, estante: i.estante, prateleira: i.prateleira, caixa: i.caixa,
+    localizacao: i.localizacao, digitalizado: i.digitalizado, pendencia: i.pendencia,
+    link: i.link, obs: i.obs, extra: i.extra
+  };
+}
+function itemAto(i) {
+  return {
+    id: i.id, id_livro: i.id_livro, livro: i.livro, folhas: i.folhas, numero_ato: i.numero_ato,
+    data: i.data, data_br: i.data_br, ato: i.ato, partes: i.partes, cpf1: i.cpf1, cpf2: i.cpf2,
+    objeto: i.objeto, matricula: i.matricula, valor: i.valor, tributo: i.tributo,
+    link: i.link, obs: i.obs, extra: i.extra
+  };
+}
+router.get('/acervo/status', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const fonte = acervo.fonteValida(req.query.fonte);
+  const fontes = acervo.listaDeFontes();
+  if (!acervo.ativo()) {
+    return res.json({ vinculado: false, fonte, fontes, planilha: '', atualizado_em: null,
+      total: 0, livros_total: 0, atos_total: 0, atos_vazio: true });
+  }
+  try {
+    const base = await acervo.carregar(fonte, { forcar: recarga(req) });
+    res.json({
+      vinculado: true, fonte: base.fonte, fontes, rotulo: base.rotulo, titulo: base.titulo,
+      planilha: base.planilha, atualizado_em: base.atualizado_em,
+      total: base.livros.total + base.atos.total,
+      livros_total: base.livros.total, atos_total: base.atos.total, atos_vazio: base.atos.vazio
+    });
+  } catch (e) {
+    console.error('hub acervo (status):', e.message);   // acervo.js nunca põe o segredo na mensagem
+    res.json({ vinculado: true, fonte, fontes, planilha: '', atualizado_em: null,
+      total: 0, livros_total: 0, atos_total: 0, atos_vazio: true, erro: e.message });
+  }
+});
+router.get('/acervo', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const fonte = acervo.fonteValida(req.query.fonte);
+  const filtros = filtrosDoPedido(req.query || {});
+  const vazio = { total: 0, itens: [], pagina: 1, paginas: 1, por_pagina: 50, omitido: false };
+  if (!acervo.ativo()) {
+    return res.json({ vinculado: false, fonte, fontes: acervo.listaDeFontes(), planilha: '',
+      atualizado_em: null, atos_vazio: true, livros: vazio, atos: vazio });
+  }
+  try {
+    const base = await acervo.carregar(fonte, { forcar: recarga(req) });
+    const pagAtos = parseInt(req.query.pagina_atos || req.query.pagina, 10) || 1;
+    const pagLivros = parseInt(req.query.pagina_livros, 10) || 1;
+    const rl = acervo.filtrar(base.livros.itens, Object.assign({ pagina: pagLivros }, filtros), 'livros');
+    const ra = acervo.filtrar(base.atos.itens, Object.assign({ pagina: pagAtos }, filtros), 'atos');
+    res.json({
+      vinculado: true, fonte: base.fonte, rotulo: base.rotulo, titulo: base.titulo,
+      planilha: base.planilha, atualizado_em: base.atualizado_em, atos_vazio: base.atos.vazio,
+      totais: { livros: base.livros.total, atos: base.atos.total },
+      livros: { total: rl.total, itens: rl.itens.map(itemLivro), pagina: rl.pagina, paginas: rl.paginas, por_pagina: rl.por_pagina, omitido: rl.omitido },
+      atos: { total: ra.total, itens: ra.itens.map(itemAto), pagina: ra.pagina, paginas: ra.paginas, por_pagina: ra.por_pagina, omitido: ra.omitido }
+    });
+  } catch (e) {
+    console.error('hub acervo (pesquisa):', e.message);
+    res.status(502).json({ erro: e.message });
+  }
+});
+
 
 // ---------------------------------------------------------------- Redator CN2O
 // O que o servidor acrescenta por conta própria à ficha da escrevente: a data de
