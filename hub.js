@@ -38,6 +38,9 @@
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
+//   GET  /hub/admin/numeracao  → (admin, v1.34) { proximo, gravados: { total, maior, ultimo_em },
+//                                historico[] }; POST { proximo, motivo? } ajusta o contador do
+//                                e-Protocolo (nunca ≤ maior protocolo gravado; fica no log)
 //   GET  /hub/agenda?de=&ate=  → (v1.32) agenda pessoal do login da sessão; POST grava a célula
 //   GET  /hub/notas            → (v1.33) Bloco de Notas pessoal; POST /hub/notas cria ou
 //                                atualiza; POST /hub/notas/apagar apaga (o CORS só tem GET/POST)
@@ -124,6 +127,15 @@ function preparar() {
         atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS hub_notas_login ON hub_notas (login);
+      -- v1.34: corte de numeração do e-Protocolo pelo Tabelião (quem, quando, de → para, motivo).
+      CREATE TABLE IF NOT EXISTS hub_numeracao_log (
+        id SERIAL PRIMARY KEY,
+        em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        por TEXT NOT NULL,
+        de INT,
+        para INT NOT NULL,
+        motivo TEXT NOT NULL DEFAULT ''
+      );
     `).catch(e => { pronto = null; throw e; });
   }
   return pronto;
@@ -359,6 +371,75 @@ router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res
     res.status(500).json({ erro: 'falha ao cadastrar' });
   }
 });
+// ---------------------------------------------------------------- numeração do e-Protocolo (admin)
+// O contador do protocolo mora na tabela `contador` do db.js (nome = 'protocolo') e
+// guarda o PRÓXIMO número a sair; PROTOCOLO_INICIAL só o semeia na 1ª execução.
+// Corte de numeração (ex.: o Zapier parou no 1449 → o Hub segue do 1450) sem console:
+// o Tabelião vê o próximo número e o ajusta. Limite duro: nunca igual ou abaixo do
+// maior protocolo já gravado pelo Hub (chave primária de `protocolos`); tudo fica em
+// hub_numeracao_log (quem, quando, de → para, motivo).
+const NUMERACAO_MAX = 9999999;
+async function situacaoNumeracao() {
+  const c = await q(`SELECT valor FROM contador WHERE nome = 'protocolo'`);
+  const g = await q(`SELECT count(*)::int AS total, max(numero) AS maior, max(criado_em) AS ultimo_em FROM protocolos`);
+  const l = await q(`SELECT em, por, de, para, motivo FROM hub_numeracao_log ORDER BY id DESC LIMIT 20`);
+  return {
+    proximo: c.rows.length ? c.rows[0].valor : null,
+    gravados: { total: g.rows[0].total, maior: g.rows[0].maior, ultimo_em: g.rows[0].ultimo_em },
+    historico: l.rows
+  };
+}
+router.get('/admin/numeracao', exigeSessao, exigeAdmin, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    await preparar();
+    res.json(await situacaoNumeracao());
+  } catch (e) {
+    console.error('hub numeração (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a numeração' });
+  }
+});
+router.post('/admin/numeracao', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  const cliente = await db.pool.connect();
+  try {
+    await preparar();
+    const b = req.body || {};
+    const motivo = txt(b.motivo, 200);
+    const para = Number(b.proximo);
+    if (!Number.isInteger(para) || para < 1 || para > NUMERACAO_MAX) {
+      return res.status(400).json({ erro: 'informe o próximo número como inteiro entre 1 e ' + NUMERACAO_MAX });
+    }
+    await cliente.query('BEGIN');
+    const atual = await cliente.query(`SELECT valor FROM contador WHERE nome = 'protocolo' FOR UPDATE`);
+    const de = atual.rows.length ? atual.rows[0].valor : null;
+    const g = await cliente.query(`SELECT max(numero) AS maior FROM protocolos`);
+    const maior = g.rows[0].maior;
+    if (maior != null && para <= maior) {
+      await cliente.query('ROLLBACK');
+      return res.status(409).json({ erro: 'o Hub já gravou o protocolo ' + maior + ' — o próximo número precisa ser maior que ele', maior });
+    }
+    if (de === para) {
+      await cliente.query('ROLLBACK');
+      return res.status(409).json({ erro: 'o próximo número já é ' + para, proximo: para });
+    }
+    await cliente.query(
+      `INSERT INTO contador (nome, valor) VALUES ('protocolo', $1)
+       ON CONFLICT (nome) DO UPDATE SET valor = EXCLUDED.valor`, [para]);
+    await cliente.query(
+      `INSERT INTO hub_numeracao_log (por, de, para, motivo) VALUES ($1, $2, $3, $4)`,
+      [req.usuario.login, de, para, motivo]);
+    await cliente.query('COMMIT');
+    console.log(`hub: ${req.usuario.login} ajustou a numeração do protocolo ${de} → ${para}${motivo ? ' (' + motivo + ')' : ''}`);
+    res.json(Object.assign({ ok: true, de, para }, await situacaoNumeracao()));
+  } catch (e) {
+    await cliente.query('ROLLBACK').catch(() => {});
+    console.error('hub numeração (ajustar):', e.message);
+    res.status(500).json({ erro: 'falha ao ajustar a numeração' });
+  } finally {
+    cliente.release();
+  }
+});
+
 router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
   try {
     const login = txt((req.body || {}).login, 60).toLowerCase();
