@@ -38,9 +38,19 @@
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
+//   POST /hub/admin/equipe/editar
+//                              → (admin, v1.34) { login, nome, cargo } corrige o nome de exibição
+//                                e o cargo de quem já existe (o LOGIN nunca muda — é a chave e
+//                                o Redator assina com o cargo)
 //   GET  /hub/admin/numeracao  → (admin, v1.34) { proximo, gravados: { total, maior, ultimo_em },
 //                                historico[] }; POST { proximo, motivo? } ajusta o contador do
 //                                e-Protocolo (nunca ≤ maior protocolo gravado; fica no log)
+//   POST /hub/registro         → (v1.34) trilha de auditoria vista do navegador:
+//                                { acao: login|logout|abrir|itbi, ferramenta?, detalhe? } → 204
+//   GET  /hub/admin/auditoria?login=&acao=&de=&ate=&pagina=&csv=1
+//                              → (admin, v1.34) { total, itens (≤ 50), pagina, logins[] };
+//                                com csv=1 devolve text/csv (BOM UTF-8, separador ';', até
+//                                20.000 linhas) para o Excel em português
 //   GET  /hub/agenda?de=&ate=  → (v1.32) agenda pessoal do login da sessão; POST grava a célula
 //   GET  /hub/notas            → (v1.33) Bloco de Notas pessoal; POST /hub/notas cria ou
 //                                atualiza; POST /hub/notas/apagar apaga (o CORS só tem GET/POST)
@@ -61,7 +71,8 @@
 // HUB_MODELO_ANALISTA, HUB_MODELO_REDATOR, HUB_MODELO_IA (ver modeloDe). Google Docs:
 // HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js). Acervo:
 // HUB_ACERVO_WEBAPP_URL, HUB_ACERVO_SECRET, HUB_ACERVO_CACHE_MIN, HUB_ACERVO_TIMEOUT_MS
-// (ver acervo.js e docs/apps-script/LeitorAcervo.gs).
+// (ver acervo.js e docs/apps-script/LeitorAcervo.gs). Auditoria: HUB_AUDITORIA_DIAS
+// (retenção, padrão 730 dias).
 
 const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
@@ -136,9 +147,106 @@ function preparar() {
         para INT NOT NULL,
         motivo TEXT NOT NULL DEFAULT ''
       );
-    `).catch(e => { pronto = null; throw e; });
+      -- v1.34: TRILHA DE AUDITORIA (pedido do Tabelião em 16/09/2026). Quem usou o quê,
+      -- quando e de onde — só METADADOS. Nunca entra aqui o conteúdo dos documentos, o
+      -- texto das minutas, o texto da agenda ou das notas, CPF ou nome de parte.
+      CREATE TABLE IF NOT EXISTS hub_auditoria (
+        id SERIAL PRIMARY KEY,
+        em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        login TEXT,
+        acao TEXT,
+        ferramenta TEXT NOT NULL DEFAULT '',
+        detalhe TEXT NOT NULL DEFAULT '',
+        ip TEXT NOT NULL DEFAULT '',
+        agente TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS hub_auditoria_em ON hub_auditoria (em);
+      CREATE INDEX IF NOT EXISTS hub_auditoria_login_em ON hub_auditoria (login, em);
+      -- v1.34: equipe inicial (pedido do Tabelião em 16/09/2026). Cada pessoa cria a
+      -- própria senha no primeiro acesso (senha_hash NULL). Idempotente: quem já existe
+      -- fica como está — nome e cargo se corrigem pela aba Equipe, nunca por aqui.
+      INSERT INTO usuarios (login, nome, cargo) VALUES
+        ('lara.silva',       'Lara',         'Escrevente'),
+        ('hellen.lima',      'Hellen',       'Escrevente'),
+        ('laila.carvalho',   'Laila',        'Escrevente'),
+        ('iara.costa',       'Iara',         'Escrevente'),
+        ('josi.silva',       'Josilene',     'Escrevente'),
+        ('romenia.oliveira', 'Romênia',      'Escrevente'),
+        ('geovana.menezes',  'Geovana',      'Escrevente'),
+        ('camily.oliveira',  'Camily',       'Escrevente'),
+        ('milvo.neto',       'Milvo',        'Escrevente'),
+        ('sergio.oliveira',  'Sérgio',       'Escrevente'),
+        ('gessica.bueno',    'Géssica',      'Escrevente'),
+        ('josi.contini',     'Josi Contini', 'Escrevente'),
+        ('jessica.santos',   'Jéssica',      'Escrevente'),
+        ('jonas.aragao',     'Jonas',        'Escrevente')
+      ON CONFLICT (login) DO NOTHING;
+    `).then(() => limparAuditoria()).catch(e => { pronto = null; throw e; });
   }
   return pronto;
+}
+
+// ---------------------------------------------------------------- trilha de auditoria (v1.34)
+// "Implementar trilha de auditoria pelo log no acesso das funcionalidades do hub"
+// (Tabelião, 16/09/2026). A regra da casa é registrar o USO, não o TRABALHO: entra
+// quem, quando, de onde e qual ferramenta; nunca o conteúdo dos documentos, o texto
+// das minutas, o que foi escrito na agenda ou nas notas, CPF ou nome de parte.
+// auditar() NUNCA derruba a rota: grava em segundo plano e engole qualquer falha.
+const AUD_DETALHE_MAX = 300;
+const AUD_AGENTE_MAX = 120;
+const AUD_DIAS_PADRAO = 730;
+function ipDoPedido(req) {
+  // atrás do proxy do Railway o endereço real é o PRIMEIRO da X-Forwarded-For;
+  // sem ele vale o req.ip do Express e, na falta dele, o endereço da própria conexão
+  const encaminhado = String((req && req.get && req.get('X-Forwarded-For')) || '').split(',')[0].trim();
+  const direto = (req && req.ip) || (req && req.socket && req.socket.remoteAddress) || '';
+  return txt(encaminhado || direto, 60);
+}
+function auditar(req, acao, ferramenta, detalhe) {
+  try {
+    // os dados são lidos AGORA (o req some depois da resposta) e gravados em segundo
+    // plano; preparar() é memorizado, então a tabela existe mesmo se o primeiro pedido
+    // do servidor recém-subido for uma rota que não a chama.
+    const valores = [
+      txt((req && req.usuario && req.usuario.login) || '', 60), txt(acao, 40), txt(ferramenta, 40),
+      txt(detalhe, AUD_DETALHE_MAX), ipDoPedido(req),
+      txt((req && req.get && req.get('user-agent')) || '', AUD_AGENTE_MAX)
+    ];
+    preparar()
+      .then(() => q(`INSERT INTO hub_auditoria (login, acao, ferramenta, detalhe, ip, agente)
+                     VALUES ($1, $2, $3, $4, $5, $6)`, valores))
+      .catch(e => console.error('hub auditoria:', e.message));
+  } catch (e) { console.error('hub auditoria:', e.message); }
+}
+// Espaçamento: o autosave da agenda e das notas grava a cada pausa na digitação e a
+// pesquisa do acervo dispara a cada tecla — sem isto a trilha viraria ruído. Um
+// registro por pessoa por janela; a memória guarda só a última marca de cada chave.
+const AUD_ESPACO_ACERVO_MS = 30 * 1000;          // pesquisa do acervo: 1 registro a cada 30 s
+const AUD_ESPACO_ADMIN_MS = 30 * 1000;           // LEITURA das telas de administração: idem
+const AUD_ESPACO_PESSOAL_MS = 10 * 60 * 1000;    // agenda e notas: 1 registro a cada 10 min
+const audEspaco = new Map();
+function espacado(login, chave, ms) {
+  const agora = Date.now();
+  const k = String(login || '') + '|' + chave;
+  const ultimo = audEspaco.get(k);
+  if (ultimo && agora - ultimo < ms) return false;
+  if (audEspaco.size > 2000) audEspaco.clear();
+  audEspaco.set(k, agora);
+  return true;
+}
+// Retenção (HUB_AUDITORIA_DIAS, padrão 730 = dois anos): roda no preparar() e, depois,
+// uma vez por dia na primeira leitura do Tabelião.
+function auditoriaDias() {
+  const n = parseInt(process.env.HUB_AUDITORIA_DIAS || String(AUD_DIAS_PADRAO), 10);
+  return Number.isInteger(n) && n >= 1 ? n : AUD_DIAS_PADRAO;
+}
+let limpezaDia = '';
+function limparAuditoria() {
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (limpezaDia === hoje) return Promise.resolve();
+  limpezaDia = hoje;
+  return q(`DELETE FROM hub_auditoria WHERE em < now() - ($1 || ' days')::interval`, [String(auditoriaDias())])
+    .catch(e => { console.error('hub auditoria (retenção):', e.message); });
 }
 
 // ---------------------------------------------------------------- sessão e admin
@@ -312,6 +420,9 @@ router.post('/mural', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
     await q('INSERT INTO hub_mural_historico (dados, por) VALUES ($1, $2)', [JSON.stringify(dados), quem]);
     await q(`DELETE FROM hub_mural_historico
              WHERE id NOT IN (SELECT id FROM hub_mural_historico ORDER BY id DESC LIMIT 200)`);
+    auditar(req, 'mural', 'publicar',
+      dados.avisos.length + ' aviso(s), ' + dados.aniversariantes.length + ' aniversariante(s), ' +
+      dados.metas.itens.length + ' meta(s)');
     res.json({ ok: true, dados, atualizado_em: r.rows[0].atualizado_em, atualizado_por: r.rows[0].atualizado_por });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ erro: e.message });
@@ -344,6 +455,11 @@ router.get('/admin/equipe', exigeSessao, exigeAdmin, async (req, res) => {
          FROM usuarios u
         ORDER BY u.nome`
     );
+    // LER a tela é acesso e entra na trilha; espaçado em 30 s porque cada repintura da
+    // aba relê a lista (cadastrar, editar e zerar senha, esses, entram sempre)
+    if (espacado(req.usuario.login, 'admin:equipe', AUD_ESPACO_ADMIN_MS)) {
+      auditar(req, 'admin', 'equipe', 'consulta · ' + r.rows.length + ' pessoa(s)');
+    }
     res.json(r.rows);
   } catch (e) {
     console.error('hub equipe:', e.message);
@@ -365,10 +481,37 @@ router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res
     );
     if (!r.rows.length) return res.status(409).json({ erro: 'esse usuário já existe' });
     console.log(`hub: ${req.usuario.login} cadastrou ${login}`);
+    auditar(req, 'admin', 'equipe', 'cadastro de ' + login + ' (' + cargo + ')');
     res.json({ ok: true, login });
   } catch (e) {
     console.error('hub equipe (cadastrar):', e.message);
     res.status(500).json({ erro: 'falha ao cadastrar' });
+  }
+});
+// v1.34 — corrigir NOME DE EXIBIÇÃO e CARGO de quem já entra no Hub. O login é a chave
+// (dele penduram protocolos, sessões, agenda, notas e esta própria trilha) e por isso
+// nunca muda: para trocar de login, cadastre outro. O cargo importa de verdade — é com
+// ele que o Redator CN2O assina a minuta de quem está logado.
+router.post('/admin/equipe/editar', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const login = txt(b.login, 60).toLowerCase();
+    const nome = txt(b.nome, 80);
+    const cargo = txt(b.cargo, 60) || 'Colaborador(a)';
+    if (!RE_LOGIN.test(login)) return res.status(400).json({ erro: 'o usuário segue o padrão nome.sobrenome — só letras minúsculas, sem acento' });
+    if (!nome) return res.status(400).json({ erro: 'informe o nome da pessoa' });
+    const r = await q(
+      `UPDATE usuarios SET nome = $2, cargo = $3, atualizado = now() WHERE login = $1
+       RETURNING login, nome, cargo`,
+      [login, nome, cargo]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'usuário não encontrado' });
+    console.log(`hub: ${req.usuario.login} editou ${login} → ${nome} (${cargo})`);
+    auditar(req, 'admin', 'editar', login + ' → ' + nome + ' · ' + cargo);
+    res.json(Object.assign({ ok: true }, r.rows[0]));
+  } catch (e) {
+    console.error('hub equipe (editar):', e.message);
+    res.status(500).json({ erro: 'falha ao salvar a alteração' });
   }
 });
 // ---------------------------------------------------------------- numeração do e-Protocolo (admin)
@@ -393,7 +536,11 @@ router.get('/admin/numeracao', exigeSessao, exigeAdmin, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {
     await preparar();
-    res.json(await situacaoNumeracao());
+    const situacao = await situacaoNumeracao();
+    if (espacado(req.usuario.login, 'admin:numeracao', AUD_ESPACO_ADMIN_MS)) {
+      auditar(req, 'admin', 'numeracao', 'consulta · próximo ' + (situacao.proximo == null ? '—' : situacao.proximo));
+    }
+    res.json(situacao);
   } catch (e) {
     console.error('hub numeração (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler a numeração' });
@@ -430,6 +577,7 @@ router.post('/admin/numeracao', jsonMural, exigeSessao, exigeAdmin, async (req, 
       [req.usuario.login, de, para, motivo]);
     await cliente.query('COMMIT');
     console.log(`hub: ${req.usuario.login} ajustou a numeração do protocolo ${de} → ${para}${motivo ? ' (' + motivo + ')' : ''}`);
+    auditar(req, 'admin', 'numeracao', 'corte ' + (de == null ? '—' : de) + ' → ' + para + (motivo ? ' · ' + motivo : ''));
     res.json(Object.assign({ ok: true, de, para }, await situacaoNumeracao()));
   } catch (e) {
     await cliente.query('ROLLBACK').catch(() => {});
@@ -451,10 +599,119 @@ router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, async (req
     await db.gravarSenha(u.login, null);
     await q('DELETE FROM sessoes WHERE login = $1', [u.login]);
     console.log(`hub: ${req.usuario.login} zerou a senha de ${u.login}`);
+    auditar(req, 'admin', 'zerar-senha', u.login);   // nunca a senha: ela nem existe mais
     res.json({ ok: true, login: u.login });
   } catch (e) {
     console.error('hub equipe (zerar):', e.message);
     res.status(500).json({ erro: 'falha ao zerar a senha' });
+  }
+});
+
+// ---------------------------------------------------------------- trilha: o que só o navegador vê
+// Entrar, sair e abrir uma ferramenta não passam por rota nenhuma do servidor (a tela é
+// uma página só). Então é a própria tela que avisa — com keepalive, para o 'logout'
+// sobreviver ao fechar da aba. Lista FECHADA dos dois lados: o que não estiver aqui é
+// recusado, para ninguém escrever o que quiser na trilha do Tabelião.
+const REGISTRO_ACOES = new Set(['login', 'logout', 'abrir', 'itbi']);
+// ('pdf' é o "como" do evento itbi — a guia saiu em PDF; os demais são as ferramentas do hub)
+const REGISTRO_FERRAMENTAS = new Set(['protocolo', 'calculadora', 'ia', 'extrator', 'analista',
+  'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'acervo', 'agenda', 'notas', 'mural',
+  'links', 'ajuda', 'pdf']);
+router.post('/registro', jsonMural, exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    const b = req.body || {};
+    const acao = txt(b.acao, 40).toLowerCase();
+    const ferramenta = txt(b.ferramenta, 40).toLowerCase();
+    if (!REGISTRO_ACOES.has(acao)) return res.status(400).json({ erro: 'ação desconhecida' });
+    if (ferramenta && !REGISTRO_FERRAMENTAS.has(ferramenta)) return res.status(400).json({ erro: 'ferramenta desconhecida' });
+    auditar(req, acao, ferramenta, txt(b.detalhe, AUD_DETALHE_MAX));
+    res.status(204).end();
+  } catch (e) {
+    console.error('hub registro:', e.message);
+    res.status(500).json({ erro: 'falha ao registrar' });
+  }
+});
+
+// ---------------------------------------------------------------- auditoria: a tela do Tabelião
+// Só o Tabelião lê a trilha. Filtros: pessoa, ação, período (de/ate em dd do calendário,
+// lidos no fuso da serventia) e página de 50. Com csv=1 sai a planilha para o Excel em
+// português: BOM UTF-8 (senão o Excel come os acentos) e ';' de separador.
+const AUD_POR_PAGINA = 50;
+const AUD_CSV_MAX = 20000;
+const AUD_ACOES = ['login', 'logout', 'abrir', 'ia', 'consulta', 'acervo', 'minuta', 'mural',
+  'agenda', 'notas', 'itbi', 'admin'];
+function diaFiltro(v) {
+  const s = txt(v, 10);
+  return RE_DIA.test(s) && diaValido(s) ? s : '';
+}
+function filtrosAuditoria(consulta) {
+  const q1 = consulta || {};
+  const login = txt(q1.login, 60).toLowerCase();
+  const acao = txt(q1.acao, 40).toLowerCase();
+  return {
+    login: RE_LOGIN.test(login) ? login : '',
+    acao: AUD_ACOES.includes(acao) ? acao : '',
+    de: diaFiltro(q1.de),
+    ate: diaFiltro(q1.ate)
+  };
+}
+// O período vem do <input type="date"> da tela: dia cheio no fuso da serventia.
+function ondeAuditoria(f) {
+  const cond = [], par = [];
+  if (f.login) { par.push(f.login); cond.push('login = $' + par.length); }
+  if (f.acao) { par.push(f.acao); cond.push('acao = $' + par.length); }
+  if (f.de) { par.push(f.de); cond.push(`em >= (($${par.length}::date)::timestamp AT TIME ZONE '${FUSO_CN2O}')`); }
+  if (f.ate) { par.push(f.ate); cond.push(`em < (($${par.length}::date + 1)::timestamp AT TIME ZONE '${FUSO_CN2O}')`); }
+  return { onde: cond.length ? 'WHERE ' + cond.join(' AND ') : '', par };
+}
+function csvCampo(v) {
+  let s = String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ');
+  // Excel trata célula começada por = + - @ como fórmula mesmo vinda de CSV (injeção de
+  // fórmula): um apóstrofo na frente a mantém como texto. Só o detalhe pode vir do usuário.
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function quandoCsv(em) {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_CN2O, day: '2-digit', month: '2-digit',
+      year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(em));
+  } catch (_) { return new Date(em).toISOString(); }
+}
+router.get('/admin/auditoria', exigeSessao, exigeAdmin, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    await preparar();
+    await limparAuditoria();   // retenção: uma faxina por dia, na primeira leitura
+    const f = filtrosAuditoria(req.query || {});
+    const { onde, par } = ondeAuditoria(f);
+    if (req.query.csv === '1') {
+      const r = await q(
+        `SELECT em, login, acao, ferramenta, detalhe, ip FROM hub_auditoria ${onde}
+          ORDER BY em DESC, id DESC LIMIT ${AUD_CSV_MAX}`, par);
+      const linhas = [['Quando', 'Quem', 'Ação', 'Ferramenta', 'Detalhe', 'IP'].map(csvCampo).join(';')];
+      for (const l of r.rows) {
+        linhas.push([quandoCsv(l.em), l.login || '', l.acao || '', l.ferramenta || '', l.detalhe || '', l.ip || ''].map(csvCampo).join(';'));
+      }
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="auditoria-hub-cn2o.csv"');
+      return res.send('﻿' + linhas.join('\r\n') + '\r\n');
+    }
+    const pagina = Math.min(20000, Math.max(1, parseInt(req.query.pagina, 10) || 1));
+    const total = parseInt((await q(`SELECT count(*)::int AS n FROM hub_auditoria ${onde}`, par)).rows[0].n, 10);
+    const itens = await q(
+      `SELECT id, em, login, acao, ferramenta, detalhe, ip, agente FROM hub_auditoria ${onde}
+        ORDER BY em DESC, id DESC LIMIT ${AUD_POR_PAGINA} OFFSET $${par.length + 1}`,
+      par.concat([(pagina - 1) * AUD_POR_PAGINA]));
+    const logins = await q(`SELECT login, nome FROM usuarios ORDER BY nome`);
+    res.json({
+      total, pagina, por_pagina: AUD_POR_PAGINA,
+      paginas: Math.max(1, Math.ceil(total / AUD_POR_PAGINA)),
+      itens: itens.rows, logins: logins.rows, acoes: AUD_ACOES, dias: auditoriaDias()
+    });
+  } catch (e) {
+    console.error('hub auditoria (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a trilha de auditoria' });
   }
 });
 
@@ -558,6 +815,20 @@ function registrarUso(login, ferramenta, uso) {
       }
     }).catch(e => console.error('hub consumo:', e.message));
   } catch (e) { console.error('hub consumo:', e.message); }
+}
+
+// Linha da trilha para uma análise de IA: SÓ metadados do uso (modelo, tempo, tokens,
+// custo e quantos arquivos foram anexados). O que foi enviado ao modelo e o que ele
+// respondeu não entram aqui — nem um pedaço.
+function resumoIA(consumo, inicio, quantosArquivos) {
+  const c = consumo || {};
+  return [
+    'modelo ' + (c.modelo || 'desconhecido'),
+    (Date.now() - inicio) + ' ms',
+    (c.tokens_entrada || 0) + '→' + (c.tokens_saida || 0) + ' tokens',
+    'US$ ' + Number(c.custo_usd || 0).toFixed(6),
+    (quantosArquivos || 0) + ' arquivo(s)'
+  ].join(' · ');
 }
 
 router.get('/ia/status', exigeSessao, (req, res) => {
@@ -697,6 +968,8 @@ router.get('/consulta/:numero', exigeSessao, async (req, res) => {
       return res.status(400).json({ erro: 'informe o número do protocolo (só dígitos)' });
     }
     const extrato = await extratoDoProtocolo(numero);
+    // só o NÚMERO consultado entra na trilha — nunca as partes nem o que o extrato traz
+    auditar(req, 'consulta', '', String(numero) + (extrato ? '' : ' (não encontrado)'));
     if (!extrato) return res.status(404).json({ erro: 'protocolo não encontrado — confira o número' });
     res.json(extrato);
   } catch (e) {
@@ -724,8 +997,11 @@ router.post('/minutas', jsonMural, exigeSessao, async (req, res) => {
     const texto = String(corpo.texto == null ? '' : corpo.texto).slice(0, 200000).trim();
     if (!texto) return res.status(400).json({ erro: 'minuta vazia' });
     const id = novoId();
+    const docUrl = docUrlSegura(corpo.doc_url);
     await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por, doc_url) VALUES ($1,$2,$3,$4,$5)',
-      [id, titulo, texto, req.usuario.login, docUrlSegura(corpo.doc_url)]);
+      [id, titulo, texto, req.usuario.login, docUrl]);
+    // metadados apenas: o título costuma trazer o nome das partes, o texto é a minuta
+    auditar(req, 'minuta', 'guardar', 'id ' + id + ' · ' + texto.length + ' caracteres' + (docUrl ? ' · com Google Doc' : ''));
     res.json({ id });
   } catch (e) {
     console.error('hub minutas (gravar):', e.message);
@@ -790,6 +1066,9 @@ router.post('/agenda', jsonMural, exigeSessao, async (req, res) => {
     if (!dia || faixa === null) return res.status(400).json({ erro: 'dia (aaaa-mm-dd) e faixa (0 a 23) são obrigatórios' });
     const texto = txt(corpo.texto, AGENDA_TEXTO_MAX + 1);
     if (texto.length > AGENDA_TEXTO_MAX) return res.status(400).json({ erro: 'anotação longa demais (máximo ' + AGENDA_TEXTO_MAX + ' caracteres)' });
+    // trilha espaçada (10 min): o autosave grava a cada pausa na digitação — e o que a
+    // pessoa anotou na agenda NUNCA entra aqui, só o fato de ter usado a agenda.
+    if (espacado(req.usuario.login, 'agenda', AUD_ESPACO_PESSOAL_MS)) auditar(req, 'agenda', 'gravar', '');
     if (!texto) {
       await q('DELETE FROM hub_agenda WHERE login = $1 AND dia = $2 AND faixa = $3', [req.usuario.login, dia, faixa]);
       return res.json({ ok: true, dia, faixa, texto: '', apagado: true });
@@ -855,6 +1134,8 @@ router.post('/notas', jsonMural, exigeSessao, async (req, res) => {
     const texto = bruto.replace(/[ --]/g, '').replace(/[ \t]+$/gm, '').trim();
     const titulo = tituloDaNota(corpo.titulo, texto);
     if (!titulo) return res.status(400).json({ erro: 'dê um título à nota (ou escreva o texto)' });
+    // trilha espaçada (10 min), como a agenda: nem o título nem o texto da nota entram
+    if (espacado(login, 'notas', AUD_ESPACO_PESSOAL_MS)) auditar(req, 'notas', 'gravar', '');
     if (corpo.id !== undefined && corpo.id !== null && corpo.id !== '') {
       const id = idNota(corpo.id);
       if (!id) return res.status(400).json({ erro: 'nota inválida' });
@@ -885,6 +1166,8 @@ router.post('/notas/apagar', jsonMural, exigeSessao, async (req, res) => {
     if (!id) return res.status(400).json({ erro: 'informe a nota a apagar' });
     const r = await q('DELETE FROM hub_notas WHERE id = $1 AND login = $2 RETURNING id', [id, req.usuario.login]);
     if (!r.rows.length) return res.status(404).json({ erro: 'nota não encontrada' });
+    // apagar é decisão, não autosave: entra sempre na trilha (só o id, nunca o texto)
+    auditar(req, 'notas', 'apagar', 'id ' + id);
     res.json({ ok: true, id });
   } catch (e) {
     console.error('hub notas (apagar):', e.message);
@@ -971,10 +1254,18 @@ router.get('/acervo/status', exigeSessao, async (req, res) => {
       total: 0, livros_total: 0, atos_total: 0, atos_vazio: true, erro: e.message });
   }
 });
+// A trilha guarda os FILTROS da pesquisa (é o que o Tabelião precisa saber: quem
+// procurou o quê no acervo), nunca o resultado. Espaçada em 30 s por pessoa — a tela
+// pesquisa a cada tecla —, e só quando há algum filtro: abrir a página não é pesquisa.
+function filtrosEmTexto(f) {
+  return Object.keys(f).filter(k => f[k]).map(k => k + '=' + f[k]).join(' · ');
+}
 router.get('/acervo', exigeSessao, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const fonte = acervo.fonteValida(req.query.fonte);
   const filtros = filtrosDoPedido(req.query || {});
+  const usados = filtrosEmTexto(filtros);
+  if (usados && espacado(req.usuario.login, 'acervo', AUD_ESPACO_ACERVO_MS)) auditar(req, 'acervo', fonte, usados);
   const vazio = { total: 0, itens: [], pagina: 1, paginas: 1, por_pagina: 50, omitido: false };
   if (!acervo.ativo()) {
     return res.json({ vinculado: false, fonte, fontes: acervo.listaDeFontes(), planilha: '',
@@ -1255,7 +1546,10 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   if (!texto && !arquivos.length) return res.status(400).json({ erro: 'cole o texto ou anexe os documentos' });
 
   const espera = aguardarLimite(req.usuario.login);
-  if (espera) return res.status(429).json({ erro: 'muitas análises seguidas — aguarde um pouco e tente de novo', tente_em_s: espera });
+  if (espera) {
+    auditar(req, 'ia', nome, 'recusada: limite de análises seguidas (aguardar ' + espera + ' s)');
+    return res.status(429).json({ erro: 'muitas análises seguidas — aguarde um pouco e tente de novo', tente_em_s: espera });
+  }
 
   const inicio = Date.now();
   let observacoes = texto
@@ -1317,8 +1611,10 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
       const bruto = extrairJson(r.texto);
       if (!bruto) {
         console.error('hub transpor: o modelo não devolveu JSON — início da resposta: ' + JSON.stringify(String(r.texto == null ? '' : r.texto).slice(0, 300)));
+        auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) + ' · sem JSON aproveitável');
         return res.status(502).json({ erro: 'o modelo não devolveu dados estruturados — tente de novo', motivo: 'json' });
       }
+      auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length));
       return res.json(Object.assign({ dados: normalizarTransposicao(bruto) }, consumo, { ms: Date.now() - inicio, ocr: resumoOcr }));
     }
     // v1.28 — o rodapé de rascunho do Gerador de Minuta é institucional (a minuta
@@ -1345,9 +1641,11 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
     const resposta = Object.assign({ texto: textoFinal }, consumo, { ms: Date.now() - inicio, ocr: resumoOcr });
     if (doc) resposta.doc = doc;
     if (docErro) resposta.doc_erro = docErro;
+    auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) + (doc ? ' · Google Doc criado' : (docErro ? ' · Google Doc falhou' : '')));
     res.json(resposta);
   } catch (e) {
     console.error(`hub ia ${nome}:`, e.message);
+    auditar(req, 'ia', nome, 'falha após ' + (Date.now() - inicio) + ' ms: ' + txt(e.message, 180));
     // Nada de despejar o JSON cru do Google no balcão: o escrevente precisa
     // saber o que fazer, não o código de erro de quem hospeda o modelo.
     if (ehSobrecarga(e)) {
