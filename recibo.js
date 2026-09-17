@@ -23,31 +23,48 @@ const { NOMES_ATO } = require('./atos');
 
 const LIMITE_PARAMETRO = 180;          // a Meta corta parâmetros muito longos
 const VARIAVEIS_POR_TEMPLATE = {
-  'recibo_protocolo_2': 1,             // só o número — o aprovado hoje
-  'recibo_protocolo_3': 5              // o padrão do extrato
+  'recibo_protocolo': 1,               // caso configurado sem sufixo
+  'recibo_protocolo_1': 1,
+  'recibo_protocolo_2': 1,             // só o número — aprovado na Meta
+  'recibo_protocolo_3': 5              // o padrão do extrato (5 variáveis)
 };
-const PADRAO_VARIAVEIS = 5;
+const PADRAO_VARIAVEIS = 1;
 
 function campo(valor, reserva) {
-  const s = String(valor == null ? '' : valor).replace(/\s+/g, ' ').trim();
+  // A Meta recusa parâmetro com quebras de linha, tabulação ou espaços consecutivos
+  const s = String(valor == null ? '' : valor)
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   if (!s) return reserva || 'não informado';
   return s.length > LIMITE_PARAMETRO ? s.slice(0, LIMITE_PARAMETRO - 1).trim() + '…' : s;
 }
 
 function quantasVariaveis(nomeTemplate) {
-  const nome = String(nomeTemplate == null ? (process.env.WHATS_TEMPLATE_RECIBO || '') : nomeTemplate).trim();
+  if (process.env.WHATS_VARIAVEIS_QTD) {
+    const q = parseInt(process.env.WHATS_VARIAVEIS_QTD, 10);
+    if (!isNaN(q) && q > 0) return q;
+  }
+  const nome = String(nomeTemplate == null ? (process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2') : nomeTemplate).trim();
   const n = VARIAVEIS_POR_TEMPLATE[nome];
-  return n === undefined ? PADRAO_VARIAVEIS : n;
+  return n === undefined ? (nome.includes('3') ? 5 : PADRAO_VARIAVEIS) : n;
 }
 
 function variaveisDoRecibo(p, numero, nomeTemplate) {
   const q = p || {};
+  // Suporte amplo a compra e venda, cessões (CDP/CDH) e outros atos
+  const nomeParte = (q.parte_envolvida && q.parte_envolvida.nome) ||
+                    (q.cessionario && q.cessionario.nome) ||
+                    (q.comprador && q.comprador.nome);
+  const nomeOutro = (q.vendedor && q.vendedor.nome) ||
+                    (q.cedente && q.cedente.nome);
+
   const completas = [
     campo(numero),
     campo(NOMES_ATO[q.ato] || q.ato),
     campo(q.apresentante && q.apresentante.nome),
-    campo(q.parte_envolvida && q.parte_envolvida.nome),
-    campo(q.vendedor && q.vendedor.nome, 'não se aplica')
+    campo(nomeParte),
+    campo(nomeOutro, 'não se aplica')
   ];
   return completas.slice(0, quantasVariaveis(nomeTemplate));
 }

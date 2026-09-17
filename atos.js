@@ -12,9 +12,13 @@ const NOMES_ATO = {
   'CDH': 'Cessão de direitos hereditários',
   'CDP': 'Cessão de direitos possessórios',
   'TEST': 'Testamento',
+  'DIV': 'Divórcio',
+  'UE': 'União estável',
   'DUE': 'Declaração de união estável',
   'PACTO': 'Pacto antenupcial',
-  'RERRAT': 'Rerratificação'
+  'RERRAT': 'Rerratificação',
+  'ATA-U': 'Ata notarial para usucapião',
+  'ATA-W/A': 'Ata notarial de mensagens e áudios'
 };
 
 module.exports = { NOMES_ATO };

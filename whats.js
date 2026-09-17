@@ -61,98 +61,224 @@ const ATO_NOME = {
  *   - 12 ou 13 dígitos iniciando em 55 -> já completo
  *   - qualquer outra coisa -> null (melhor não enviar do que enviar errado)
  */
+// Histórico em memória dos últimos envios para diagnóstico (via GET /whats/status)
+const ultimosEnvios = [];
+const MAX_LOGS = 30;
+
+function registrarHistorico(item) {
+  ultimosEnvios.unshift({ hora: new Date().toISOString(), ...item });
+  if (ultimosEnvios.length > MAX_LOGS) ultimosEnvios.pop();
+}
+
+function statusWhatsApp() {
+  const url = (process.env.WHATS_URL || '').trim();
+  const token = (process.env.WHATS_TOKEN || '').trim();
+  const template = (process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
+  return {
+    configurado: Boolean(url && token),
+    template,
+    url_configurada: Boolean(url),
+    token_configurado: Boolean(token),
+    ultimos_envios: ultimosEnvios
+  };
+}
+
+/**
+ * Normaliza para E.164 do Brasil (55 + DDD + número).
+ * Trata:
+ *   - Números com 0 à esquerda do DDD (ex: 079 99988-7766 -> 5579999887766)
+ *   - Números com código de operadora (ex: 015 79 99988-7766 -> 5579999887766)
+ *   - Números com prefixo 00 (ex: 0055 79... -> 5579...)
+ *   - Números digitados sem DDD no balcão (8 ou 9 dígitos -> assume DDD 79 de Itabaiana/SE)
+ *   - Preserva o caso de DDD 55 (Santa Maria/RS)
+ */
 function normalizaTelefone(t) {
-  const d = (t || '').replace(/\D/g, '');
+  if (!t) return null;
+  let d = String(t).replace(/\D/g, '');
   if (!d) return null;
-  if (d.length === 10 || d.length === 11) return `55${d}`;
-  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d;
+
+  // Remove prefixo internacional '00' (ex: 0055...)
+  if (d.startsWith('00')) d = d.slice(2);
+
+  // Se tem código de país 55 seguido de 0 e DDD (ex: 55079...)
+  if (d.startsWith('550') && (d.length === 13 || d.length === 14)) {
+    d = '55' + d.slice(3);
+  }
+
+  // Remove zeros ou código de operadora antes do DDD (ex: 079... ou 01579...)
+  if (d.startsWith('0')) {
+    if (d.length === 12 || d.length === 11) {
+      d = d.slice(1);
+    } else if (d.length === 14 || d.length === 13) {
+      d = d.slice(3);
+    }
+  }
+
+  // Sem DDD (8 ou 9 dígitos): assume o DDD 79 de Itabaiana/SE
+  if (d.length === 8 || d.length === 9) {
+    d = `79${d}`;
+  }
+
+  // 10 ou 11 dígitos (DDD + número): prefixa 55
+  if (d.length === 10 || d.length === 11) {
+    return `55${d}`;
+  }
+
+  // Já completo com 55 e 12 ou 13 dígitos
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
+    return d;
+  }
+
   return null;
 }
 
-async function enviarTemplate(telefone, variaveis) {
-  const to = normalizaTelefone(telefone);
-  if (!to) return { ok: false, motivo: `telefone inválido ("${telefone || ''}")` };
+/**
+ * Faz o disparo HTTP para a Meta Cloud API.
+ */
+async function postMeta(to, templateName, variaveis, url, token) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: 'pt_BR' },
+      components: [{
+        type: 'body',
+        parameters: variaveis.map(v => ({ type: 'text', text: String(v) }))
+      }]
+    }
+  };
 
-  if (!process.env.WHATS_URL || !process.env.WHATS_TOKEN) {
-    return { ok: false, motivo: 'WHATS_URL ou WHATS_TOKEN não configurados' };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const dados = await res.json().catch(() => ({}));
+  return { res, dados };
+}
+
+async function enviarTemplate(telefone, variaveis, nomeTemplate) {
+  const to = normalizaTelefone(telefone);
+  if (!to) {
+    const errObj = { ok: false, motivo: `telefone inválido ("${telefone || ''}")` };
+    registrarHistorico({ telOriginal: telefone, to: null, ...errObj });
+    return errObj;
+  }
+
+  const url = (process.env.WHATS_URL || '').trim();
+  const token = (process.env.WHATS_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+  const templateName = String(nomeTemplate || process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
+
+  if (!url || !token) {
+    const errObj = { ok: false, to, motivo: 'WHATS_URL ou WHATS_TOKEN não configurados' };
+    console.error(`[WhatsApp] Falha: WHATS_URL ou WHATS_TOKEN não configurados no ambiente.`);
+    registrarHistorico({ telOriginal: telefone, to, template: templateName, ...errObj });
+    return errObj;
   }
 
   try {
-    const res = await fetch(process.env.WHATS_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.WHATS_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'template',
-        template: {
-          name: TEMPLATE,
-          language: { code: 'pt_BR' },
-          components: [{
-            type: 'body',
-            parameters: variaveis.map(v => ({ type: 'text', text: String(v) }))
-          }]
-        }
-      })
-    });
+    let { res, dados } = await postMeta(to, templateName, variaveis, url, token);
 
-    const dados = await res.json().catch(() => ({}));
+    // Tratamento de inconsistência do 9º dígito no Brasil:
+    // Se a Meta retornar erro 131026 (Message undeliverable), tenta com o formato alternativo (12 vs 13 dígitos)
+    if (!res.ok && dados?.error?.code === 131026 && to.startsWith('55')) {
+      let altTo = null;
+      if (to.length === 13 && to[4] === '9') {
+        // Remove o 9 após o DDD (ex: 5579998765432 -> 557998765432)
+        altTo = to.slice(0, 4) + to.slice(5);
+      } else if (to.length === 12) {
+        // Insere o 9 após o DDD (ex: 557998765432 -> 5579998765432)
+        altTo = to.slice(0, 4) + '9' + to.slice(4);
+      }
+
+      if (altTo) {
+        console.warn(`[WhatsApp] Meta retornou 131026 para ${to}. Tentando formato alternativo ${altTo}…`);
+        const tentativaAlt = await postMeta(altTo, templateName, variaveis, url, token);
+        if (tentativaAlt.res.ok) {
+          res = tentativaAlt.res;
+          dados = tentativaAlt.dados;
+          console.log(`[WhatsApp] Sucesso no formato alternativo ${altTo}!`);
+        }
+      }
+    }
 
     if (!res.ok) {
       const e = dados?.error;
-      return {
+      const motivo = e
+        ? `${e.message}${e.code ? ` (código ${e.code})` : ''}`
+        : `HTTP ${res.status}`;
+      console.error(`[WhatsApp] Erro ao enviar para ${to} (template=${templateName}): status ${res.status} — ${motivo}`, dados);
+      const errObj = {
         ok: false,
         to,
         status: res.status,
-        motivo: e
-          ? `${e.message}${e.code ? ` (código ${e.code})` : ''}`
-          : `HTTP ${res.status}`
+        codigo_meta: e?.code,
+        motivo,
+        detalhe: dados
       };
+      registrarHistorico({ telOriginal: telefone, to, template: templateName, ...errObj });
+      return errObj;
     }
 
-    return { ok: true, to, idMsg: dados?.messages?.[0]?.id || '(sem id)' };
+    const idMsg = dados?.messages?.[0]?.id || '(sem id)';
+    console.log(`[WhatsApp] Recibo enviado com sucesso para ${to} (template=${templateName}): id ${idMsg}`);
+    const okObj = { ok: true, to, idMsg };
+    registrarHistorico({ telOriginal: telefone, to, template: templateName, ...okObj });
+    return okObj;
   } catch (err) {
-    // Nunca lança: WhatsApp fora do ar não pode travar a geração do protocolo.
-    return { ok: false, to, motivo: err.message };
+    console.error(`[WhatsApp] Exceção de rede ao enviar para ${to}:`, err.message);
+    const errObj = { ok: false, to, motivo: err.message };
+    registrarHistorico({ telOriginal: telefone, to, template: templateName, ...errObj });
+    return errObj;
   }
 }
 
 /**
  * Dispara o recibo para o apresentante e, se houver telefone, para a parte.
- *
- * O recibo leva o protocolo, o tipo de ato por extenso, o apresentante, a parte/
- * comprador(a) e o vendedor(a) — a mesma ordem do extrato do T-Consulta. Quem
- * monta as variáveis é ./recibo.js, que divide o mapa de atos com o T-Consulta
- * e ajusta a quantidade delas ao template que estiver configurado.
  */
 async function dispararRecibos(p, numero) {
-  const vars = variaveisDoRecibo(p, numero, TEMPLATE);
+  const template = (process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
+  const vars = variaveisDoRecibo(p, numero, template);
 
   const resultados = [];
-
   const tels = new Set();
   const tApresentante = normalizaTelefone(p?.apresentante?.telefone);
   const tParte = normalizaTelefone(p?.parte_envolvida?.telefone);
 
   if (tApresentante) tels.add(tApresentante);
-  if (tParte) tels.add(tParte);   // Set evita mensagem dupla quando forem iguais
+  if (tParte) tels.add(tParte);
 
   if (tels.size === 0) {
-    return [{ ok: false, motivo: 'nenhum telefone válido no protocolo' }];
+    const motivo = `nenhum telefone válido no protocolo (apresentante: "${p?.apresentante?.telefone || ''}", parte: "${p?.parte_envolvida?.telefone || ''}")`;
+    console.warn(`[WhatsApp] Prot ${numero}: ${motivo}`);
+    registrarHistorico({ protocolo: numero, ok: false, motivo });
+    return [{ ok: false, motivo }];
   }
 
+  console.log(`[WhatsApp] Prot ${numero}: disparando recibo (template="${template}", vars=[${vars.map(v => JSON.stringify(v)).join(', ')}]) para destinatários: ${[...tels].join(', ')}`);
+
   for (const tel of tels) {
-    resultados.push(await enviarTemplate(tel, vars));
+    const r = await enviarTemplate(tel, vars, template);
+    resultados.push(r);
   }
 
   return resultados;
 }
 
-module.exports = { dispararRecibos, enviarTemplate, normalizaTelefone, ATO_NOME };
+module.exports = {
+  dispararRecibos,
+  enviarTemplate,
+  normalizaTelefone,
+  statusWhatsApp,
+  ATO_NOME
+};
 
 /* -----------------------------------------------------------------------------
  * HISTÓRICO — por que este arquivo mudou

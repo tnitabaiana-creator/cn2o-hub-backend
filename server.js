@@ -2,7 +2,7 @@
 const express = require('express');
 const db = require('./db');
 const trello = require('./trello');
-const { dispararRecibos } = require('./whats');
+const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = require('./whats');
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
 
 const app = express();
@@ -177,7 +177,16 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     await trello.criarChecklistDossie(card.id, p.dossie?.recebidos || [], p.dossie?.pendentes || []);
 
     // 8) recibos WhatsApp (não bloqueia a resposta do balcão)
-    dispararRecibos(p, pad(numero)).catch(e => console.error('whats:', e.message));
+    dispararRecibos(p, pad(numero))
+      .then(resps => {
+        const falhas = (resps || []).filter(r => !r.ok);
+        if (falhas.length) {
+          console.error(`[WhatsApp] Prot ${pad(numero)} teve falhas de envio:`, falhas);
+        } else {
+          console.log(`[WhatsApp] Prot ${pad(numero)} todos os recibos enviados com sucesso.`);
+        }
+      })
+      .catch(e => console.error('[WhatsApp] Erro inesperado em dispararRecibos:', e.message));
 
     res.json({ numero: pad(numero), card_url: card.shortUrl, prazo: due });
   } catch (e) {
@@ -262,6 +271,40 @@ app.post('/webhook/trello', async (req, res) => {
 });
 
 app.get('/saude', (_req, res) => res.json({ ok: true }));
+
+// Diagnóstico do WhatsApp: status da configuração, template ativo e histórico recente
+app.get('/whats/status', (_req, res) => {
+  res.json(statusWhatsApp());
+});
+
+// Teste direto de envio para validar template, token e telefone em tempo real
+app.post('/whats/testar', async (req, res) => {
+  const key = req.get('X-Admin-Key') || req.get('X-Hub-Key');
+  const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
+  if (!sess && key !== process.env.HUB_KEY) {
+    return res.status(401).json({ erro: 'não autorizado' });
+  }
+  const { telefone, protocolo, ato, template } = req.body || {};
+  if (!telefone) return res.status(400).json({ erro: 'telefone obrigatório' });
+
+  const { variaveisDoRecibo } = require('./recibo');
+  const tpl = String(template || process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
+  const fakeProto = {
+    ato: ato || 'CV-Urbano',
+    apresentante: { nome: 'Apresentante (Teste)', telefone },
+    parte_envolvida: { nome: 'Parte Envolvida (Teste)', telefone },
+    vendedor: { nome: 'Vendedor/Cedente (Teste)' }
+  };
+  const vars = variaveisDoRecibo(fakeProto, protocolo || '9999', tpl);
+  const resultado = await enviarTemplate(telefone, vars, tpl);
+  res.json({
+    telefone_informado: telefone,
+    telefone_normalizado: normalizaTelefone(telefone),
+    template_usado: tpl,
+    variaveis: vars,
+    resultado
+  });
+});
 
 
 // --- Hub de Agentes (redacao de atos) ------------------------------------
