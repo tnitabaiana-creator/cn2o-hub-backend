@@ -4,6 +4,7 @@ const db = require('./db');
 const trello = require('./trello');
 const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = require('./whats');
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
+const hub = require('./hub');   // router do Hub + vincularAnexosCert (v1.36)
 
 const app = express();
 // Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
@@ -111,10 +112,85 @@ function prazoDoAto(p) {
     case 'CDH':  return diasUteis(f.includes('roxo') ? 4 : 7);
     case 'TEST': return diasUteis(3);
     case 'CDP':  return diasCorridos(3);
+    case 'CERT': return diasUteis(3);   // v1.36: pedido de certidão/traslado
     default:     return diasUteis(8);
   }
 }
+// ---------- CERT: pedido de certidão / traslado (v1.36) ----------
+// O cartão do CERT não vai para o quadro 00: vai para o quadro 04 · Certidões/
+// Traslado, na lista de triagem, que é onde as escreventes das certidões
+// trabalham. Os identificadores têm valor padrão porque são do quadro real da
+// serventia — não são segredo, e as variáveis da Railway continuam mandando.
+const CERT_BOARD = () => process.env.BOARD_04 || '6a8ca1ddc8f6574231ab8ab0';
+const CERT_LISTA = () => process.env.LISTA_TRIAGEM_CERT || '6a8cbff5e564123504996c60';
+const CERT_SITE = () => (process.env.HUB_SITE || 'https://cn2o-hub.netlify.app').replace(/\/+$/, '');
+const SEM_DADO = 'não consta';
+
+// "não consta" é resposta, não ausência: o solicitante DISSE que não tem o dado.
+// Campo em branco é outra coisa — ninguém perguntou. O cartão precisa distinguir
+// as duas, senão a escrevente pesquisa atrás de um dado que não existe.
+function certCampo(v) {
+  if (v === SEM_DADO) return '_não consta (declarado pelo solicitante)_';
+  const s = String(v == null ? '' : v).trim();
+  return s || '—';
+}
+function certDescricao(c, numero) {
+  const a = (c && c.ato) || {};
+  const s = (c && c.solicitante) || {};
+  const p = (c && c.parte) || {};
+  const linhas = [
+    '**PEDIDO DE CERTIDÃO / TRASLADO**',
+    '',
+    '**Solicitante**',
+    '- Nome: ' + certCampo(s.nome),
+    '- RG: ' + certCampo(s.rg),
+    '- Telefone: ' + certCampo(s.telefone),
+    '',
+    '**Pessoa que participa do ato**',
+    '- Nome: ' + certCampo(p.nome),
+    '- Pai: ' + certCampo(p.pai),
+    '- Mãe: ' + certCampo(p.mae),
+    '',
+    '**Dados do ato informados**',
+    '- Natureza: ' + certCampo(a.natureza),
+    '- Livro: ' + certCampo(a.livro),
+    '- Folhas: ' + certCampo(a.folhas),
+    '- Data: ' + certCampo(a.data),
+    '- Espécie pedida: ' + certCampo(c && c.especie)
+  ];
+  const informado = v => { const t = String(v == null ? '' : v).trim(); return t && t !== SEM_DADO; };
+  if (!informado(a.livro) && !informado(a.folhas) && !informado(a.data)) {
+    linhas.push('', '> ⚠ Pedido SEM referência de livro, folhas ou data: a pesquisa parte do nome e da filiação.');
+  }
+  const anexos = (c && Array.isArray(c.anexos)) ? c.anexos : [];
+  linhas.push('', '**Documentos anexados pelo solicitante**');
+  if (!anexos.length) linhas.push('- nenhum');
+  else anexos.forEach(x => linhas.push(
+    '- [' + String(x.nome || 'documento').replace(/[\[\]]/g, '') + '](' +
+    CERT_SITE() + '/anexo.html#' + encodeURIComponent(String(x.id || '')) + ')'
+  ));
+  if (anexos.length) {
+    linhas.push('', '_Os anexos abrem com a sua senha do Hub. Não são link público._');
+  }
+  return linhas.join('\n');
+}
+
 const pad = n => String(n).padStart(4, '0');
+
+// v1.37 — preço ajustado (valor declarado pelas partes). A tela manda `preco` no
+// topo do payload; protocolos antigos só têm triagem.preco/valores. Texto curto,
+// sem quebra de linha — é dado de cartão e de extrato, não de escritura.
+function precoDoProtocolo(p) {
+  const t = p && p.triagem;
+  const v = (p && (p.preco || (t && (t.preco || t.valores || t.valor)))) || '';
+  // sem marcação de markdown: o valor vai dentro de **…** na descrição do cartão
+  return String(v).replace(/[*_\[\]`<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+function rotuloPreco(ato) {
+  if (ato === 'DOA') return 'VALOR ATRIBUÍDO AO BEM DOADO';
+  if (ato === 'PER') return 'PREÇO AJUSTADO (valores atribuídos)';
+  return 'PREÇO AJUSTADO';
+}
 
 // ---------- POST /protocolo — o coração do Momento 1 ----------
 app.post('/protocolo', exigeSessao, async (req, res) => {
@@ -123,22 +199,52 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
   if (!p.ato || !p.apresentante?.nome || !p.apresentante?.telefone || !p.parte_envolvida?.nome) {
     return res.status(400).json({ erro: 'payload incompleto' });
   }
+  // CERT: a regra do Tabelião — pedido que só traz o nome da pessoa do ato exige
+  // filiação, porque sem livro, folhas nem data a pesquisa no acervo se faz pelo
+  // nome, e nome sozinho não distingue homônimo.
+  if (p.ato === 'CERT') {
+    const c = p.cert || {};
+    const dado = v => { const t = String(v == null ? '' : v).trim(); return (t && t !== SEM_DADO) ? t : ''; };
+    const temRef = dado(c.ato?.livro) || dado(c.ato?.folhas) || dado(c.ato?.data);
+    const temFiliacao = dado(c.parte?.pai) || dado(c.parte?.mae);
+    // v1.36.1 (LGPD): a pessoa do ato é terceiro — o recibo do WhatsApp não pode
+    // avisá-la de que alguém pediu certidão de ato dela. Só o solicitante recebe.
+    if (p.parte_envolvida) p.parte_envolvida.telefone = null;
+    if (Array.isArray(p.recibo_destinatarios)) p.recibo_destinatarios = p.recibo_destinatarios.filter(d => d !== 'parte_envolvida');
+    if (!temRef && !temFiliacao) {
+      return res.status(400).json({
+        erro: 'pedido sem livro, folhas ou data: informe a filiação da pessoa que participa do ato'
+      });
+    }
+  }
   try {
     // 1) número atômico + registro canônico
     const numero = await db.registrarProtocolo(p, req.usuario.login);
     const titulo = `Prot. (${p.ato}) ${pad(numero)} - ${p.parte_envolvida.nome.toUpperCase()}`;
 
     // 2) descrição: observações humanas + bloco de dados de máquina
+    const ehCert = p.ato === 'CERT';
+    const quadro = ehCert ? CERT_BOARD() : process.env.BOARD_00;
+    const listaDestino = ehCert ? CERT_LISTA() : process.env.LISTA_ENTRADA;
     const pendentes = (p.dossie && p.dossie.pendentes) || [];
     const bloco = ['<!--DADOS', JSON.stringify({ numero, ...p }, null, 1), 'DADOS-->'].join('\n');
+    // v1.37 — preço ajustado / valor declarado pelas partes, em destaque no cartão
+    const preco = precoDoProtocolo(p);
     const desc = [
+      preco ? `**${rotuloPreco(p.ato)}: ${preco}**` : '',
+      ehCert ? certDescricao(p.cert, numero) : '',
       p.observacoes_nao_documentadas ? `**OBSERVAÇÕES NÃO DOCUMENTADAS**\n${p.observacoes_nao_documentadas}` : '',
-      (pendentes.length ? '**DOCUMENTOS PENDENTES — cobrar do interessado antes da lavratura**\n- ' + pendentes.join('\n- ') : ''),
+      (pendentes.length ? (p.ato === 'CERT'
+        ? '**DOCUMENTOS PENDENTES — conferir com o solicitante antes de expedir**\n- '
+        : '**DOCUMENTOS PENDENTES — cobrar do interessado antes da lavratura**\n- ') + pendentes.join('\n- ') : ''),
       bloco
     ].filter(Boolean).join('\n\n');
 
     // 3) bandeiramento -> labels por nome (cores semânticas do cartório)
-    const labels = await trello.labelsDoQuadro(process.env.BOARD_00);
+    // v1.36.1: no quadro 04 as etiquetas não podem derrubar o protocolo do CERT
+    const labels = ehCert
+      ? await trello.labelsDoQuadro(quadro).catch(e => { console.error('labels (cert):', e.message); return {}; })
+      : await trello.labelsDoQuadro(quadro);
     const idLabels = [];
     if (p.urgente && labels['Urgente']) idLabels.push(labels['Urgente']);
     if (pendentes.length && labels['Doc. pendente']) idLabels.push(labels['Doc. pendente']);
@@ -152,16 +258,24 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
 
     // 5) cartão em Protocolo/Entrada
     const card = await trello.criarCartao({
-      idList: process.env.LISTA_ENTRADA, name: titulo, desc, due, idLabels
+      idList: listaDestino, name: titulo, desc, due, idLabels
     });
     await db.vincularCartao(numero, card.id);
+
+    // 5a) CERT: carimba o número nos anexos já enviados (eles nasceram sem protocolo).
+    // Falhar aqui não desfaz o protocolo — o anexo continua no banco, com a trilha.
+    if (ehCert) {
+      hub.limparAnexosCert();   // v1.36.1: expurgo também a cada protocolo CERT
+      await hub.vincularAnexosCert(((p.cert && p.cert.anexos) || []).map(x => x && x.id), numero)
+        .catch(e => console.error('cert anexos:', e.message));
+    }
 
     // 5b) capa colorida = bandeira (não bloqueia o protocolo se falhar)
     const capa = corDaCapa(p.bandeiras);
     if (capa) await trello.aplicarCapa(card.id, capa).catch(e => console.error('capa:', e.message));
 
     // 6) campos personalizados (mapeados por nome)
-    await trello.aplicarCampos(card.id, process.env.BOARD_00, {
+    const campos = trello.aplicarCampos(card.id, quadro, {
       'Protocolo': numero,
       'Tipo de Ato': p.ato,
       'Apresentante': p.apresentante.nome,
@@ -170,8 +284,15 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
       'Tel Parte': p.parte_envolvida.telefone,
       'Data de Entrada': new Date().toISOString(),
       'Escrevente': p.escrevente,
-      'Vendedor': p.vendedor?.nome
+      'Vendedor': p.vendedor?.nome,
+      'Preço ajustado': precoDoProtocolo(p) || undefined   // v1.37 — só se o quadro tiver o campo
     });
+    // o quadro das certidões não tem os mesmos campos personalizados do quadro 00:
+    // campo inexistente lá é ignorado, e uma falha não pode derrubar o protocolo.
+    // v1.37: também nos demais atos — o cartão já existe e o número já foi consumido;
+    // um campo personalizado recusado (ex.: tipo número no quadro) não pode virar
+    // "falha ao protocolar" no balcão.
+    await campos.catch(e => console.error('campos' + (ehCert ? ' (cert)' : '') + ':', e.message));
 
     // 7) checklist DOSSIÊ (recebidos marcados, pendentes em aberto)
     await trello.criarChecklistDossie(card.id, p.dossie?.recebidos || [], p.dossie?.pendentes || []);
@@ -254,7 +375,8 @@ app.post('/webhook/trello', async (req, res) => {
       'Parte': p.parte_envolvida?.nome,
       'Tel Parte': p.parte_envolvida?.telefone,
       'Escrevente': p.escrevente,
-      'Vendedor': p.vendedor?.nome
+      'Vendedor': p.vendedor?.nome,
+      'Preço ajustado': precoDoProtocolo(p) || undefined   // v1.37 — só se o quadro tiver o campo
     });
     // labels também são por quadro: reaplica bandeiras + urgente no destino
     const nomes = (p.bandeiras || []).map(b => NOMES_BANDEIRA[b]).filter(Boolean);
@@ -313,7 +435,7 @@ app.use('/agentes', exigeSessao, require('./agentes'));
 
 // --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
 // Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
-app.use('/hub', require('./hub'));
+app.use('/hub', hub);
 
 // A interface (public/index.html). Fica por ultimo entre os middlewares
 // para nao sombrear nenhuma rota da API.

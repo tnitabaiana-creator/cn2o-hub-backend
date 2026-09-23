@@ -162,6 +162,23 @@ function preparar() {
       );
       CREATE INDEX IF NOT EXISTS hub_auditoria_em ON hub_auditoria (em);
       CREATE INDEX IF NOT EXISTS hub_auditoria_login_em ON hub_auditoria (login, em);
+      -- v1.36: anexos do pedido de CERTIDÃO (ato CERT do e-Protocolo). O solicitante
+      -- traz um PDF ou uma foto que serve de base à pesquisa nos livros; o arquivo NÃO
+      -- vai para o Trello (o cartão leva um link), fica aqui, com dono e prazo, e sai
+      -- pelo expurgo. É a única exceção à regra de o Hub não guardar documento de
+      -- parte, e existe porque a escrevente precisa do documento para pesquisar.
+      CREATE TABLE IF NOT EXISTS hub_cert_anexos (
+        id TEXT PRIMARY KEY,
+        protocolo INT,
+        nome TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        tamanho INT NOT NULL,
+        conteudo BYTEA NOT NULL,
+        login TEXT,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS hub_cert_anexos_protocolo ON hub_cert_anexos (protocolo);
+      CREATE INDEX IF NOT EXISTS hub_cert_anexos_criado ON hub_cert_anexos (criado_em);
       -- v1.34: equipe inicial (pedido do Tabelião em 16/09/2026). Cada pessoa cria a
       -- própria senha no primeiro acesso (senha_hash NULL). Idempotente: quem já existe
       -- fica como está — nome e cargo se corrigem pela aba Equipe, nunca por aqui.
@@ -181,7 +198,8 @@ function preparar() {
         ('jessica.santos',   'Jéssica',      'Escrevente'),
         ('jonas.aragao',     'Jonas',        'Escrevente')
       ON CONFLICT (login) DO NOTHING;
-    `).then(() => limparAuditoria()).catch(e => { pronto = null; throw e; });
+    `).then(() => limparAuditoria()).then(() => limparAnexosCert())
+      .catch(e => { pronto = null; throw e; });
   }
   return pronto;
 }
@@ -640,7 +658,7 @@ router.post('/registro', jsonMural, exigeSessao, async (req, res) => {
 const AUD_POR_PAGINA = 50;
 const AUD_CSV_MAX = 20000;
 const AUD_ACOES = ['login', 'logout', 'abrir', 'ia', 'consulta', 'acervo', 'minuta', 'mural',
-  'agenda', 'notas', 'itbi', 'admin'];
+  'agenda', 'notas', 'itbi', 'anexar', 'admin'];
 function diaFiltro(v) {
   const s = txt(v, 10);
   return RE_DIA.test(s) && diaValido(s) ? s : '';
@@ -930,7 +948,10 @@ async function extratoDoProtocolo(numero) {
         parte: dados.parte_envolvida ? { nome: txt(dados.parte_envolvida.nome, 120), telefone: txt(dados.parte_envolvida.telefone, 30) } : null,
         vendedor: (dados.vendedor && dados.vendedor.nome) ? { nome: txt(dados.vendedor.nome, 120) } : null
       },
-      escrevente_protocolo: dados.escrevente || null
+      escrevente_protocolo: dados.escrevente || null,
+      // v1.37 — preço ajustado / valor declarado pelas partes (tela nova: dados.preco;
+      // protocolos antigos: triagem.preco ou triagem.valores da permuta)
+      preco: txt(dados.preco || (dados.triagem && (dados.triagem.preco || dados.triagem.valores || dados.triagem.valor)) || '', 160) || null
     };
     try {
       const { card, acoes, checklists } = await cartaoCompleto(cardId);
@@ -1335,6 +1356,7 @@ async function contextoRedator(corpo, usuario) {
         linhaPessoa('Apresentante', ex.partes && ex.partes.apresentante),
         linhaPessoa('Parte / comprador(a)', ex.partes && ex.partes.parte),
         linhaPessoa('Vendedor(a)', ex.partes && ex.partes.vendedor),
+        ex.preco ? (ex.ato === 'DOA' ? 'Valor atribuído ao bem doado: ' : 'Preço ajustado: ') + ex.preco : null,
         ex.entrada ? 'Entrada: ' + new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_CN2O }).format(new Date(ex.entrada)) : null,
         ex.prazo ? 'Prazo de lavratura: ' + new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_CN2O }).format(new Date(ex.prazo)) : null,
         ex.lista ? 'Fase atual: ' + ex.lista + (ex.com_quem && ex.com_quem.length ? ' — com ' + ex.com_quem.join(', ') : '') : null,
@@ -1664,9 +1686,138 @@ router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------- CERT: anexos do pedido de certidão (v1.36)
+// "Inclua campo para anexar pdf ou imagem com documentos a servir de base para
+// pesquisa nos livros" (Tabelião, 17/09/2026).
+//
+// Por que o arquivo não vai para o Trello: o /protocolo tem parser de 256 kb e o
+// cliente do Trello da casa não faz envio de arquivo. O caminho aqui é outro e é
+// melhor para a LGPD: o arquivo fica no banco da serventia, o cartão leva um LINK,
+// e o link só abre para quem tem sessão do Hub — não é URL pública.
+//
+// Ordem das coisas no balcão: a tela envia os arquivos ANTES de protocolar (aqui
+// nascem sem protocolo), o /protocolo cria o número e, logo depois, chama
+// vincularAnexosCert() para carimbar o número em cada um. Anexo que ficou sem
+// protocolo é pedido abandonado e o expurgo o apaga em poucas horas.
+const CERT_TIPOS = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+const CERT_ANEXO_MAX = 8 * 1024 * 1024;     // 8 MB por arquivo
+const CERT_ANEXOS_MAX = 5;                  // por pedido
+const CERT_DIAS_PADRAO = 180;               // guarda do anexo vinculado a protocolo
+const CERT_HORAS_ORFAO = 12;                // anexo que nunca virou protocolo
+
+function certAnexoDias() {
+  const n = parseInt(process.env.HUB_CERT_ANEXO_DIAS || String(CERT_DIAS_PADRAO), 10);
+  return Number.isInteger(n) && n >= 1 ? n : CERT_DIAS_PADRAO;
+}
+let limpezaAnexoDia = '';
+function limparAnexosCert() {
+  // v1.36.1: trava por HORA (não por dia) e chamada também pelas rotas do CERT —
+  // antes só rodava no preparar(), uma vez por processo, e a Railway fica semanas
+  // no ar: as 12 h do anexo órfão e o prazo de guarda não eram cumpridos.
+  const hora = new Date().toISOString().slice(0, 13);
+  if (limpezaAnexoDia === hora) return Promise.resolve();
+  limpezaAnexoDia = hora;
+  return q(`DELETE FROM hub_cert_anexos
+             WHERE (protocolo IS NULL AND criado_em < now() - ($1 || ' hours')::interval)
+                OR (protocolo IS NOT NULL AND criado_em < now() - ($2 || ' days')::interval)`,
+    [String(CERT_HORAS_ORFAO), String(certAnexoDias())])
+    .catch(e => { console.error('hub cert anexos (retenção):', e.message); });
+}
+
+function nomeArquivo(v) {
+  // o nome vem do computador do solicitante: tira caminho, controle e exagero.
+  const s = String(v == null ? '' : v).split(/[\\/]/).pop().replace(/[\x00-\x1f\x7f]/g, ' ').trim();
+  return (s || 'documento').slice(0, 120);
+}
+
+router.post('/cert/anexos', jsonIA, exigeSessao, async (req, res) => {
+  try {
+    const lista = Array.isArray(req.body && req.body.arquivos) ? req.body.arquivos : null;
+    if (!lista || !lista.length) return res.status(400).json({ erro: 'nenhum arquivo enviado' });
+    if (lista.length > CERT_ANEXOS_MAX) {
+      return res.status(400).json({ erro: `no máximo ${CERT_ANEXOS_MAX} arquivos por pedido` });
+    }
+    const preparados = [];
+    for (const a of lista) {
+      const tipo = String((a && a.tipo) || '').toLowerCase().split(';')[0].trim();
+      if (!CERT_TIPOS.has(tipo)) {
+        return res.status(400).json({ erro: 'só aceito PDF, JPEG, PNG ou WEBP — recebi "' + (tipo || 'tipo vazio') + '"' });
+      }
+      const b64 = String((a && a.base64) || '').replace(/^data:[^;]+;base64,/, '');
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length < 8) {
+        return res.status(400).json({ erro: 'arquivo ilegível — reenvie' });
+      }
+      const buf = Buffer.from(b64, 'base64');
+      if (!buf.length) return res.status(400).json({ erro: 'arquivo vazio' });
+      if (buf.length > CERT_ANEXO_MAX) {
+        return res.status(400).json({ erro: 'arquivo maior que 8 MB — reduza ou envie menos páginas' });
+      }
+      preparados.push({ id: require('crypto').randomBytes(16).toString('hex'), nome: nomeArquivo(a.nome), tipo, buf, b64 });
+    }
+    await preparar();
+    limparAnexosCert();   // v1.36.1: expurgo também em serviço (trava horária)
+    for (const p of preparados) {
+      // decode() no próprio SQL: assim o arquivo vira bytea de verdade sem depender
+      // de o driver saber tratar Buffer — alguns não sabem, e o que entra no banco
+      // vira o JSON do Buffer, que só se descobre na hora de abrir o documento.
+      await q(`INSERT INTO hub_cert_anexos (id, nome, tipo, tamanho, conteudo, login)
+               VALUES ($1, $2, $3, $4, decode($5, 'base64'), $6)`,
+        [p.id, p.nome, p.tipo, p.buf.length, p.b64, req.usuario.login]);
+    }
+    auditar(req, 'anexar', 'cert', preparados.length + ' arquivo(s)');
+    res.json({ anexos: preparados.map(p => ({ id: p.id, nome: p.nome, tipo: p.tipo, tamanho: p.buf.length })) });
+  } catch (e) {
+    console.error('cert anexos:', e);
+    res.status(500).json({ erro: 'falha ao guardar o anexo' });
+  }
+});
+
+router.get('/cert/anexo/:id', exigeSessao, async (req, res) => {
+  try {
+    await preparar();
+    await limparAnexosCert();   // v1.36.1: vencido não abre, nem por um instante
+    const r = await q(`SELECT nome, tipo, encode(conteudo, 'base64') AS b64 FROM hub_cert_anexos WHERE id = $1`,
+      [String(req.params.id || '')]);
+    if (!r.rows.length) return res.status(404).json({ erro: 'anexo não encontrado ou já expurgado' });
+    const a = r.rows[0];
+    const bytes = Buffer.from(String(a.b64 || '').replace(/\s+/g, ''), 'base64');
+    auditar(req, 'abrir', 'cert-anexo', String(req.params.id || '').slice(0, 40));
+    res.set('Content-Type', a.tipo);
+    // v1.36.1: cabeçalho HTTP só aceita latin-1 — travessão, apóstrofo curvo ou
+    // emoji no nome derrubavam a resposta (500 para sempre naquele anexo). Vai o
+    // nome ASCII em filename e o nome real em filename* (RFC 6266), e o cabeçalho
+    // fica legível pela página do Netlify (outro domínio) via Expose-Headers.
+    const ascii = String(a.nome || 'documento').replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '') || 'documento';
+    res.set('Content-Disposition', 'inline; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(String(a.nome || 'documento')).replace(/['()*]/g, ch => '%' + ch.charCodeAt(0).toString(16).toUpperCase()));
+    res.set('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Cache-Control', 'private, max-age=0, no-store');
+    res.set('Content-Length', String(bytes.length));
+    res.send(bytes);
+  } catch (e) {
+    console.error('cert anexo:', e);
+    res.status(500).json({ erro: 'falha ao abrir o anexo' });
+  }
+});
+
+// Chamado pelo /protocolo depois que o número existe. Nunca derruba o protocolo:
+// anexo sem número é recuperável pela trilha; protocolo perdido, não.
+async function vincularAnexosCert(ids, numero) {
+  const lista = (Array.isArray(ids) ? ids : []).map(x => String(x || '')).filter(Boolean).slice(0, CERT_ANEXOS_MAX);
+  if (!lista.length) return 0;
+  await preparar();
+  const r = await q(`UPDATE hub_cert_anexos SET protocolo = $1 WHERE id = ANY($2::text[]) AND protocolo IS NULL`,
+    [numero, lista]);
+  return r.rowCount;
+}
+
 // Erros do parser (corpo grande demais / JSON quebrado) sempre em JSON.
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {
+    // v1.36.1: o recado certo para cada tela — o anexo da certidão não é "análise"
+    if (/\/cert\//.test(req.path || '')) {
+      return res.status(413).json({ erro: 'anexo grande demais — envie um arquivo de até 8 MB por vez' });
+    }
     return res.status(413).json({ erro: 'arquivos grandes demais para uma análise só — envie menos páginas' });
   }
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ erro: 'requisição inválida' });
@@ -1674,4 +1825,6 @@ router.use((err, req, res, next) => {
 });
 
 router.normalizarMural = normalizarMural;   // exposto para os testes
+router.vincularAnexosCert = vincularAnexosCert;  // usado pelo /protocolo (server.js)
+router.limparAnexosCert = limparAnexosCert;      // v1.36.1: expurgo chamado pelo /protocolo
 module.exports = router;

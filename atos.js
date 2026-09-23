@@ -18,7 +18,10 @@ const NOMES_ATO = {
   'PACTO': 'Pacto antenupcial',
   'RERRAT': 'Rerratificação',
   'ATA-U': 'Ata notarial para usucapião',
-  'ATA-W/A': 'Ata notarial de mensagens e áudios'
+  'ATA-W/A': 'Ata notarial de mensagens e áudios',
+  // v1.36: pedido de certidão ou traslado de ato do acervo. Consome a MESMA série
+  // de protocolo dos demais atos — a numeração da serventia é uma só.
+  'CERT': 'Certidão ou traslado de ato notarial'
 };
 
 module.exports = { NOMES_ATO };
