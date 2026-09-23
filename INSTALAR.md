@@ -234,3 +234,18 @@ também está inteiro sem acentuação, o que é estranho num prompt que exige
 transcrição literal. Copiei exatamente como está — corrigir por conta própria um
 prompt de produção seria pior que o defeito. Vale abrir `dados/agentes/not-extrator.md`
 e arrumar antes de rodar o seed.
+
+## v1.37.1 — instalação pelo Tabelião (sem rodar setup.js)
+
+Rotas do Hub, só para a sessão de administrador (`X-Auth-Token` do login cesar.bravo), idempotentes:
+
+- `POST /hub/admin/trello/campo-preco` — cria o campo personalizado **"Preço ajustado"** (texto) nos
+  quadros BOARD_00, BOARD_01 e BOARDS_ESCREVENTES. O servidor o preenche em cada protocolo que traz preço.
+- `POST /hub/admin/trello/etiquetas-cert` — cria as etiquetas **"Urgente"** e **"Doc. pendente"** no BOARD_04.
+- `GET /hub/admin/whats/template-cert` — devolve a definição do template do recibo do CERT (texto pronto
+  para o WhatsApp Manager). `POST` na mesma rota cadastra pela API da Meta quando `WHATS_WABA_ID` existe
+  (o token precisa da permissão `whatsapp_business_management`). Aprovado o template, gravar
+  `WHATS_TEMPLATE_CERT=<nome>`; sem a variável, o CERT usa o recibo comum.
+
+Observação: a lista de campos/etiquetas de cada quadro fica em memória no servidor (trello.js); campo ou
+etiqueta criados passam a valer a partir do reinício seguinte do serviço.
