@@ -550,6 +550,105 @@ async function situacaoNumeracao() {
     historico: l.rows
   };
 }
+// ---------------------------------------------------------- v1.37.1 · instalação pelo Tabelião
+// Duas tarefas de configuração que antes dependiam de rodar setup.js com as chaves na
+// mão ou de clicar quadro por quadro no Trello. Ficam aqui como função do Tabelião
+// (sessão de administrador), idempotentes: rodar de novo não duplica nada.
+
+// 1) Campo personalizado "Preço ajustado" (texto) nos sete quadros por onde o cartão
+//    viaja (00, 01 e os cinco 02). O servidor já o preenche quando existe — em texto,
+//    porque o valor vai formatado ("R$ 150.000,00"); um campo numérico o recusaria.
+const CAMPO_PRECO = 'Preço ajustado';
+router.post('/admin/trello/campo-preco', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  const relatorio = [];
+  try {
+    const quadros = quadrosDaCasa();
+    if (!quadros.length) return res.status(400).json({ erro: 'BOARD_00/BOARD_01/BOARDS_ESCREVENTES não configurados' });
+    for (const boardId of quadros) {
+      try {
+        const defs = await trello.t('GET', '/boards/' + boardId + '/customFields?fields=name,type');
+        const existente = (defs || []).find(d => d.name === CAMPO_PRECO);
+        if (existente) { relatorio.push({ quadro: boardId, campo: CAMPO_PRECO, tipo: existente.type, situacao: 'já existia' }); continue; }
+        await trello.t('POST', '/customFields', {
+          idModel: boardId, modelType: 'board', name: CAMPO_PRECO, type: 'text', pos: 'bottom', display_cardFront: true
+        });
+        relatorio.push({ quadro: boardId, campo: CAMPO_PRECO, tipo: 'text', situacao: 'criado' });
+      } catch (e) {
+        relatorio.push({ quadro: boardId, campo: CAMPO_PRECO, situacao: 'falha', erro: txt(e.message, 200) });
+      }
+    }
+    auditar(req, 'admin', 'trello', 'campo Preço ajustado · ' + relatorio.filter(r => r.situacao === 'criado').length + ' criado(s)');
+    res.json({ ok: relatorio.every(r => r.situacao !== 'falha'), quadros: relatorio,
+      aviso: 'O servidor guarda a lista de campos de cada quadro em memória; um campo criado agora passa a ser preenchido depois do próximo reinício do serviço (redeploy).' });
+  } catch (e) {
+    console.error('hub admin campo-preco:', e);
+    res.status(500).json({ erro: 'falha ao criar o campo', quadros: relatorio });
+  }
+});
+
+// 2) Etiquetas "Urgente" e "Doc. pendente" no quadro das certidões (04): os cartões do
+//    CERT só as recebem se elas existirem lá COM NOME (as seis etiquetas do quadro nasceram sem nome).
+router.post('/admin/trello/etiquetas-cert', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const boardId = String(process.env.BOARD_04 || '6a8ca1ddc8f6574231ab8ab0').trim();
+    const ls = await trello.t('GET', '/boards/' + boardId + '/labels?limit=100');
+    const relatorio = [];
+    for (const [name, color] of [['Urgente', 'red'], ['Doc. pendente', 'orange']]) {
+      if ((ls || []).some(l => l.name === name)) { relatorio.push({ etiqueta: name, situacao: 'já existia' }); continue; }
+      await trello.t('POST', '/boards/' + boardId + '/labels', { name, color });
+      relatorio.push({ etiqueta: name, situacao: 'criada' });
+    }
+    auditar(req, 'admin', 'trello', 'etiquetas do quadro 04 · ' + relatorio.filter(r => r.situacao === 'criada').length + ' criada(s)');
+    res.json({ ok: true, quadro: boardId, etiquetas: relatorio,
+      aviso: 'As etiquetas ficam em memória no servidor; valem para o CERT depois do próximo reinício do serviço.' });
+  } catch (e) {
+    console.error('hub admin etiquetas-cert:', e);
+    res.status(500).json({ erro: 'falha ao criar as etiquetas: ' + txt(e.message, 200) });
+  }
+});
+
+// 3) Template do WhatsApp para o CERT. Com WHATS_WABA_ID na Railway, cadastra pela API
+//    da Meta (o token do System User precisa da permissão whatsapp_business_management);
+//    sem ela, devolve o texto pronto para cadastrar no WhatsApp Manager. Depois de
+//    APROVADO pela Meta, o Tabelião aponta WHATS_TEMPLATE_CERT para o nome do template.
+router.get('/admin/whats/template-cert', exigeSessao, exigeAdmin, (req, res) => {
+  const rc = require('./recibo-cert');
+  const nome = txt(req.query.nome, 60) || 'recibo_certidao_1';
+  if (!/^[a-z0-9_]{3,60}$/.test(nome)) return res.status(400).json({ erro: 'nome do template: só letras minúsculas, dígitos e _' });
+  res.json({ em_uso: rc.templateCert(), waba_configurado: !!String(process.env.WHATS_WABA_ID || '').trim(),
+    definicao: rc.definicaoTemplateCert(nome) });
+});
+router.post('/admin/whats/template-cert', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+  const rc = require('./recibo-cert');
+  const nome = txt(req.body && req.body.nome, 60) || 'recibo_certidao_1';
+  if (!/^[a-z0-9_]{3,60}$/.test(nome)) return res.status(400).json({ erro: 'nome do template: só letras minúsculas, dígitos e _' });
+  const waba = String(process.env.WHATS_WABA_ID || '').trim();
+  const token = String(process.env.WHATS_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+  const def = rc.definicaoTemplateCert(nome);
+  if (!waba || !token) {
+    return res.status(400).json({ erro: 'WHATS_WABA_ID (e WHATS_TOKEN) precisam estar na Railway para cadastrar pela API — ou cadastre o texto abaixo no WhatsApp Manager.', definicao: def });
+  }
+  try {
+    const versao = (/graph\.facebook\.com\/(v[\d.]+)\//.exec(String(process.env.WHATS_URL || '')) || [])[1] || 'v22.0';
+    const r = await fetch('https://graph.facebook.com/' + versao + '/' + encodeURIComponent(waba) + '/message_templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(def)
+    });
+    const dados = await r.json().catch(() => ({}));
+    auditar(req, 'admin', 'whats', 'template CERT ' + nome + ' · ' + (r.ok ? 'enviado à Meta' : 'recusado ' + r.status));
+    if (!r.ok) {
+      const msg = (dados && dados.error && (dados.error.error_user_msg || dados.error.message)) || ('HTTP ' + r.status);
+      return res.status(502).json({ erro: 'a Meta recusou o cadastro: ' + txt(msg, 300), definicao: def });
+    }
+    res.json({ ok: true, template: { id: dados.id, nome, status: dados.status, categoria: dados.category },
+      proximo_passo: 'Quando a Meta aprovar, gravar WHATS_TEMPLATE_CERT=' + nome + ' na Railway.' });
+  } catch (e) {
+    console.error('hub admin template-cert:', e);
+    res.status(500).json({ erro: 'falha ao falar com a Meta: ' + txt(e.message, 200), definicao: def });
+  }
+});
+
 router.get('/admin/numeracao', exigeSessao, exigeAdmin, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {

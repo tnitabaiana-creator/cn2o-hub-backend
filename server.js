@@ -5,6 +5,7 @@ const trello = require('./trello');
 const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = require('./whats');
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
 const hub = require('./hub');   // router do Hub + vincularAnexosCert (v1.36)
+const { variaveisDoReciboCert, templateCert } = require('./recibo-cert');   // v1.37.1 — recibo próprio do CERT
 
 const app = express();
 // Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
@@ -62,12 +63,19 @@ app.post('/logout', async (req, res) => {
 
 // reset administrativo (tabelião): zera a senha; usuário redefine no próximo acesso
 app.post('/admin/resetar-senha', async (req, res) => {
-  if (req.get('X-Admin-Key') !== process.env.HUB_KEY) return res.status(401).json({ erro: 'não autorizado' });
+  // v1.37.1: fail-closed — sem HUB_KEY configurada, ninguém passa (antes: undefined === undefined)
+  if (!chaveAdminOk(req.get('X-Admin-Key'))) return res.status(401).json({ erro: 'não autorizado' });
   const u = await db.buscarUsuario(req.body?.login);
   if (!u) return res.status(404).json({ erro: 'usuário não encontrado' });
   await db.gravarSenha(u.login, null);
   res.json({ ok: true, login: u.login });
 });
+
+// v1.37.1 — chave administrativa: só vale se estiver configurada E for igual.
+function chaveAdminOk(chave) {
+  const esperada = String(process.env.HUB_KEY || '').trim();
+  return !!esperada && String(chave || '') === esperada;
+}
 
 const exigeSessao = async (req, res, next) => {
   const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
@@ -298,7 +306,13 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     await trello.criarChecklistDossie(card.id, p.dossie?.recebidos || [], p.dossie?.pendentes || []);
 
     // 8) recibos WhatsApp (não bloqueia a resposta do balcão)
-    dispararRecibos(p, pad(numero))
+    // v1.37.1 — CERT com template próprio (WHATS_TEMPLATE_CERT): só o solicitante
+    // recebe, com "Pedido" e "Ato procurado em nome de" no lugar de "Comprador(a)".
+    // Sem a variável, o CERT segue pelo recibo comum (dispararRecibos), como antes.
+    const envio = (ehCert && templateCert())
+      ? enviarTemplate(p.apresentante.telefone, variaveisDoReciboCert(p, pad(numero)), templateCert()).then(r => [r])
+      : dispararRecibos(p, pad(numero));
+    envio
       .then(resps => {
         const falhas = (resps || []).filter(r => !r.ok);
         if (falhas.length) {
@@ -403,21 +417,27 @@ app.get('/whats/status', (_req, res) => {
 app.post('/whats/testar', async (req, res) => {
   const key = req.get('X-Admin-Key') || req.get('X-Hub-Key');
   const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
-  if (!sess && key !== process.env.HUB_KEY) {
+  if (!sess && !chaveAdminOk(key)) {   // v1.37.1: fail-closed sem HUB_KEY
     return res.status(401).json({ erro: 'não autorizado' });
   }
   const { telefone, protocolo, ato, template } = req.body || {};
   if (!telefone) return res.status(400).json({ erro: 'telefone obrigatório' });
 
   const { variaveisDoRecibo } = require('./recibo');
-  const tpl = String(template || process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
+  const ehCertTeste = String(ato || '').toUpperCase() === 'CERT';
+  if (ehCertTeste && !template && !templateCert()) {
+    return res.status(400).json({ erro: 'WHATS_TEMPLATE_CERT não configurado — informe `template` ou grave a variável na Railway' });
+  }
+  const tpl = String(template || (ehCertTeste && templateCert()) || process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2').trim();
   const fakeProto = {
     ato: ato || 'CV-Urbano',
     apresentante: { nome: 'Apresentante (Teste)', telefone },
     parte_envolvida: { nome: 'Parte Envolvida (Teste)', telefone },
-    vendedor: { nome: 'Vendedor/Cedente (Teste)' }
+    vendedor: { nome: 'Vendedor/Cedente (Teste)' },
+    cert: { especie: 'Certidão de inteiro teor (Teste)', solicitante: { nome: 'Solicitante (Teste)' }, parte: { nome: 'Pessoa do Ato (Teste)' } }
   };
-  const vars = variaveisDoRecibo(fakeProto, protocolo || '9999', tpl);
+  // v1.37.1 — teste do recibo do CERT: ato=CERT usa as variáveis do template próprio
+  const vars = ehCertTeste ? variaveisDoReciboCert(fakeProto, protocolo || '9999') : variaveisDoRecibo(fakeProto, protocolo || '9999', tpl);
   const resultado = await enviarTemplate(telefone, vars, tpl);
   res.json({
     telefone_informado: telefone,
