@@ -1926,4 +1926,5 @@ router.use((err, req, res, next) => {
 router.normalizarMural = normalizarMural;   // exposto para os testes
 router.vincularAnexosCert = vincularAnexosCert;  // usado pelo /protocolo (server.js)
 router.limparAnexosCert = limparAnexosCert;      // v1.36.1: expurgo chamado pelo /protocolo
+router.auditar = auditar;                        // v1.38: trilha dos relatórios (relatorios.js)
 module.exports = router;

@@ -6,13 +6,15 @@ const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = r
 const { hashSenha, verificaSenha, novoToken } = require('./auth');
 const hub = require('./hub');   // router do Hub + vincularAnexosCert (v1.36)
 const { variaveisDoReciboCert, templateCert } = require('./recibo-cert');   // v1.37.1 — recibo próprio do CERT
+const rastreio = require('./rastreio');   // v1.38 — rastreio dos cartões para os relatórios das escreventes
 
 const app = express();
 // Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
-// (24 MB) porque recebem PDF e imagem em base64.
+// (24 MB) porque recebem PDF e imagem em base64. v1.38: /webhook/trello le o
+// corpo BRUTO, porque a assinatura do Trello e calculada sobre os bytes exatos.
 const jsonPequeno = express.json({ limit: '256kb' });
 app.use((req, res, next) =>
-  (req.path.startsWith('/agentes') || req.path.startsWith('/hub/'))
+  (req.path.startsWith('/agentes') || req.path.startsWith('/hub/') || req.path === '/webhook/trello')
     ? next() : jsonPequeno(req, res, next));
 
 // CORS: o formulário roda no Netlify
@@ -367,44 +369,63 @@ app.get('/advogados', async (_req, res) => {
   catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-// ---------- Webhook Trello: re-hidrata campos após viagem entre quadros ----------
-// (campos personalizados NÃO acompanham o cartão ao trocar de quadro)
+// ---------- Webhook Trello ----------
+// 1) re-hidrata campos após viagem entre quadros (campos personalizados NÃO
+//    acompanham o cartão ao trocar de quadro);
+// 2) v1.38: rastreia os cartões para os relatórios das escreventes (rastreio.js).
+// A assinatura do Trello (X-Trello-Webhook + TRELLO_SECRET) decide SÓ o rastreio:
+// sem ela, ou com ela errada, nada entra nas métricas, e a re-hidratação segue como
+// sempre — um segredo mal configurado não pode parar o trabalho dos quadros. Ação
+// que não chegou a ser gravada volta pela reconciliação das 7h (agendador.js).
+let relatoriosNoAr = false;   // as tabelas do rastreio subiram no boot (db-relatorios.js)
 app.head('/webhook/trello', (_req, res) => res.sendStatus(200)); // validação do Trello
-app.post('/webhook/trello', async (req, res) => {
-  res.sendStatus(200); // responde já; processa depois
-  try {
-    const a = req.body?.action;
-    if (a?.type !== 'moveCardToBoard') return;
-    const cardId = a.data?.card?.id;
-    const boardDestino = a.data?.board?.id; // quadro de destino
-    if (!cardId || !boardDestino) return;
-    const reg = await db.protocoloPorCartao(cardId);
-    if (!reg) return;
-    const p = reg.dados;
-    await trello.aplicarCampos(cardId, boardDestino, {
-      'Protocolo': reg.numero,
-      'Tipo de Ato': p.ato,
-      'Apresentante': p.apresentante?.nome,
-      'Tel Apresentante': p.apresentante?.telefone,
-      'Parte': p.parte_envolvida?.nome,
-      'Tel Parte': p.parte_envolvida?.telefone,
-      'Escrevente': p.escrevente,
-      'Vendedor': p.vendedor?.nome,
-      'Preço ajustado': precoDoProtocolo(p) || undefined   // v1.37 — só se o quadro tiver o campo
-    });
-    // labels também são por quadro: reaplica bandeiras + urgente no destino
-    const nomes = (p.bandeiras || []).map(b => NOMES_BANDEIRA[b]).filter(Boolean);
-    if (p.urgente) nomes.push('Urgente');
-    if (await trello.temPendenciaDossie(cardId)) nomes.push('Doc. pendente');
-    await trello.aplicarLabelsPorNome(cardId, boardDestino, nomes);
-    // a capa viaja com o cartão, mas reaplica por garantia
-    const capa = corDaCapa(p.bandeiras);
-    if (capa) await trello.aplicarCapa(cardId, capa).catch(e => console.error('capa:', e.message));
-    console.log(`re-hidratado: prot ${reg.numero} no quadro ${boardDestino}`);
-  } catch (e) {
-    console.error('webhook:', e.message);
+app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), async (req, res) => {
+  const corpo = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  let a;
+  try { a = JSON.parse(corpo.toString('utf8') || '{}').action; }
+  catch (_) { return res.sendStatus(400); }
+  let rastreado = false;
+  if (relatoriosNoAr && rastreio.relevante(a) &&
+      rastreio.verificarWebhook(corpo, req.get('X-Trello-Webhook')) === 'ok') {
+    // gravada ANTES do 200: quando o Trello recebe a resposta, a ação já está no banco
+    try { await rastreio.registrarEvento(a, 'webhook'); rastreado = true; }
+    catch (e) { console.error('webhook (rastreio):', e.message); }
   }
+  res.sendStatus(200); // responde já; processa depois
+  if (rastreado) {
+    rastreio.processarCartao(a.data.card.id).catch(e => console.error('webhook (rastreio):', e.message));
+  }
+  reidratarCampos(a).catch(e => console.error('webhook:', e.message));
 });
+async function reidratarCampos(a) {
+  if (a?.type !== 'moveCardToBoard') return;
+  const cardId = a.data?.card?.id;
+  const boardDestino = a.data?.board?.id; // quadro de destino
+  if (!cardId || !boardDestino) return;
+  const reg = await db.protocoloPorCartao(cardId);
+  if (!reg) return;
+  const p = reg.dados;
+  await trello.aplicarCampos(cardId, boardDestino, {
+    'Protocolo': reg.numero,
+    'Tipo de Ato': p.ato,
+    'Apresentante': p.apresentante?.nome,
+    'Tel Apresentante': p.apresentante?.telefone,
+    'Parte': p.parte_envolvida?.nome,
+    'Tel Parte': p.parte_envolvida?.telefone,
+    'Escrevente': p.escrevente,
+    'Vendedor': p.vendedor?.nome,
+    'Preço ajustado': precoDoProtocolo(p) || undefined   // v1.37 — só se o quadro tiver o campo
+  });
+  // labels também são por quadro: reaplica bandeiras + urgente no destino
+  const nomes = (p.bandeiras || []).map(b => NOMES_BANDEIRA[b]).filter(Boolean);
+  if (p.urgente) nomes.push('Urgente');
+  if (await trello.temPendenciaDossie(cardId)) nomes.push('Doc. pendente');
+  await trello.aplicarLabelsPorNome(cardId, boardDestino, nomes);
+  // a capa viaja com o cartão, mas reaplica por garantia
+  const capa = corDaCapa(p.bandeiras);
+  if (capa) await trello.aplicarCapa(cardId, capa).catch(e => console.error('capa:', e.message));
+  console.log(`re-hidratado: prot ${reg.numero} no quadro ${boardDestino}`);
+}
 
 app.get('/saude', (_req, res) => res.json({ ok: true }));
 
@@ -453,6 +474,11 @@ app.post('/whats/testar', async (req, res) => {
 // Herda sessao, banco e usuarios do hub de protocolo que ja roda aqui.
 app.use('/agentes', exigeSessao, require('./agentes'));
 
+// --- v1.38 Relatórios das escreventes (semanal e mensal, por e-mail) -------
+// Antes do /hub: o relatorios.js exige a sessão de um administrador (HUB_ADMINS ou
+// RELATORIOS_ADMINS) em todas as rotas. Ver RELATORIOS.md.
+app.use('/hub/relatorios', require('./relatorios').router);
+
 // --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
 // Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
 app.use('/hub', hub);
@@ -461,8 +487,15 @@ app.use('/hub', hub);
 // para nao sombrear nenhuma rota da API.
 app.use(express.static(require('path').join(__dirname, 'public')));
 
+// v1.38: as tabelas dos relatórios não derrubam o hub — sem elas, o protocolo e o resto
+// sobem normalmente, o rastreio fica desligado e o agendador não inicia.
 db.init()
   .then(() => require('./db-agentes').init())
-  .then(() => app.listen(process.env.PORT || 3000, () =>
-    console.log('CN2O hub no ar')))
+  .then(() => require('./db-relatorios').init()
+    .then(() => { relatoriosNoAr = true; })
+    .catch(e => console.error('relatórios das escreventes desligados (tabelas):', e.message)))
+  .then(() => app.listen(process.env.PORT || 3000, () => {
+    console.log('CN2O hub no ar');
+    if (relatoriosNoAr) require('./agendador').iniciar();
+  }))
   .catch(e => { console.error('falha no boot:', e); process.exit(1); });
