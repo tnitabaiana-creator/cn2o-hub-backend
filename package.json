@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "setup": "node setup.js",
-    "seed:agentes": "node seed-agentes.js"
+    "seed:agentes": "node seed-agentes.js",
+    "carga": "node carga_retroativa.js",
+    "previa": "node previa.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": { "node": ">=18" },
   "dependencies": {

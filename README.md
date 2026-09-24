@@ -31,7 +31,10 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
   `{ numero, card_url }`.
 - `GET /parceiros` — parceiros preferenciais (cache 10 min) para a sugestão
   automática do formulário.
-- `POST /webhook/trello` — re-hidratação de campos ao mover cartão entre quadros.
+- `POST /webhook/trello` — re-hidratação de campos ao mover cartão entre quadros e,
+  com `TRELLO_SECRET`, rastreio dos cartões para os relatórios das escreventes (v1.38).
+- `/hub/relatorios/*` (sessão de administrador) — relatórios semanal e mensal das
+  escreventes por e-mail. Instalação e significado dos números: `RELATORIOS.md`.
 
 ## Template WhatsApp
 

@@ -1,0 +1,93 @@
+# Relatórios das escreventes (v1.38)
+
+O hub acompanha os cartões no Trello e envia por e-mail os relatórios semanal e mensal das escreventes.
+
+1. O webhook do Trello que o hub já recebe (`POST /webhook/trello`) passa a gravar cada movimento de cartão dos quadros **00. Protocolo/Cadastro**, **01. TABELIÃO** e **02. ESCREVENTE …**.
+2. O hub calcula quanto tempo o cartão ficou em cada lista, em **horas úteis**.
+3. Toda **segunda-feira às 8h** sai o relatório da semana anterior. No **1º dia útil do mês às 8h** sai o do mês anterior. O e-mail vai em HTML, com um CSV anexo.
+
+Não há dependência nova: só `express` e `pg`. O agendador é interno.
+
+## Arquivos
+
+| Arquivo | Função |
+|---|---|
+| `rastreio.js` | Confere a assinatura do webhook e reconstrói cada cartão: passagens, pendências e conclusão. |
+| `db-relatorios.js` | Cria as 7 tabelas e cadastra as 5 escreventes e os pesos iniciais. Roda no boot. |
+| `horas-uteis.js` | Expediente, feriados e horas úteis (fuso America/Maceio). |
+| `tipos-ato.js` | Tipo de ato a partir do título do cartão, quando o cartão não nasceu pelo e-Protocolo. |
+| `reports.js` | Motor de cálculo: medianas, P75, custo pessoal e afinidade. |
+| `relatorios.js` | Monta, envia e registra os relatórios. Rotas `/hub/relatorios/*`. |
+| `relatorio-email.js` | HTML do e-mail (identidade do CN2O), CSV e envio. |
+| `agendador.js` | 07:00 reconciliação; seg 08:00 semanal; 1º dia útil 08:00 mensal. |
+| `carga_retroativa.js` | Busca no Trello o histórico desde 01/06/2026 (`npm run carga`). |
+| `previa.js` | Gera o relatório em arquivo, sem enviar (`npm run previa`). |
+| `apps-script/EnviarRelatorio.gs` | Web app que envia o e-mail pelo Gmail do cartório. |
+| `test/` | Testes unitários e de integração (`npm test`). |
+
+No `server.js` mudaram três pontos:
+- **Webhook:** a rota lê o corpo bruto para conferir a assinatura. A assinatura decide **só o rastreio**. A re-hidratação dos campos continua igual, com ou sem assinatura válida, para que um segredo mal configurado não pare os quadros.
+- **Rotas:** `/hub/relatorios` é montado antes de `/hub`.
+- **Boot:** as tabelas dos relatórios são criadas depois das do hub. Se falharem, o hub sobe assim mesmo, só que sem rastreio nem agendador.
+
+## Instalação (Railway)
+
+1. **Fazer o deploy** desta versão. As tabelas são criadas na inicialização e `GET /saude` continua respondendo `{"ok":true}`.
+2. **Preencher as variáveis** (veja o bloco v1.38 do `.env.example`):
+   - `TRELLO_SECRET`: o **Segredo** da mesma chave `TRELLO_KEY` do hub, em trello.com/power-ups/admin → a chave. Sem ele, nada entra nos relatórios.
+   - `RELATORIO_EMAIL_WEBAPP_URL` e `RELATORIO_EMAIL_SECRET`: publique antes `apps-script/EnviarRelatorio.gs` na conta Google do cartório (as instruções estão no topo do arquivo). Não há SMTP porque a Railway o bloqueia no plano Hobby.
+   - Opcional: `RELATORIOS_ADMINS`, com os logins que podem ver os relatórios. Sem ela, valem os `HUB_ADMINS`, cujo padrão é `cesar.bravo`.
+   - Enquanto `RELATORIO_EMAIL_PARA` estiver vazia, os e-mails vão só para **sergiolagofula2@gmail.com**, com [HOMOLOGAÇÃO] no assunto.
+3. **Webhooks: nada a registrar.** Os que o `setup.js` já criou nos quadros 00, 01 e das escreventes servem para o rastreio.
+   - Confira em `GET /hub/relatorios/status` → `webhooks`: `quadros_sem_webhook` deve estar vazio.
+   - Se `outras_urls` mostrar um endereço antigo, os webhooks apontam para lá. Nesse caso, grave `TRELLO_WEBHOOK_URL` ou registre de novo com `npm run setup`. O `setup.js` é idempotente, mas também revisa campos e etiquetas dos quadros.
+4. **Fazer a carga retroativa**, uma vez: `npm run carga` no console do serviço, ou `POST /hub/relatorios/carga {"desde":"2026-06-01"}`.
+   - Pode repetir quando quiser, sem duplicar nada.
+   - No fim, a carga lista os títulos cujo tipo de ato não foi reconhecido.
+5. **Conferir** com a sessão do Tabelião (cabeçalho `X-Auth-Token`, o mesmo login do hub):
+   - `GET /hub/relatorios/status` mostra:
+     - eventos recebidos e conclusões;
+     - se o webhook está assinado e quantas assinaturas falharam desde o último reinício;
+     - os webhooks e o e-mail.
+   - `GET /hub/relatorios/previa?tipo=semanal&ref=2026-09-28` mostra o e-mail como sairia. `&formato=csv` baixa o anexo; `&formato=json` mostra os números.
+   - `POST /hub/relatorios/enviar {"tipo":"semanal","ref":"2026-09-28"}` envia na hora. O envio manual não impede o automático.
+   - `GET /hub/relatorios/envios` mostra o histórico de envios.
+   - Prévia, envio e carga ficam na trilha de auditoria do hub (ação `admin`, ferramenta `relatorios`), sem o conteúdo do relatório.
+6. **Entrar em produção:** preencha `RELATORIO_EMAIL_PARA` com os e-mails do Tabelião.
+
+Sem o site do hub, o token sai de `POST /login {"login":"cesar.bravo","senha":"…"}`. No console da Railway, `npm run previa -- --tipo semanal --ref 2026-09-28` grava o relatório em `relatorios-saida/` sem precisar de login.
+
+## O que cada número quer dizer
+
+Todos os tempos são em **horas úteis**: expediente 08:00–12:00 e 13:00–17:00, de segunda a sexta, sem feriados nacionais, sem o 8/7 de Sergipe e sem os de `FERIADOS_EXTRA`.
+
+- **Mesa**: da entrada do cartão no quadro da escrevente até o Finalizado.
+- **Custo pessoal**: horas em Revisar Minuta e Ajuste/Retorno no quadro dela. Conferência, PENDÊNCIAS/AGUARDA e assinatura não contam, porque não dependem dela.
+- **Índice de custo**: custo pessoal dividido pela mediana da equipe no mesmo tipo de ato, nos últimos 90 dias. 1,00 é o ritmo da equipe; abaixo de 1, ela é mais rápida.
+- **Afinidade**: quantas vezes ela é mais rápida que a equipe num tipo de ato. Só aparece com pelo menos 3 atos dela desse tipo em 90 dias.
+- **Pontos**: soma dos pesos dos atos concluídos (tabela `pesos_ato`).
+- **Retorno**: parte dos atos concluídos que passou por Ajuste/Retorno.
+- **Tipo de ato**: vem do registro do e-Protocolo (`protocolos.card_id`) quando o cartão nasceu por lá; senão, do título do cartão.
+- Cartões que entraram na mesa antes do início do rastreio contam no volume, mas não nos tempos.
+
+## Ajustes (no banco, sem novo deploy)
+
+- **`escreventes`**: login, quadro, lista Finalizado e se está ativa.
+  - Para uma escrevente nova: inclua uma linha e rode `npm run carga -- --reprocessar`.
+  - O quadro dela também precisa de webhook: acrescente-o a `BOARDS_ESCREVENTES` e rode `npm run setup`.
+- **`pesos_ato`**: `peso` (os pontos) e `horas_referencia` (custo pessoal esperado enquanto a equipe não tiver 3 atos daquele tipo em 90 dias).
+  - Os valores iniciais são estimativas; calibre com o Tabelião.
+- **`EXPEDIENTE` e `FERIADOS_EXTRA`** (variáveis): o feriado municipal de Itabaiana entra em `FERIADOS_EXTRA`.
+  - Depois de mudar, rode `npm run carga -- --reprocessar` para recalcular as horas.
+- **Tipo de ato não reconhecido**: acrescente a regra em `tipos-ato.js` e reprocesse.
+
+## Testes
+
+- `npm test` roda os testes unitários. O repositório não versiona `node_modules`: rode `npm install` antes.
+- Com `TEST_DATABASE_URL=postgres://…` roda também a integração. Use um banco **descartável**, porque o teste apaga as tabelas do rastreio e a de protocolos.
+- A integração sobe o `server.js` do hub apontado para um Trello simulado (`test/trello-falso.js`) e verifica:
+  - webhooks assinados e não assinados;
+  - a re-hidratação dos campos;
+  - a carga retroativa;
+  - o relatório;
+  - o acesso por sessão às rotas `/hub/relatorios`.
