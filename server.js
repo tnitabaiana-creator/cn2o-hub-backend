@@ -277,7 +277,8 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
       .then(resps => {
         const falhas = (resps || []).filter(r => !r.ok);
         if (falhas.length) {
-          console.error(`[WhatsApp] Prot ${pad(numero)} teve falhas de envio:`, falhas);
+          // v1.39.4: sem telefone inteiro nem a resposta crua da Meta no log
+          console.error(`[WhatsApp] Prot ${pad(numero)} teve falhas de envio:`, falhas.map(f => ({ para: protecao.mascaraTel(f.to), motivo: f.motivo })));
         } else {
           console.log(`[WhatsApp] Prot ${pad(numero)} todos os recibos enviados com sucesso.`);
         }

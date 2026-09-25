@@ -35,6 +35,7 @@
 //                                502 { motivo: 'json' } quando o modelo não devolve JSON.
 //   POST /hub/minutas          → guarda a minuta gerada (link permanente); aceita doc_url
 //                                (só URL de documento do Google Docs); GET /hub/minutas/:id
+//                                (v1.39.4: só o dono ou o Tabelião; apagadas após HUB_MINUTAS_DIAS)
 //   GET  /hub/ia/uso           → (admin) consumo de IA do mês (hub + Plataforma de Agentes)
 //   GET  /hub/consulta/:numero → T-Consulta: extrato do andamento (banco + Trello)
 //   GET  /hub/admin/equipe     → (admin) quem entra no Hub; POST cadastra; POST /hub/admin/zerar-senha
@@ -199,7 +200,7 @@ function preparar() {
         ('jessica.santos',   'Jéssica',      'Escrevente'),
         ('jonas.aragao',     'Jonas',        'Escrevente')
       ON CONFLICT (login) DO NOTHING;
-    `).then(() => limparAuditoria()).then(() => limparAnexosCert())
+    `).then(() => limparAuditoria()).then(() => limparAnexosCert()).then(() => limparMinutas())
       .catch(e => { pronto = null; throw e; });
   }
   return pronto;
@@ -265,6 +266,23 @@ function limparAuditoria() {
   limpezaDia = hoje;
   return q(`DELETE FROM hub_auditoria WHERE em < now() - ($1 || ' days')::interval`, [String(auditoriaDias())])
     .catch(e => { console.error('hub auditoria (retenção):', e.message); });
+}
+
+// v1.39.4 (segurança, pacote D): as minutas guardadas trazem nomes, CPF e RG das partes e
+// não ficavam nunca apagadas. Retenção HUB_MINUTAS_DIAS (padrão 90); o Google Doc, quando
+// houver, continua no Drive. Roda no preparar() e uma vez por dia ao guardar ou abrir.
+const MINUTAS_DIAS_PADRAO = 90;
+function minutasDias() {
+  const n = parseInt(process.env.HUB_MINUTAS_DIAS || String(MINUTAS_DIAS_PADRAO), 10);
+  return Number.isInteger(n) && n >= 1 ? n : MINUTAS_DIAS_PADRAO;
+}
+let limpezaMinutasDia = '';
+function limparMinutas() {
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (limpezaMinutasDia === hoje) return Promise.resolve();
+  limpezaMinutasDia = hoje;
+  return q(`DELETE FROM hub_minutas WHERE em < now() - ($1 || ' days')::interval`, [String(minutasDias())])
+    .catch(e => { console.error('hub minutas (retenção):', e.message); });
 }
 
 // ---------------------------------------------------------------- sessão e admin
@@ -1128,8 +1146,10 @@ router.post('/minutas', exigeSessao, jsonMural, async (req, res) => {
     const titulo = txt(corpo.titulo, 160) || 'Minuta';
     const texto = String(corpo.texto == null ? '' : corpo.texto).slice(0, 200000).trim();
     if (!texto) return res.status(400).json({ erro: 'minuta vazia' });
-    const id = novoId();
+    // v1.39.4: identificador aleatório (antes: relógio + 5 letras, dava para adivinhar)
+    const id = require('crypto').randomBytes(12).toString('base64url');
     const docUrl = docUrlSegura(corpo.doc_url);
+    limparMinutas();
     await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por, doc_url) VALUES ($1,$2,$3,$4,$5)',
       [id, titulo, texto, req.usuario.login, docUrl]);
     // metadados apenas: o título costuma trazer o nome das partes, o texto é a minuta
@@ -1145,7 +1165,10 @@ router.get('/minutas/:id', exigeSessao, async (req, res) => {
   try {
     await preparar();
     const id = txt(req.params.id, 40);
-    const r = await q('SELECT id, titulo, texto, criado_por, em, doc_url FROM hub_minutas WHERE id = $1', [id]);
+    await limparMinutas();
+    // v1.39.4: só quem guardou (ou o Tabelião) abre — para os outros, "não encontrada"
+    const r = await q(`SELECT id, titulo, texto, criado_por, em, doc_url FROM hub_minutas
+                       WHERE id = $1 AND (criado_por = $2 OR $3)`, [id, req.usuario.login, ehAdmin(req.usuario)]);
     if (!r.rows.length) return res.status(404).json({ erro: 'minuta não encontrada' });
     res.json(r.rows[0]);
   } catch (e) {
@@ -1389,8 +1412,12 @@ router.get('/acervo/status', exigeSessao, async (req, res) => {
 // A trilha guarda os FILTROS da pesquisa (é o que o Tabelião precisa saber: quem
 // procurou o quê no acervo), nunca o resultado. Espaçada em 30 s por pessoa — a tela
 // pesquisa a cada tecla —, e só quando há algum filtro: abrir a página não é pesquisa.
+// v1.39.4 (segurança, pacote D): CPF digitado no filtro entra mascarado (***.456.789-**,
+// o padrão dos órgãos públicos) — a trilha mostra que houve a pesquisa sem guardar o número.
+const RE_CPF_FILTRO = /(^|\D)(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})(?!\d)/g;
+function mascararCpf(v) { return String(v).replace(RE_CPF_FILTRO, (m, antes, a, b, c) => antes + '***.' + b + '.' + c + '-**'); }
 function filtrosEmTexto(f) {
-  return Object.keys(f).filter(k => f[k]).map(k => k + '=' + f[k]).join(' · ');
+  return Object.keys(f).filter(k => f[k]).map(k => k + '=' + mascararCpf(f[k])).join(' · ');
 }
 router.get('/acervo', exigeSessao, async (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -1760,11 +1787,14 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
     };
     // v1.29 — Transposição: a tela recebe dados, não texto. Resposta sem JSON
     // aproveitável é 502 com motivo 'json' (a tela oferece "tente de novo"); o
-    // começo da resposta vai ao log para o Tabelião ver o que o modelo devolveu.
+    // começo da resposta ia ao log; desde a v1.39.4 vão só o tamanho e o formato do começo
+    // (a resposta da transposição traz nome, CPF e RG das partes).
     if (nome === 'transpor') {
       const bruto = extrairJson(r.texto);
       if (!bruto) {
-        console.error('hub transpor: o modelo não devolveu JSON — início da resposta: ' + JSON.stringify(String(r.texto == null ? '' : r.texto).slice(0, 300)));
+        const resp = String(r.texto == null ? '' : r.texto);
+        console.error('hub transpor: o modelo não devolveu JSON — ' + resp.length + ' caracteres, começa com ' +
+          JSON.stringify(resp.trim().slice(0, 12).replace(/[0-9]/g, '#').replace(/[A-Za-zÀ-ÿ]{2,}/g, 'x')));
         auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) + ' · sem JSON aproveitável');
         return res.status(502).json({ erro: 'o modelo não devolveu dados estruturados — tente de novo', motivo: 'json' });
       }

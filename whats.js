@@ -35,6 +35,9 @@
 // -----------------------------------------------------------------------------
 
 const { variaveisDoRecibo } = require('./recibo'); // as variáveis do recibo
+// v1.39.4 (segurança, pacote D): o log da Railway não guarda telefone nem os dados do
+// recibo (nome da parte, do apresentante) — só os 4 últimos dígitos e a contagem.
+const { mascaraTel: mt } = require('./protecao');
 
 const TEMPLATE = process.env.WHATS_TEMPLATE_RECIBO || 'recibo_protocolo_2';
 
@@ -171,7 +174,7 @@ async function postMeta(to, templateName, variaveis, url, token) {
 async function enviarTemplate(telefone, variaveis, nomeTemplate) {
   const to = normalizaTelefone(telefone);
   if (!to) {
-    const errObj = { ok: false, motivo: `telefone inválido ("${telefone || ''}")` };
+    const errObj = { ok: false, motivo: `telefone inválido ("${mt(telefone)}")` };   // v1.39.4: mascarado
     registrarHistorico({ telOriginal: telefone, to: null, ...errObj });
     return errObj;
   }
@@ -203,12 +206,12 @@ async function enviarTemplate(telefone, variaveis, nomeTemplate) {
       }
 
       if (altTo) {
-        console.warn(`[WhatsApp] Meta retornou 131026 para ${to}. Tentando formato alternativo ${altTo}…`);
+        console.warn(`[WhatsApp] Meta retornou 131026 para ${mt(to)}. Tentando formato alternativo ${mt(altTo)}…`);
         const tentativaAlt = await postMeta(altTo, templateName, variaveis, url, token);
         if (tentativaAlt.res.ok) {
           res = tentativaAlt.res;
           dados = tentativaAlt.dados;
-          console.log(`[WhatsApp] Sucesso no formato alternativo ${altTo}!`);
+          console.log(`[WhatsApp] Sucesso no formato alternativo ${mt(altTo)}!`);
         }
       }
     }
@@ -218,7 +221,7 @@ async function enviarTemplate(telefone, variaveis, nomeTemplate) {
       const motivo = e
         ? `${e.message}${e.code ? ` (código ${e.code})` : ''}`
         : `HTTP ${res.status}`;
-      console.error(`[WhatsApp] Erro ao enviar para ${to} (template=${templateName}): status ${res.status} — ${motivo}`, dados);
+      console.error(`[WhatsApp] Erro ao enviar para ${mt(to)} (template=${templateName}): status ${res.status} — ${motivo}`);
       const errObj = {
         ok: false,
         to,
@@ -232,12 +235,12 @@ async function enviarTemplate(telefone, variaveis, nomeTemplate) {
     }
 
     const idMsg = dados?.messages?.[0]?.id || '(sem id)';
-    console.log(`[WhatsApp] Recibo enviado com sucesso para ${to} (template=${templateName}): id ${idMsg}`);
+    console.log(`[WhatsApp] Recibo enviado com sucesso para ${mt(to)} (template=${templateName}): id ${idMsg}`);
     const okObj = { ok: true, to, idMsg };
     registrarHistorico({ telOriginal: telefone, to, template: templateName, ...okObj });
     return okObj;
   } catch (err) {
-    console.error(`[WhatsApp] Exceção de rede ao enviar para ${to}:`, err.message);
+    console.error(`[WhatsApp] Exceção de rede ao enviar para ${mt(to)}:`, err.message);
     const errObj = { ok: false, to, motivo: err.message };
     registrarHistorico({ telOriginal: telefone, to, template: templateName, ...errObj });
     return errObj;
@@ -260,13 +263,13 @@ async function dispararRecibos(p, numero) {
   if (tParte) tels.add(tParte);
 
   if (tels.size === 0) {
-    const motivo = `nenhum telefone válido no protocolo (apresentante: "${p?.apresentante?.telefone || ''}", parte: "${p?.parte_envolvida?.telefone || ''}")`;
+    const motivo = `nenhum telefone válido no protocolo (apresentante: "${mt(p?.apresentante?.telefone)}", parte: "${mt(p?.parte_envolvida?.telefone)}")`;
     console.warn(`[WhatsApp] Prot ${numero}: ${motivo}`);
     registrarHistorico({ protocolo: numero, ok: false, motivo });
     return [{ ok: false, motivo }];
   }
 
-  console.log(`[WhatsApp] Prot ${numero}: disparando recibo (template="${template}", vars=[${vars.map(v => JSON.stringify(v)).join(', ')}]) para destinatários: ${[...tels].join(', ')}`);
+  console.log(`[WhatsApp] Prot ${numero}: disparando recibo (template="${template}", ${vars.length} variáveis) para destinatários: ${[...tels].map(mt).join(', ')}`);
 
   for (const tel of tels) {
     const r = await enviarTemplate(tel, vars, template);

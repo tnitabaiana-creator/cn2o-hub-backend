@@ -36,6 +36,7 @@ No `server.js` mudaram três pontos:
 2. **Preencher as variáveis** (veja o bloco v1.38 do `.env.example`):
    - `TRELLO_SECRET`: o **Segredo** da mesma chave `TRELLO_KEY` do hub, em trello.com/power-ups/admin → a chave. Sem ele, nada entra nos relatórios.
    - `RELATORIO_EMAIL_WEBAPP_URL` e `RELATORIO_EMAIL_SECRET`: publique antes `apps-script/EnviarRelatorio.gs` na conta Google do cartório (as instruções estão no topo do arquivo). Não há SMTP porque a Railway o bloqueia no plano Hobby.
+     - Desde a v1.39.4, o script exige a propriedade **DESTINATARIOS**: os e-mails que podem receber, separados por vírgula (os de `RELATORIO_EMAIL_PARA` e o de homologação). Um endereço fora da lista faz o envio falhar com "destinatário fora da lista".
    - Opcional: `RELATORIOS_ADMINS`, com os logins que podem ver os relatórios. Sem ela, valem os `HUB_ADMINS`, cujo padrão é `cesar.bravo`.
    - Enquanto `RELATORIO_EMAIL_PARA` estiver vazia, os e-mails vão só para **sergiolagofula2@gmail.com**, com [HOMOLOGAÇÃO] no assunto.
 3. **Webhooks: nada a registrar.** Os que o `setup.js` já criou nos quadros 00, 01 e das escreventes servem para o rastreio.

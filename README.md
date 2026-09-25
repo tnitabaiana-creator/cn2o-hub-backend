@@ -57,6 +57,15 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - Gerador de Minuta: só o Tabelião, até `HUB_GERADOR_LIBERADO=1`. O Google Doc não nasce
   sozinho: `POST /hub/minuta-doc` cria o documento da última minuta gerada pela pessoa.
 
+## Dados pessoais (v1.39.4)
+
+- Minutas guardadas: identificador aleatório, abertas só por quem guardou (ou pelo
+  Tabelião) e apagadas depois de `HUB_MINUTAS_DIAS` (padrão 90).
+- Logs sem telefone inteiro (só os 4 últimos dígitos), sem os dados do recibo e sem o
+  começo da resposta da transposição. CPF digitado na pesquisa do acervo entra mascarado
+  na trilha (`***.456.789-**`).
+- `apps-script/EnviarRelatorio.gs` só envia para a propriedade `DESTINATARIOS` do script.
+
 ## Endpoints
 
 - `POST /protocolo` (sessão, `X-Auth-Token`) — payload do formulário; responde

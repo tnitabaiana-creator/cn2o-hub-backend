@@ -3,7 +3,10 @@
 //
 // Instalação (uma vez, logado na conta Google do cartório):
 //   1. script.google.com → Novo projeto → colar este arquivo.
-//   2. Configurações do projeto → Propriedades do script → SEGREDO = <um texto longo e aleatório>.
+//   2. Configurações do projeto → Propriedades do script:
+//        SEGREDO       = <um texto longo e aleatório>
+//        DESTINATARIOS = e-mails que podem receber, separados por vírgula (v1.39.4) — os
+//                        mesmos de RELATORIO_EMAIL_PARA e o de homologação. Sem ela, nada sai.
 //   3. Implantar → Nova implantação → Tipo "App da Web":
 //        Executar como: Eu  ·  Quem pode acessar: Qualquer pessoa
 //      Autorizar o envio de e-mail quando o Google pedir.
@@ -21,6 +24,13 @@ function doPost(e) {
     if (!segredo || d.segredo !== segredo) return responder({ ok: false, erro: 'não autorizado' });
     if (d.versao !== 1) return responder({ ok: false, erro: 'versão de contrato desconhecida' });
     if (!d.para || !d.para.length || !d.assunto || !d.html) return responder({ ok: false, erro: 'pedido incompleto' });
+    // v1.39.4 (segurança): mesmo com o segredo, o script só manda para a lista da casa —
+    // um segredo vazado não transforma o Gmail do cartório em disparador para qualquer um
+    var permitidos = String(PropertiesService.getScriptProperties().getProperty('DESTINATARIOS') || '')
+      .split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(String);
+    if (!permitidos.length) return responder({ ok: false, erro: 'falta a propriedade DESTINATARIOS no script' });
+    var fora = d.para.filter(function (x) { return permitidos.indexOf(String(x).trim().toLowerCase()) === -1; });
+    if (fora.length) return responder({ ok: false, erro: 'destinatário fora da lista DESTINATARIOS do script' });
     var anexos = (d.anexos || []).map(function (a) {
       return Utilities.newBlob(Utilities.base64Decode(a.base64), a.tipo || 'application/octet-stream', a.nome);
     });
