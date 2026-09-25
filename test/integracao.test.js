@@ -94,7 +94,7 @@ test('integração no hub: webhook → rastreio → carga retroativa → relató
   // sessões do hub: o Tabelião (administrador padrão) e uma escrevente
   const sessao = async login => {
     const token = crypto.randomBytes(16).toString('hex');
-    await q(`INSERT INTO sessoes (token, login, expira) VALUES ($1, $2, now() + interval '1 hour')`, [token, login]);
+    await db.criarSessao(token, login, 1);   // v1.39.1: no banco vai só o SHA-256 do token
     return token;
   };
   const tokTabeliao = await sessao('cesar.bravo');

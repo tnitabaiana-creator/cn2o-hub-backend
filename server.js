@@ -3,12 +3,14 @@ const express = require('express');
 const db = require('./db');
 const trello = require('./trello');
 const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = require('./whats');
-const { hashSenha, verificaSenha, novoToken } = require('./auth');
 const hub = require('./hub');   // router do Hub + vincularAnexosCert (v1.36)
 const { variaveisDoReciboCert, templateCert } = require('./recibo-cert');   // v1.37.1 — recibo próprio do CERT
 const rastreio = require('./rastreio');   // v1.38 — rastreio dos cartões para os relatórios das escreventes
 
 const app = express();
+// v1.39.1: atrás do proxy da Railway, req.ip é o IP do cliente (o último salto que o proxy
+// acrescenta ao X-Forwarded-For) — não o primeiro valor, que o próprio cliente forja.
+app.set('trust proxy', 1);
 // Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
 // (24 MB) porque recebem PDF e imagem em base64. v1.38: /webhook/trello le o
 // corpo BRUTO, porque a assinatura do Trello e calculada sobre os bytes exatos.
@@ -27,60 +29,23 @@ app.use((req, res, next) => {
 });
 
 // ---------- autenticação individual (nome.sobrenome + senha própria) ----------
-app.post('/login', async (req, res) => {
-  try {
-    const { login, senha } = req.body || {};
-    const u = await db.buscarUsuario(login);
-    if (!u) return res.status(401).json({ erro: 'usuário ou senha inválidos' });
-    if (!u.senha_hash) return res.json({ primeiro_acesso: true });
-    if (!senha || !verificaSenha(senha, u.senha_hash)) {
-      return res.status(401).json({ erro: 'usuário ou senha inválidos' });
-    }
-    const token = novoToken();
-    await db.criarSessao(token, u.login);
-    res.json({ token, nome: u.nome, cargo: u.cargo });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
-});
-
-// primeiro acesso: o próprio usuário define a senha (não existe senha comum)
-app.post('/definir-senha', async (req, res) => {
-  try {
-    const { login, senha } = req.body || {};
-    const u = await db.buscarUsuario(login);
-    if (!u) return res.status(401).json({ erro: 'usuário inválido' });
-    if (u.senha_hash) return res.status(409).json({ erro: 'senha já definida — use o login normal' });
-    if (!senha || senha.length < 8) return res.status(400).json({ erro: 'a senha deve ter no mínimo 8 caracteres' });
-    await db.gravarSenha(u.login, hashSenha(senha));
-    const token = novoToken();
-    await db.criarSessao(token, u.login);
-    res.json({ token, nome: u.nome, cargo: u.cargo });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
-});
-
-app.post('/logout', async (req, res) => {
-  const t = req.get('X-Auth-Token');
-  if (t) await db.encerrarSessao(t).catch(() => {});
-  res.json({ ok: true });
-});
-
-// reset administrativo (tabelião): zera a senha; usuário redefine no próximo acesso
-app.post('/admin/resetar-senha', async (req, res) => {
-  // v1.37.1: fail-closed — sem HUB_KEY configurada, ninguém passa (antes: undefined === undefined)
-  if (!chaveAdminOk(req.get('X-Admin-Key'))) return res.status(401).json({ erro: 'não autorizado' });
-  const u = await db.buscarUsuario(req.body?.login);
-  if (!u) return res.status(404).json({ erro: 'usuário não encontrado' });
-  await db.gravarSenha(u.login, null);
-  res.json({ ok: true, login: u.login });
-});
+// v1.39.1 (segurança): /login, /definir-senha e /logout moram em acesso.js — primeiro
+// acesso só com o código do Tabelião, limite de tentativas e resposta única. A rota
+// antiga /admin/resetar-senha (HUB_KEY, o código dos balcões, zerava a senha de
+// qualquer um) saiu: quem zera senha agora é o Tabelião, na aba Equipe (código novo).
+app.use(require('./acesso').router);
 
 // v1.37.1 — chave administrativa: só vale se estiver configurada E for igual.
 function chaveAdminOk(chave) {
   const esperada = String(process.env.HUB_KEY || '').trim();
-  return !!esperada && String(chave || '') === esperada;
+  return !!esperada && require('./auth').segredoIgual(String(chave || ''), esperada);   // v1.39.1: tempo constante
 }
 
+// v1.39.1: falha do banco vira 500 (antes, a promessa rejeitada sem catch derrubava o processo)
 const exigeSessao = async (req, res, next) => {
-  const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
+  let sess;
+  try { sess = await db.sessaoValida(req.get('X-Auth-Token') || ''); }
+  catch (e) { console.error('sessão:', e.message); return res.status(500).json({ erro: 'falha ao validar a sessão' }); }
   if (!sess) return res.status(401).json({ erro: 'sessão inválida ou expirada' });
   req.usuario = sess;
   next();

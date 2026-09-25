@@ -81,6 +81,7 @@ const PROMPTS = require('./hub-prompts');
 const trello = require('./trello');    // cliente da API do Trello (t genérico + operações)
 const ocr = require('./ocr');          // dupla leitura: OCR dedicado (Document AI), liga por env
 const docs = require('./docs');        // v1.29: minuta → Google Doc pelo Apps Script, liga por env
+const { novoCodigo, hashCodigo } = require('./auth');   // v1.39.1: código de primeiro acesso
 
 const router = express.Router();
 const jsonMural = express.json({ limit: '8mb' });
@@ -214,11 +215,10 @@ const AUD_DETALHE_MAX = 300;
 const AUD_AGENTE_MAX = 120;
 const AUD_DIAS_PADRAO = 730;
 function ipDoPedido(req) {
-  // atrás do proxy do Railway o endereço real é o PRIMEIRO da X-Forwarded-For;
-  // sem ele vale o req.ip do Express e, na falta dele, o endereço da própria conexão
-  const encaminhado = String((req && req.get && req.get('X-Forwarded-For')) || '').split(',')[0].trim();
+  // v1.39.1: com app.set('trust proxy', 1) (server.js), req.ip já é o endereço que o proxy
+  // da Railway viu. O PRIMEIRO valor da X-Forwarded-For, usado antes, o cliente forja à vontade.
   const direto = (req && req.ip) || (req && req.socket && req.socket.remoteAddress) || '';
-  return txt(encaminhado || direto, 60);
+  return txt(direto, 60);
 }
 function auditar(req, acao, ferramenta, detalhe) {
   try {
@@ -469,6 +469,8 @@ router.get('/admin/equipe', exigeSessao, exigeAdmin, async (req, res) => {
   try {
     const r = await q(
       `SELECT u.login, u.nome, u.cargo, (u.senha_hash IS NOT NULL) AS tem_senha,
+              (u.senha_hash IS NULL AND u.codigo_hash IS NOT NULL AND u.codigo_expira > now()) AS codigo_pendente,
+              u.codigo_expira,
               (SELECT max(s.criado) FROM sessoes s WHERE s.login = u.login) AS ultimo_acesso
          FROM usuarios u
         ORDER BY u.nome`
@@ -498,9 +500,12 @@ router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res
       [login, nome, cargo]
     );
     if (!r.rows.length) return res.status(409).json({ erro: 'esse usuário já existe' });
+    // v1.39.1: quem é cadastrado já sai com o código de primeiro acesso (uso único, 48 h)
+    const codigo = novoCodigo();
+    await db.gravarCodigo(login, hashCodigo(codigo), HORAS_CODIGO);
     console.log(`hub: ${req.usuario.login} cadastrou ${login}`);
-    auditar(req, 'admin', 'equipe', 'cadastro de ' + login + ' (' + cargo + ')');
-    res.json({ ok: true, login });
+    auditar(req, 'admin', 'equipe', 'cadastro de ' + login + ' (' + cargo + ') · código de acesso gerado');
+    res.json({ ok: true, login, codigo, validade_horas: HORAS_CODIGO });
   } catch (e) {
     console.error('hub equipe (cadastrar):', e.message);
     res.status(500).json({ erro: 'falha ao cadastrar' });
@@ -705,24 +710,31 @@ router.post('/admin/numeracao', jsonMural, exigeSessao, exigeAdmin, async (req, 
   }
 });
 
-router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+// v1.39.1 — zerar senha = gerar CÓDIGO DE ACESSO: a senha some, as sessões caem e a pessoa
+// só cria a senha nova com o código (uso único, 48 h), que o Tabelião entrega em mãos.
+// O código aparece UMA vez, nesta resposta; no banco fica só o hash. /admin/zerar-senha
+// continua como sinônimo (navegador com a tela antiga em cache).
+const HORAS_CODIGO = 48;
+async function gerarCodigoAcesso(req, res) {
   try {
     const login = txt((req.body || {}).login, 60).toLowerCase();
     if (login === String(req.usuario.login).toLowerCase()) {
-      return res.status(400).json({ erro: 'a sua própria senha não se zera por aqui' });
+      return res.status(400).json({ erro: 'o código da sua própria conta não se gera por aqui' });
     }
     const u = await db.buscarUsuario(login);
     if (!u) return res.status(404).json({ erro: 'usuário não encontrado' });
-    await db.gravarSenha(u.login, null);
-    await q('DELETE FROM sessoes WHERE login = $1', [u.login]);
-    console.log(`hub: ${req.usuario.login} zerou a senha de ${u.login}`);
-    auditar(req, 'admin', 'zerar-senha', u.login);   // nunca a senha: ela nem existe mais
-    res.json({ ok: true, login: u.login });
+    const codigo = novoCodigo();
+    await db.gravarCodigo(u.login, hashCodigo(codigo), HORAS_CODIGO);   // zera a senha e derruba as sessões
+    console.log(`hub: ${req.usuario.login} gerou código de acesso para ${u.login}`);
+    auditar(req, 'admin', 'zerar-senha', u.login + ' · código de acesso gerado');   // nunca o código
+    res.json({ ok: true, login: u.login, codigo, validade_horas: HORAS_CODIGO });
   } catch (e) {
-    console.error('hub equipe (zerar):', e.message);
-    res.status(500).json({ erro: 'falha ao zerar a senha' });
+    console.error('hub equipe (código):', e.message);
+    res.status(500).json({ erro: 'falha ao gerar o código' });
   }
-});
+}
+router.post('/admin/codigo-acesso', jsonMural, exigeSessao, exigeAdmin, gerarCodigoAcesso);
+router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, gerarCodigoAcesso);
 
 // ---------------------------------------------------------------- trilha: o que só o navegador vê
 // Entrar, sair e abrir uma ferramenta não passam por rota nenhuma do servidor (a tela é
@@ -757,7 +769,7 @@ router.post('/registro', jsonMural, exigeSessao, async (req, res) => {
 const AUD_POR_PAGINA = 50;
 const AUD_CSV_MAX = 20000;
 const AUD_ACOES = ['login', 'logout', 'abrir', 'ia', 'consulta', 'acervo', 'minuta', 'mural',
-  'agenda', 'notas', 'itbi', 'anexar', 'admin'];
+  'agenda', 'notas', 'itbi', 'anexar', 'admin', 'acesso'];   // v1.39.1: acesso = falhas, bloqueios e primeiro acesso
 function diaFiltro(v) {
   const s = txt(v, 10);
   return RE_DIA.test(s) && diaValido(s) ? s : '';

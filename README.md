@@ -12,7 +12,11 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 3. **Postgres**: no projeto, Add Service → Database → PostgreSQL.
    O Railway injeta `DATABASE_URL` sozinho (conecte a variável ao serviço web).
 4. **Variáveis**: copie `.env.example` para as Variables do serviço e preencha:
-   - `HUB_KEY`: o código que os balcões vão digitar uma vez
+   - `HUB_KEY`: chave administrativa antiga (hoje só o teste de WhatsApp a aceita). Desde a
+     v1.39.1 ela **não zera mais senha**; troque-a se já foi digitada nos balcões.
+   - `HUB_CODIGO_ADMIN` (emergência, opcional): com 16+ caracteres, vale como código de
+     primeiro acesso **só para os administradores** (HUB_ADMINS) e redefine a senha deles.
+     Use quando o Tabelião ficar sem acesso e **apague a variável em seguida**.
    - `PROTOCOLO_INICIAL`: **último protocolo manual + 1** (só vale na 1ª execução)
    - `TRELLO_KEY` / `TRELLO_TOKEN`
    - `WHATS_URL` / `WHATS_TOKEN` da plataforma intermediária
@@ -25,9 +29,20 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
    registra os webhooks e imprime o `LISTA_ENTRADA=` para colar nas variáveis.
 7. Redeploy. `GET /saude` deve responder `{"ok":true}`.
 
+## Acesso (v1.39.1)
+
+- `POST /login { login, senha }` — resposta única para usuário inexistente, sem senha ou
+  senha errada; 5 falhas por login (ou 20 por IP) em 15 min bloqueiam por 15 min (429).
+- `POST /definir-senha { login, codigo, senha }` — primeiro acesso **só com o código de
+  uso único** (48 h) que o Tabelião gera na aba Equipe do Hub (cadastro, "Gerar código" ou
+  "Zerar senha"). Sem código, ninguém cria senha.
+- Senhas em scrypt (N=2^14, r=8, p=5); hashes antigos migram no próximo login. No banco,
+  a sessão guarda só o SHA-256 do token. Falhas e bloqueios entram na trilha (ação "acesso").
+- `POST /admin/resetar-senha` (HUB_KEY) **foi removida**.
+
 ## Endpoints
 
-- `POST /protocolo` (header `X-Hub-Key`) — payload do formulário; responde
+- `POST /protocolo` (sessão, `X-Auth-Token`) — payload do formulário; responde
   `{ numero, card_url }`.
 - `GET /parceiros` — parceiros preferenciais (cache 10 min) para a sugestão
   automática do formulário.
