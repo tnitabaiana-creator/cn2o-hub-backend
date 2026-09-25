@@ -44,6 +44,19 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - v1.39.2: cabeçalhos de segurança e CORS só do site (protecao.js); erros genéricos;
   `/whats/status` e `/whats/testar` só com sessão de administrador (telefones mascarados).
 
+## IA e prompt injection (v1.39.3)
+
+- O texto colado e o texto lido dos anexos (OCR) entram no prompt entre marcadores com um
+  código aleatório por chamada (`=== TÍTULO [CÓDIGO] ... === FIM TÍTULO [CÓDIGO] ===`), e a
+  regra fixa de segurança vai no fim de toda instrução de sistema (ia-defesa.js).
+- A resposta traz `alertas[]` quando um ônus do documento (penhora, hipoteca…) some da
+  resposta ou quando o documento tem texto que parece dar ordens à IA.
+- Limites por pessoa, no Hub e na Plataforma de Agentes (limite-ia.js): `HUB_IA_LIMITE`
+  análises a cada 10 min (padrão 15) e teto diário `HUB_IA_TETO_DIA_USD` (padrão US$ 5,
+  estimado pela tabela `consumo`, que agora inclui o OCR).
+- Gerador de Minuta: só o Tabelião, até `HUB_GERADOR_LIBERADO=1`. O Google Doc não nasce
+  sozinho: `POST /hub/minuta-doc` cria o documento da última minuta gerada pela pessoa.
+
 ## Endpoints
 
 - `POST /protocolo` (sessão, `X-Auth-Token`) — payload do formulário; responde
