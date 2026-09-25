@@ -378,6 +378,7 @@ app.get('/advogados', async (_req, res) => {
 // sempre — um segredo mal configurado não pode parar o trabalho dos quadros. Ação
 // que não chegou a ser gravada volta pela reconciliação das 7h (agendador.js).
 let relatoriosNoAr = false;   // as tabelas do rastreio subiram no boot (db-relatorios.js)
+let atendimentosNoAr = false; // v1.39: as tabelas dos atendimentos (NextQS) subiram no boot
 app.head('/webhook/trello', (_req, res) => res.sendStatus(200)); // validação do Trello
 app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), async (req, res) => {
   const corpo = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
@@ -494,8 +495,14 @@ db.init()
   .then(() => require('./db-relatorios').init()
     .then(() => { relatoriosNoAr = true; })
     .catch(e => console.error('relatórios das escreventes desligados (tabelas):', e.message)))
+  // v1.39: tabelas dos atendimentos (NextQS) — idem, não derrubam o resto
+  .then(() => require('./atendimentos').init()
+    .then(() => { atendimentosNoAr = true; })
+    .catch(e => console.error('atendimentos (NextQS) desligados (tabelas):', e.message)))
   .then(() => app.listen(process.env.PORT || 3000, () => {
     console.log('CN2O hub no ar');
-    if (relatoriosNoAr) require('./agendador').iniciar();
+    if (relatoriosNoAr || atendimentosNoAr) {
+      require('./agendador').iniciar({ relatorios: relatoriosNoAr, atendimentos: atendimentosNoAr });
+    }
   }))
   .catch(e => { console.error('falha no boot:', e); process.exit(1); });

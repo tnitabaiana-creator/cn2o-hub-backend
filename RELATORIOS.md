@@ -95,3 +95,20 @@ Desde a v1.38.4 o e-mail e o CSV usam nomes do dia a dia. Entre parênteses, o n
   - a carga retroativa;
   - o relatório;
   - o acesso por sessão às rotas `/hub/relatorios`.
+
+## Atendimentos do balcão (NextQS) — v1.39, sem n8n
+
+O servidor do Hub fala direto com a API do NextQS e substitui os workflows do n8n "CN2O · NextQS → Painel de Atendimentos" e "CN2O · NextQS → Relatório mensal (PDF)", com a mesma regra de cálculo.
+
+| Arquivo | O que faz |
+|---|---|
+| `nextqs.js` | Cliente da API: `GET /v1/organization/reports`, token Bearer, 500 por página, 404 = período sem senhas. |
+| `atendimentos.js` | Agrupa as senhas por dia, fila, atendente, guichê e unidade; grava em `atendimentos_dia` e a situação em `atendimentos_status`; rotas `/hub/relatorios/atendimentos/*`. |
+| `atendimentos-pdf.js` | O PDF mensal de 2 folhas, com a identidade CN2O. |
+
+- **Instalação:** grave `NEXTQS_TOKEN` na Railway (Next Manager → API; é o mesmo token da credencial "NextQS API" do n8n). As tabelas sobem sozinhas no boot.
+- **Carga do histórico:** na aba Relatórios → Atendimentos → "Carga do histórico (uso do suporte)", escolha a data e rode uma vez. Ela busca em janelas de 90 dias, e repetir não duplica nada.
+- **Agenda** (`agendador.js`): de segunda a sexta às 17h, coleta hoje e os 3 dias anteriores; às 7h do 1º dia útil, envia o PDF do mês anterior por e-mail aos destinatários dos relatórios (`RELATORIO_EMAIL_PARA`). A trava contra envio em dobro é `atendimentos_status` (chave `relatorio_AAAA-MM`).
+- **Rotas** (só o Tabelião): `GET /hub/relatorios/atendimentos?desde=`, `POST …/atualizar {inicio, fim}` (até 92 dias), `POST …/carga {desde}`, `GET …/pdf?mes=AAAA-MM`, `POST …/enviar {mes}`.
+- **Desligar o n8n:** depois de alguns dias com o Hub coletando em paralelo e os números batendo, desative no n8n os dois workflows acima. Os PDFs antigos continuam na pasta do Drive.
+- **Testes:** `test/atendimentos.test.js` (cálculo, cliente da API com respostas simuladas, coleta, PDF, agenda e anexo binário do e-mail).

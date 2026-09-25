@@ -317,6 +317,9 @@ router.post('/carga', json, (req, res) => {
   res.status(202).json({ ok: true, carga: estadoCarga });
 });
 
+// v1.39 — atendimentos do balcão (NextQS), com a mesma trava de administrador
+router.use('/atendimentos', require('./atendimentos').router);
+
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ erro: 'requisição inválida' });
   next(err);
