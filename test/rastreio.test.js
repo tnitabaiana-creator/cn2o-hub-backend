@@ -139,7 +139,7 @@ test('ciclo completo: passagens em horas úteis e uma conclusão, com a reabertu
   assert.equal(new Date(c.concluido_em).toISOString(), new Date(H('2026-09-17T10:00')).toISOString());
   assert.equal(new Date(c.ultima_conclusao_em).toISOString(), new Date(H('2026-09-17T15:00')).toISOString());
   assert.equal(c.reaberturas, 1);
-  assert.equal(c.horas_mesa, 28);          // seg 10h → qui 15h, em horas úteis
+  assert.equal(c.horas_mesa, 27);          // seg 10h → qui 15h (28 h), menos 1 h em Finalizado antes da reabertura
   assert.equal(c.horas_ativas, 15);        // Revisar 8 + Ajuste 4 + Ajuste 3
   assert.equal(c.horas_conferencia, 5);
   assert.equal(c.horas_assinatura, 7);

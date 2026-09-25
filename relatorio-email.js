@@ -289,7 +289,10 @@ async function enviar(msg) {
     }, Number(process.env.RELATORIO_EMAIL_TIMEOUT_MS) || 60000);
     const corpo = await r.text();
     let j = null; try { j = JSON.parse(corpo); } catch (_) { /* HTML de erro do Google */ }
-    if (!r.ok || !j || !j.ok) throw new Error(`Apps Script: ${(j && j.erro) || `HTTP ${r.status}`}`);
+    if (!r.ok || !j || !j.ok) {
+      const detalhe = (j && j.erro) || (!j && corpo.includes('<html') ? 'resposta não-JSON (autorização Google ou URL inválida)' : `HTTP ${r.status}`);
+      throw new Error(`Apps Script: ${detalhe}`);
+    }
     return { provedor: prov, id: j.id || null };
   }
   if (prov === 'resend') {
