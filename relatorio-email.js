@@ -106,7 +106,7 @@ function tabelaEquipe(rel) {
   </tr>`).join('');
   const f = `background:${C.band}`;
   return `<table class="tbm" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-    <tr>${th('Escrevente')}${th('Atos')}${th('Pontos', 'hm')}${th('Mesa')}${th('Mesa P75', 'hm')}${th('Custo pessoal')}${th('Índice')}${th('Retorno')}${th('Pend.', 'hm')}</tr>
+    <tr>${th('Escrevente')}${th('Atos')}${th('Pontos', 'hm')}${th('Tempo total')}${th('Mais demorados', 'hm')}${th('Tempo de trabalho')}${th('Tempo vs. equipe')}${th('Voltou p/ ajuste')}${th('Pendências', 'hm')}</tr>
     ${linhas}
     <tr>
       ${td('<b>Equipe</b>', f)}
@@ -131,7 +131,7 @@ function perfil(e, pesos) {
   const af = [
     ...fortes.map(a => chip(`${esc(a.tipo)} ${num(a.indice, 2)}×`, C.up, '#E6F1EE')),
     ...fracos.map(a => chip(`${esc(a.tipo)} ${num(a.indice, 2)}×`, C.down, '#F6E7EA'))
-  ].join('') || `<span style="font:12px/1.5 ${SANS};color:${C.ink2}">amostra insuficiente (mín. 3 atos de um tipo em 90 dias)</span>`;
+  ].join('') || `<span style="font:12px/1.5 ${SANS};color:${C.ink2}">ainda sem atos suficientes (mínimo de 3 do mesmo tipo em 90 dias)</span>`;
   const wip = e.wip
     ? `${e.wip.total} cartão(ões) no quadro agora${e.wip.atrasados ? ` · <b style="color:${C.down}">${e.wip.atrasados} com prazo vencido</b>` : ''}`
     : '';
@@ -140,14 +140,14 @@ function perfil(e, pesos) {
     <tr><td style="padding:14px 16px">
       <div style="font:600 19px/1.2 ${SERIF};color:${C.petrol}">${esc(e.nome)}</div>
       <div style="font:13px/1.6 ${SANS};color:${C.ink};margin-top:6px">
-        <b>${e.concluidos}</b> ato(s) · <b>${num(e.pontos)}</b> pontos · mesa ${horas(e.mediana_mesa)} (P75 ${horas(e.p75_mesa)}) ·
-        custo pessoal ${horas(e.mediana_ativa)} · índice <b style="color:${corIndice(e.indice_custo)}">${num(e.indice_custo, 2)}</b> ·
-        retorno ${pct(e.taxa_retorno)}
+        <b>${e.concluidos}</b> ato(s) · <b>${num(e.pontos)}</b> pontos · tempo total ${horas(e.mediana_mesa)} (mais demorados ${horas(e.p75_mesa)}) ·
+        tempo de trabalho ${horas(e.mediana_ativa)} · tempo vs. equipe <b style="color:${corIndice(e.indice_custo)}">${num(e.indice_custo, 2)}</b> ·
+        voltou p/ ajuste ${pct(e.taxa_retorno)}
       </div>
       ${e.leitura ? `<div style="font:italic 13px/1.5 ${SERIF};color:${C.ink2};margin-top:6px">${esc(e.leitura)}</div>` : ''}
       <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:12px 0 6px">Atos do período</div>
       <div>${mix}</div>
-      <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:8px 0 6px">Afinidade (90 dias)${tipsAf ? ` · rende mais em ${tipsAf}` : ''}</div>
+      <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:8px 0 6px">Onde rende mais e menos (90 dias)${tipsAf ? ` · rende mais em ${tipsAf}` : ''}</div>
       <div>${af}</div>
       <div style="font:12px/1.5 ${SANS};color:${C.ink2};margin-top:6px">
         Pendências documentais: ${e.pendencias.documental.abertas} aberta(s) no período, ${e.pendencias.documental.em_aberto} em aberto no fim ·
@@ -164,10 +164,10 @@ function tabelaTipos(rel) {
     ${tdN(horas(t.mediana_ativa))}
     ${tdN(horas(t.p75_ativa), '', 'hm')}
     ${tdN(horas(t.mediana_mesa), '', 'hm')}
-    ${tdN(`${horas(t.referencia)}<div style="font-size:11px;color:${C.ink2}">${t.fonte_referencia === 'equipe' ? 'equipe 90 d' : 'tabela'}</div>`)}
+    ${tdN(`${horas(t.referencia)}<div style="font-size:11px;color:${C.ink2}">${t.fonte_referencia === 'equipe' ? 'pela equipe, 90 dias' : 'pela tabela'}</div>`)}
   </tr>`).join('');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-    <tr>${th('Tipo de ato')}${th('Atos')}${th('Custo pessoal')}${th('P75', 'hm')}${th('Mesa', 'hm')}${th('Referência')}</tr>${linhas}
+    <tr>${th('Tipo de ato')}${th('Atos')}${th('Tempo de trabalho')}${th('Mais demorados', 'hm')}${th('Tempo total', 'hm')}${th('Tempo esperado')}</tr>${linhas}
   </table>`;
 }
 
@@ -176,7 +176,7 @@ function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '0
   const nomePer = rel.tipo === 'semanal' ? 'semana' : 'mês';
   const pesos = rel.pesos || {};
   const gerado = new Date(geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Maceio', dateStyle: 'short', timeStyle: 'short' });
-  const preheader = `${eq.concluidos} atos concluídos · mediana na mesa ${horas(eq.mediana_mesa)} · retorno ${pct(eq.taxa_retorno)}`;
+  const preheader = `${eq.concluidos} atos concluídos · tempo total típico ${horas(eq.mediana_mesa)} · voltou p/ ajuste ${pct(eq.taxa_retorno)}`;
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">
@@ -201,22 +201,24 @@ function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '0
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       ${kpi('Atos concluídos', String(eq.concluidos), `${delta(eq.variacao)} <span style="color:${C.ink2}">vs ${nomePer} anterior (${eq.concluidos_anterior})</span>`)}
       ${kpi('Pontos', num(eq.pontos), 'soma dos pesos por ato')}
-      ${kpi('Mesa · mediana', horas(eq.mediana_mesa), `P75 ${horas(eq.p75_mesa)}`)}
-      ${kpi('Retorno p/ ajuste', pct(eq.taxa_retorno), `${eq.com_retorno} de ${eq.concluidos} ato(s)`)}
+      ${kpi('Tempo total típico', horas(eq.mediana_mesa), `mais demorados: ${horas(eq.p75_mesa)}`)}
+      ${kpi('Voltou p/ ajuste', pct(eq.taxa_retorno), `${eq.com_retorno} de ${eq.concluidos} ato(s)`)}
     </tr></table>
   </td></tr>
-  ${secao('Equipe', tabelaEquipe(rel), 'Índice de custo: 1,00 = referência da equipe; abaixo de 1 é mais rápido.')}
+  ${secao('Equipe', tabelaEquipe(rel), 'Tempo vs. equipe: 1,00 = igual à equipe; 0,80 = 20% mais rápida; 1,20 = 20% mais lenta.')}
   ${secao('Perfil de cada escrevente', rel.escreventes.map(e => perfil(e, pesos)).join(''))}
   ${secao('Por tipo de ato', tabelaTipos(rel))}
   <tr><td class="px" style="padding:22px 28px 26px">
     <div style="border-top:1px solid ${C.line};padding-top:14px;font:12px/1.6 ${SANS};color:${C.ink2}">
       <b style="color:${C.ink}">Como ler.</b> Tudo em horas úteis (expediente ${esc(expediente)}, seg. a sex., sem feriados).
-      <b>Mesa</b>: da entrada do cartão no quadro da escrevente até o Finalizado.
-      <b>Custo pessoal</b>: horas nas listas de trabalho dela (Revisar Minuta e Ajuste/Retorno) — conferência, pendência documental e assinatura não contam.
-      <b>Índice</b>: custo pessoal ÷ mediana da equipe no mesmo tipo de ato (90 dias).
-      <b>Afinidade</b>: quantas vezes mais rápida que a equipe num tipo (mín. 3 atos dela em 90 dias).
-      <b>Pontos</b>: peso de cada tipo de ato (tabela pesos_ato).
-      ${eq.sem_historico ? `${eq.sem_historico} ato(s) do período entraram na contagem mas não nos tempos: a entrada deles na mesa é anterior ao rastreio.` : ''}
+      <b>Tempo total</b>: da chegada do cartão ao quadro da escrevente até o Finalizado, contando as esperas; é o valor típico (metade dos atos sai mais rápido).
+      <b>Mais demorados</b>: 3 em cada 4 atos saem dentro desse tempo; 1 em cada 4 demora mais.
+      <b>Tempo de trabalho</b>: só o tempo nas mãos dela (Revisar Minuta e Ajuste/Retorno) — conferência, pendência de documento e assinatura não contam.
+      <b>Tempo vs. equipe</b>: o tempo de trabalho dela comparado ao da equipe no mesmo tipo de ato (90 dias).
+      <b>Onde rende mais e menos</b>: quantas vezes ela é mais rápida que a equipe num tipo de ato — em verde onde rende mais, em vinho onde rende menos (mín. 3 atos dela em 90 dias).
+      <b>Tempo esperado</b>: o tempo de trabalho normal daquele tipo de ato, pela equipe nos últimos 90 dias ou, sem atos suficientes, pela tabela.
+      <b>Pontos</b>: peso de cada tipo de ato.
+      ${eq.sem_historico ? `${eq.sem_historico} ato(s) do período entraram na contagem mas não nos tempos: chegaram ao quadro antes de o acompanhamento começar.` : ''}
       <br><br>Gerado automaticamente pelos Relatórios das Escreventes do CN2O em ${esc(gerado)}. Detalhe por ato no anexo CSV.
     </div>
   </td></tr>
@@ -228,10 +230,10 @@ function texto(rel, homologacao) {
   const linhas = [
     assunto(rel, homologacao), '',
     `Equipe: ${eq.concluidos} atos (${eq.concluidos_anterior} no período anterior), ${num(eq.pontos)} pontos,`,
-    `mediana na mesa ${horas(eq.mediana_mesa)} (P75 ${horas(eq.p75_mesa)}), retorno ${pct(eq.taxa_retorno)}.`, ''
+    `tempo total típico ${horas(eq.mediana_mesa)} (mais demorados ${horas(eq.p75_mesa)}), voltou p/ ajuste ${pct(eq.taxa_retorno)}.`, ''
   ];
   for (const e of rel.escreventes) {
-    linhas.push(`${e.nome}: ${e.concluidos} atos, ${num(e.pontos)} pts, mesa ${horas(e.mediana_mesa)}, custo pessoal ${horas(e.mediana_ativa)}, índice ${num(e.indice_custo, 2)}. ${e.leitura}`);
+    linhas.push(`${e.nome}: ${e.concluidos} atos, ${num(e.pontos)} pts, tempo total ${horas(e.mediana_mesa)}, tempo de trabalho ${horas(e.mediana_ativa)}, tempo vs. equipe ${num(e.indice_custo, 2)}. ${e.leitura}`);
   }
   linhas.push('', 'Detalhe por ato no anexo CSV.');
   return linhas.join('\n');
@@ -245,9 +247,10 @@ function csv(conclusoes, pesos, nomes) {
   };
   const dec = v => (v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ','));
   const dt = v => (v ? new Date(v).toLocaleString('pt-BR', { timeZone: 'America/Maceio' }) : '');
-  const cab = ['escrevente', 'protocolo', 'tipo_ato', 'descricao_tipo', 'peso', 'entrada_na_mesa', 'concluido_em',
-    'horas_mesa', 'custo_pessoal_h', 'horas_conferencia', 'horas_pendencia', 'horas_assinatura', 'retornos',
-    'reaberturas', 'historico_completo', 'cartao'];
+  // v1.38.4: cabeçalhos com os nomes do e-mail (horas úteis); a ordem das colunas não mudou
+  const cab = ['Escrevente', 'Protocolo', 'Tipo de ato', 'Descrição do tipo', 'Pontos', 'Chegada ao quadro', 'Concluído em',
+    'Tempo total (h)', 'Tempo de trabalho (h)', 'Conferência (h)', 'Pendência (h)', 'Assinatura (h)', 'Voltou p/ ajuste (vezes)',
+    'Reaberturas', 'Tempos completos', 'Cartão'];
   const linhas = conclusoes.map(c => [
     (nomes && nomes[c.escrevente]) || c.escrevente, c.protocolo, c.tipo_ato,
     (pesos[c.tipo_ato] && pesos[c.tipo_ato].descricao) || '', dec((pesos[c.tipo_ato] || {}).peso),

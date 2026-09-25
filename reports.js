@@ -17,6 +17,9 @@
 //   Pontos            soma dos pesos (pesos_ato) dos atos concluídos.
 //   Taxa de retorno   atos concluídos que passaram por Ajuste/Retorno ÷ atos concluídos.
 // Só entram nas medianas os atos com histórico completo (entrada na mesa observada).
+// No e-mail (v1.38.4) os nomes são os do Tabelião: tempo na mesa = "Tempo total", P75 =
+// "Mais demorados", custo pessoal = "Tempo de trabalho", índice = "Tempo vs. equipe",
+// afinidade = "Onde rende mais e menos", referência = "Tempo esperado", retorno = "Voltou p/ ajuste".
 'use strict';
 
 const AMOSTRA_MINIMA = 3;
@@ -119,16 +122,16 @@ function leitura(e) {
   if (!e.concluidos) f.push('Sem atos concluídos no período.');
   if (Number.isFinite(e.indice_custo) && e.n_tempo >= AMOSTRA_MINIMA) {
     const pct = Math.round(Math.abs(1 - e.indice_custo) * 100);
-    if (e.indice_custo <= 0.9) f.push(`Custo pessoal ${pct}% abaixo da referência da equipe.`);
-    else if (e.indice_custo >= 1.1) f.push(`Custo pessoal ${pct}% acima da referência da equipe.`);
-    else f.push('Custo pessoal no ritmo da equipe.');
+    if (e.indice_custo <= 0.9) f.push(`Tempo de trabalho ${pct}% menor que o da equipe.`);
+    else if (e.indice_custo >= 1.1) f.push(`Tempo de trabalho ${pct}% maior que o da equipe.`);
+    else f.push('Tempo de trabalho no ritmo da equipe.');
   }
   if (e.concluidos >= AMOSTRA_MINIMA && e.taxa_retorno >= 0.3) {
     f.push(`${e.com_retorno} de ${e.concluidos} atos voltaram para ajuste.`);
   }
   if (e.pendencias.documental.em_aberto >= 3) f.push(`${e.pendencias.documental.em_aberto} pendências documentais em aberto.`);
   const forte = (e.afinidade || []).find(a => a.indice >= 1.1);
-  if (forte) f.push(`Afinidade com ${forte.tipo} (${String(forte.indice).replace('.', ',')}×).`);
+  if (forte) f.push(`Rende mais em ${forte.tipo} (${String(forte.indice).replace('.', ',')}× a equipe).`);
   return f.join(' ');
 }
 

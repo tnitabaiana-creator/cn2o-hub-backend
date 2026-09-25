@@ -81,9 +81,9 @@ test('afinidade: referência da equipe ÷ mediana dela, só com 3+ atos do tipo'
   const rom = rel.escreventes.find(e => e.login === 'romenia.oliveira');
   assert.deepEqual(lara.afinidade, [{ tipo: 'CV-Urbano', n: 3, mediana_ativa: 3, referencia: 5, indice: 1.67 }]);
   assert.deepEqual(rom.afinidade.map(a => [a.tipo, a.indice]), [['CV-Urbano', 0.63]]);   // INV: 1 ato só
-  assert.match(lara.leitura, /20% abaixo/);
-  assert.match(lara.leitura, /Afinidade com CV-Urbano/);
-  assert.doesNotMatch(rom.leitura, /Custo pessoal/);   // só 2 atos com tempo: amostra pequena para comentar
+  assert.match(lara.leitura, /Tempo de trabalho 20% menor que o da equipe/);
+  assert.match(lara.leitura, /Rende mais em CV-Urbano/);
+  assert.doesNotMatch(rom.leitura, /Tempo de trabalho/);   // só 2 atos com tempo: amostra pequena para comentar
 });
 
 test('volume, pontos, variação e taxa de retorno', () => {

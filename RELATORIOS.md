@@ -61,12 +61,16 @@ Sem o site do hub, o token sai de `POST /login {"login":"cesar.bravo","senha":"�
 
 Todos os tempos são em **horas úteis**: expediente 08:00–12:00 e 13:00–17:00, de segunda a sexta, sem feriados nacionais, sem o 8/7 de Sergipe e sem os de `FERIADOS_EXTRA`.
 
-- **Mesa**: da entrada do cartão no quadro da escrevente até o Finalizado.
-- **Custo pessoal**: horas em Revisar Minuta e Ajuste/Retorno no quadro dela. Conferência, PENDÊNCIAS/AGUARDA e assinatura não contam, porque não dependem dela.
-- **Índice de custo**: custo pessoal dividido pela mediana da equipe no mesmo tipo de ato, nos últimos 90 dias. 1,00 é o ritmo da equipe; abaixo de 1, ela é mais rápida.
-- **Afinidade**: quantas vezes ela é mais rápida que a equipe num tipo de ato. Só aparece com pelo menos 3 atos dela desse tipo em 90 dias.
+Desde a v1.38.4 o e-mail e o CSV usam nomes do dia a dia. Entre parênteses, o nome interno (campo no código e no banco).
+
+- **Tempo total** (`horas_mesa`, mediana): da entrada do cartão no quadro da escrevente até o Finalizado, contando as esperas. É o valor típico: metade dos atos sai mais rápido.
+- **Mais demorados** (`p75_mesa`, percentil 75): 3 em cada 4 atos saem dentro desse tempo; 1 em cada 4 demora mais. Na tabela por tipo de ato, a coluna vale para o tempo de trabalho (`p75_ativa`).
+- **Tempo de trabalho** (`horas_ativas`, antes "custo pessoal"): horas em Revisar Minuta e Ajuste/Retorno no quadro dela. Conferência, PENDÊNCIAS/AGUARDA e assinatura não contam, porque não dependem dela.
+- **Tempo vs. equipe** (`indice_custo`): tempo de trabalho dividido pela mediana da equipe no mesmo tipo de ato, nos últimos 90 dias. 1,00 é o ritmo da equipe; 0,80 = 20% mais rápida; 1,20 = 20% mais lenta.
+- **Onde rende mais e menos** (`afinidade`): quantas vezes ela é mais rápida que a equipe num tipo de ato (verde = rende mais, vinho = rende menos). Só aparece com pelo menos 3 atos dela desse tipo em 90 dias.
+- **Tempo esperado** (`referencia`): o tempo de trabalho normal do tipo de ato — mediana da equipe em 90 dias ou, sem 3 atos, `pesos_ato.horas_referencia`.
 - **Pontos**: soma dos pesos dos atos concluídos (tabela `pesos_ato`).
-- **Retorno**: parte dos atos concluídos que passou por Ajuste/Retorno.
+- **Voltou p/ ajuste** (`taxa_retorno`): parte dos atos concluídos que passou por Ajuste/Retorno.
 - **Tipo de ato**: vem do registro do e-Protocolo (`protocolos.card_id`) quando o cartão nasceu por lá; senão, do título do cartão.
 - Cartões que entraram na mesa antes do início do rastreio contam no volume, mas não nos tempos.
 

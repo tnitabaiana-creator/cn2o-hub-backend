@@ -48,11 +48,20 @@ test('HTML: identidade CN2O, números em pt-BR, conteúdo escapado, faixa de hom
   assert.ok(!email.html(rel(), { homologacao: false }).includes('enviado somente para o endereço de teste'));
 });
 
+test('HTML e texto: nomes do Tabelião, sem o jargão antigo (v1.38.4)', () => {
+  const h = email.html(rel(), { homologacao: false });
+  for (const nome of ['Tempo total', 'Mais demorados', 'Tempo de trabalho', 'Tempo vs. equipe', 'Voltou p/ ajuste',
+    'Onde rende mais e menos', 'Tempo esperado', 'Pendências']) assert.ok(h.includes(nome), nome);
+  assert.doesNotMatch(h, /Mesa|P75|Custo pessoal|Afinidade|Índice|Referência|pesos_ato/);
+  assert.doesNotMatch(email.texto(rel(), false), /mesa|P75|custo pessoal|índice/i);
+});
+
 test('CSV: BOM, separador ;, decimal com vírgula, link do cartão, campos com ; entre aspas', () => {
   const out = email.csv([{ escrevente: 'x', protocolo: 1400, tipo_ato: 'CV-Urbano', horas_mesa: 10.5, horas_ativas: 3.25,
     retornos: 1, reaberturas: 0, historico_completo: true, card_short: 'abc', concluido_em: H('2026-09-24T10:00') }],
   PESOS, { x: 'Lara; da Silva' });
-  assert.ok(out.startsWith('﻿escrevente;protocolo;tipo_ato;'));
+  assert.ok(out.startsWith('﻿Escrevente;Protocolo;Tipo de ato;'));
+  assert.match(out.split('\r\n')[0], /;Tempo total \(h\);Tempo de trabalho \(h\);/);
   const linha = out.split('\r\n')[1].split(';');
   assert.equal(linha[0], '"Lara');                    // o nome com ; veio entre aspas
   assert.match(out, /"Lara; da Silva";1400;CV-Urbano;Compra e Venda \(urbano\);1;/);
