@@ -56,3 +56,15 @@ test('título sem parênteses e sem número', () => {
   assert.equal(extrairDoTitulo('Cartão qualquer').protocolo, null);
   assert.equal(extrairDoTitulo(null).tipo_ato, 'OUTROS');
 });
+
+test('prevenção de falsos positivos em nomes próprios e palavras comuns', () => {
+  assert.equal(normalizarTipoAto('DOALDO'), 'OUTROS');
+  assert.equal(normalizarTipoAto('DOALCEI'), 'OUTROS');
+  assert.equal(normalizarTipoAto('TESTE'), 'OUTROS');
+  assert.equal(normalizarTipoAto('TESTES'), 'OUTROS');
+  assert.equal(extrairDoTitulo('Prot. 1234 - Compra e Venda - Doaldo Santos').tipo_ato, 'CV-Urbano');
+  assert.equal(extrairDoTitulo('Prot. (TESTAMENTO) 1234 - FULANO').tipo_ato, 'TEST');
+  assert.equal(extrairDoTitulo('Prot. (TESTE) 1234').tipo_ato, 'OUTROS');
+  assert.equal(extrairDoTitulo('Prot. (DOAÇÃO) 1234').tipo_ato, 'DOA');
+  assert.equal(extrairDoTitulo('Prot. (DOA) 1234').tipo_ato, 'DOA');
+});

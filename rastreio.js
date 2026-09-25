@@ -243,7 +243,7 @@ function reconstruir(eventos, ctx) {
       ultima_conclusao_em: ultima.entrou_em,
       reaberturas,
       entrada_mesa_em: entrada ? entrada.entrou_em : null,
-      horas_mesa: completo ? r2(horasUteis(entrada.entrou_em, ultima.entrou_em)) : null,
+      horas_mesa: completo ? r2(Math.max(0, horasUteis(entrada.entrou_em, ultima.entrou_em) - soma(p => p.categoria === 'finalizado'))) : null,
       horas_ativas: completo ? soma(p => p.escrevente === dona && ATIVAS.has(p.categoria)) : null,
       horas_pendencia: completo ? soma(p => p.categoria === 'pendencia') : null,
       horas_conferencia: completo ? soma(p => p.categoria === 'conferencia') : null,

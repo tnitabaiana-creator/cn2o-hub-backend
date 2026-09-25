@@ -135,7 +135,7 @@ async function gerarEEnviar(tipo, dataRef, idEnvio) {
   const g = await gerar(tipo, dataRef);
   const r = await email.enviar({
     para: g.para, assunto: g.assunto, html: g.html, texto: g.texto,
-    anexos: [{ nome: g.nomeCsv, tipo: 'text/csv', conteudo: g.csv }]
+    anexos: [{ nome: g.nomeCsv, tipo: 'text/csv; charset=utf-8', conteudo: g.csv }]
   });
   await q(`UPDATE envios_relatorio SET status = 'enviado', enviado_em = now(), atualizado_em = now(),
            destinatarios = $2, resumo = $3, erro = NULL WHERE id = $1`,
