@@ -12,8 +12,10 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 3. **Postgres**: no projeto, Add Service → Database → PostgreSQL.
    O Railway injeta `DATABASE_URL` sozinho (conecte a variável ao serviço web).
 4. **Variáveis**: copie `.env.example` para as Variables do serviço e preencha:
-   - `HUB_KEY`: chave administrativa antiga (hoje só o teste de WhatsApp a aceita). Desde a
-     v1.39.1 ela **não zera mais senha**; troque-a se já foi digitada nos balcões.
+   - `HUB_KEY`: **não é mais usada** desde a v1.39.2 (não zera senha nem libera o teste do
+     WhatsApp, que passou a exigir sessão de administrador). Pode apagar da Railway.
+   - `CORS_ORIGENS` (opcional): sites que podem chamar esta API pelo navegador, separados por
+     vírgula. Padrão: `https://cn2o-hub.netlify.app` (antes da v1.39.2, qualquer site).
    - `HUB_CODIGO_ADMIN` (emergência, opcional): com 16+ caracteres, vale como código de
      primeiro acesso **só para os administradores** (HUB_ADMINS) e redefine a senha deles.
      Use quando o Tabelião ficar sem acesso e **apague a variável em seguida**.
@@ -39,6 +41,8 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - Senhas em scrypt (N=2^14, r=8, p=5); hashes antigos migram no próximo login. No banco,
   a sessão guarda só o SHA-256 do token. Falhas e bloqueios entram na trilha (ação "acesso").
 - `POST /admin/resetar-senha` (HUB_KEY) **foi removida**.
+- v1.39.2: cabeçalhos de segurança e CORS só do site (protecao.js); erros genéricos;
+  `/whats/status` e `/whats/testar` só com sessão de administrador (telefones mascarados).
 
 ## Endpoints
 

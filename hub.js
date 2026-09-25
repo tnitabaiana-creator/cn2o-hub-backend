@@ -413,7 +413,7 @@ router.get('/mural', exigeSessao, async (req, res) => {
   }
 });
 
-router.post('/mural', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/mural', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   try {
     await preparar();
     const corpo = req.body || {};
@@ -486,7 +486,7 @@ router.get('/admin/equipe', exigeSessao, exigeAdmin, async (req, res) => {
     res.status(500).json({ erro: 'falha ao ler a equipe' });
   }
 });
-router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/equipe', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   try {
     const b = req.body || {};
     const login = txt(b.login, 60).toLowerCase();
@@ -515,7 +515,7 @@ router.post('/admin/equipe', jsonMural, exigeSessao, exigeAdmin, async (req, res
 // (dele penduram protocolos, sessões, agenda, notas e esta própria trilha) e por isso
 // nunca muda: para trocar de login, cadastre outro. O cargo importa de verdade — é com
 // ele que o Redator CN2O assina a minuta de quem está logado.
-router.post('/admin/equipe/editar', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/equipe/editar', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   try {
     const b = req.body || {};
     const login = txt(b.login, 60).toLowerCase();
@@ -564,7 +564,7 @@ async function situacaoNumeracao() {
 //    viaja (00, 01 e os cinco 02). O servidor já o preenche quando existe — em texto,
 //    porque o valor vai formatado ("R$ 150.000,00"); um campo numérico o recusaria.
 const CAMPO_PRECO = 'Preço ajustado';
-router.post('/admin/trello/campo-preco', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/trello/campo-preco', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   const relatorio = [];
   try {
     const quadros = quadrosDaCasa();
@@ -593,7 +593,7 @@ router.post('/admin/trello/campo-preco', jsonMural, exigeSessao, exigeAdmin, asy
 
 // 2) Etiquetas "Urgente" e "Doc. pendente" no quadro das certidões (04): os cartões do
 //    CERT só as recebem se elas existirem lá COM NOME (as seis etiquetas do quadro nasceram sem nome).
-router.post('/admin/trello/etiquetas-cert', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/trello/etiquetas-cert', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   try {
     const boardId = String(process.env.BOARD_04 || '6a8ca1ddc8f6574231ab8ab0').trim();
     const ls = await trello.t('GET', '/boards/' + boardId + '/labels?limit=100');
@@ -623,7 +623,7 @@ router.get('/admin/whats/template-cert', exigeSessao, exigeAdmin, (req, res) => 
   res.json({ em_uso: rc.templateCert(), waba_configurado: !!String(process.env.WHATS_WABA_ID || '').trim(),
     definicao: rc.definicaoTemplateCert(nome) });
 });
-router.post('/admin/whats/template-cert', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/whats/template-cert', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   const rc = require('./recibo-cert');
   const nome = txt(req.body && req.body.nome, 60) || 'recibo_certidao_1';
   if (!/^[a-z0-9_]{3,60}$/.test(nome)) return res.status(400).json({ erro: 'nome do template: só letras minúsculas, dígitos e _' });
@@ -668,7 +668,7 @@ router.get('/admin/numeracao', exigeSessao, exigeAdmin, async (req, res) => {
     res.status(500).json({ erro: 'falha ao ler a numeração' });
   }
 });
-router.post('/admin/numeracao', jsonMural, exigeSessao, exigeAdmin, async (req, res) => {
+router.post('/admin/numeracao', exigeSessao, exigeAdmin, jsonMural, async (req, res) => {
   const cliente = await db.pool.connect();
   try {
     await preparar();
@@ -733,8 +733,8 @@ async function gerarCodigoAcesso(req, res) {
     res.status(500).json({ erro: 'falha ao gerar o código' });
   }
 }
-router.post('/admin/codigo-acesso', jsonMural, exigeSessao, exigeAdmin, gerarCodigoAcesso);
-router.post('/admin/zerar-senha', jsonMural, exigeSessao, exigeAdmin, gerarCodigoAcesso);
+router.post('/admin/codigo-acesso', exigeSessao, exigeAdmin, jsonMural, gerarCodigoAcesso);
+router.post('/admin/zerar-senha', exigeSessao, exigeAdmin, jsonMural, gerarCodigoAcesso);
 
 // ---------------------------------------------------------------- trilha: o que só o navegador vê
 // Entrar, sair e abrir uma ferramenta não passam por rota nenhuma do servidor (a tela é
@@ -746,7 +746,7 @@ const REGISTRO_ACOES = new Set(['login', 'logout', 'abrir', 'itbi']);
 const REGISTRO_FERRAMENTAS = new Set(['protocolo', 'calculadora', 'ia', 'extrator', 'analista',
   'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'acervo', 'agenda', 'notas', 'mural',
   'links', 'ajuda', 'pdf']);
-router.post('/registro', jsonMural, exigeSessao, async (req, res) => {
+router.post('/registro', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
     const b = req.body || {};
@@ -1121,7 +1121,7 @@ function docUrlSegura(v) {
   if (!RE_DOC_URL.test(v) || /[\s"'<>\\\u0000-\u001f]/.test(v)) return null;
   return v;
 }
-router.post('/minutas', jsonMural, exigeSessao, async (req, res) => {
+router.post('/minutas', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
     const corpo = req.body || {};
@@ -1190,7 +1190,7 @@ router.get('/agenda', exigeSessao, async (req, res) => {
     res.status(500).json({ erro: 'falha ao ler a agenda' });
   }
 });
-router.post('/agenda', jsonMural, exigeSessao, async (req, res) => {
+router.post('/agenda', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
     const corpo = req.body || {};
@@ -1252,7 +1252,7 @@ router.get('/notas', exigeSessao, async (req, res) => {
     res.status(500).json({ erro: 'falha ao ler o bloco de notas' });
   }
 });
-router.post('/notas', jsonMural, exigeSessao, async (req, res) => {
+router.post('/notas', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
     const corpo = req.body || {};
@@ -1291,7 +1291,7 @@ router.post('/notas', jsonMural, exigeSessao, async (req, res) => {
     res.status(500).json({ erro: 'falha ao guardar a nota' });
   }
 });
-router.post('/notas/apagar', jsonMural, exigeSessao, async (req, res) => {
+router.post('/notas/apagar', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
     const id = idNota((req.body || {}).id);
@@ -1639,7 +1639,7 @@ function pedidoDocs(partes, corpo, ficha, usuario, modelo) {
   };
 }
 
-router.post('/ia/:ferramenta', jsonIA, exigeSessao, async (req, res) => {
+router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   const nome = req.params.ferramenta;
   if (!Object.prototype.hasOwnProperty.call(PROMPTS, nome)) {
     return res.status(404).json({ erro: 'ferramenta desconhecida' });
@@ -1841,7 +1841,7 @@ function nomeArquivo(v) {
   return (s || 'documento').slice(0, 120);
 }
 
-router.post('/cert/anexos', jsonIA, exigeSessao, async (req, res) => {
+router.post('/cert/anexos', exigeSessao, jsonIA, async (req, res) => {
   try {
     const lista = Array.isArray(req.body && req.body.arquivos) ? req.body.arquivos : null;
     if (!lista || !lista.length) return res.status(400).json({ erro: 'nenhum arquivo enviado' });
@@ -1939,4 +1939,5 @@ router.normalizarMural = normalizarMural;   // exposto para os testes
 router.vincularAnexosCert = vincularAnexosCert;  // usado pelo /protocolo (server.js)
 router.limparAnexosCert = limparAnexosCert;      // v1.36.1: expurgo chamado pelo /protocolo
 router.auditar = auditar;                        // v1.38: trilha dos relatórios (relatorios.js)
+router.ehAdmin = ehAdmin;                        // v1.39.2: diagnóstico do WhatsApp só do Tabelião (server.js)
 module.exports = router;
