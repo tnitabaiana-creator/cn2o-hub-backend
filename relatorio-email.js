@@ -281,8 +281,10 @@ async function comPrazo(url, opcoes, ms) {
 // mensagem: { para[], assunto, html, texto, anexos: [{ nome, tipo, conteudo (string|Buffer) }] }
 async function enviar(msg) {
   const prov = provedor();
+  // v1.39: anexo binário (o PDF dos atendimentos) vem como Buffer; texto (o CSV), como string
   const anexos = (msg.anexos || []).map(a => ({
-    nome: a.nome, tipo: a.tipo, base64: Buffer.from(a.conteudo, 'utf8').toString('base64')
+    nome: a.nome, tipo: a.tipo,
+    base64: (Buffer.isBuffer(a.conteudo) ? a.conteudo : Buffer.from(a.conteudo, 'utf8')).toString('base64')
   }));
   if (prov === 'appsscript') {
     const r = await comPrazo(process.env.RELATORIO_EMAIL_WEBAPP_URL, {
