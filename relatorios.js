@@ -319,10 +319,12 @@ router.post('/carga', json, (req, res) => {
 
 // v1.39 — atendimentos do balcão (NextQS), com a mesma trava de administrador
 router.use('/atendimentos', require('./atendimentos').router);
+// v1.40 — produtividade em reais por escrevente (planilha do sistema + análise da IA)
+router.use('/produtividade', require('./produtividade').router);
 
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ erro: 'requisição inválida' });
   next(err);
 });
 
-module.exports = { router, periodo, periodoAnterior, gerar, enviarSeDevido, enviarManual, wipAtual };
+module.exports = { router, admins, periodo, periodoAnterior, gerar, enviarSeDevido, enviarManual, wipAtual };

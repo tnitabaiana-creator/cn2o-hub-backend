@@ -481,6 +481,9 @@ db.init()
   .then(() => require('./atendimentos').init()
     .then(() => { atendimentosNoAr = true; })
     .catch(e => console.error('atendimentos (NextQS) desligados (tabelas):', e.message)))
+  // v1.40: produtividade em reais (tabelas e a carga inicial de jun–ago/2026) — idem
+  .then(() => require('./produtividade').init()
+    .catch(e => console.error('produtividade desligada (tabelas):', e.message)))
   .then(() => app.listen(process.env.PORT || 3000, () => {
     console.log('CN2O hub no ar');
     if (relatoriosNoAr || atendimentosNoAr) {
