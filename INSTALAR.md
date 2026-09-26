@@ -160,7 +160,8 @@ seed, a edição da tela se perde (mas fica guardada em `agente_versoes`).
 
 Login: as mesmas contas de sempre (`cesar.bravo`, `josi.silva`, `lara.silva`,
 `romenia.oliveira`, `jonas.aragao`, `camily.jesus`, `milvo.neto`). Quem ainda não
-definiu senha cai no primeiro acesso.
+definiu senha entra com o **código de acesso** que o Tabelião gera na aba Equipe do Hub
+(v1.39.1): botão "Tenho um código" na tela de entrada.
 
 ---
 

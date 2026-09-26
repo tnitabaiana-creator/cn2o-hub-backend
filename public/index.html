@@ -421,13 +421,24 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
           <input id="login-senha" name="senha" type="password" autocomplete="current-password" required>
         </div>
         <button type="submit" class="btn btn-principal" id="btn-entrar">Entrar</button>
+        <!-- v1.39.1: primeiro acesso só com o código de uso único que o Tabelião entrega -->
+        <button type="button" class="btn btn-fantasma" id="btn-tenho-codigo" style="width:100%;margin-top:8px">Primeiro acesso? Tenho um código</button>
       </form>
 
-      <!-- primeiro acesso: define a senha -->
+      <!-- primeiro acesso: define a senha com o código do Tabelião -->
       <form id="form-senha" class="oculto" novalidate>
         <p class="ajuda" style="margin-bottom:14px">
-          Este é o seu primeiro acesso. Escolha uma senha só sua, com no mínimo 8 caracteres.
+          Digite o seu login e o código de acesso que o Tabelião entregou (vale uma vez, por 48 horas).
+          Depois escolha uma senha só sua, com no mínimo 8 caracteres e sem o seu nome.
         </p>
+        <div class="campo">
+          <label for="codigo-login">Seu login</label>
+          <input id="codigo-login" type="text" autocomplete="username" placeholder="nome.sobrenome" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="campo">
+          <label for="codigo-acesso">Código de acesso</label>
+          <input id="codigo-acesso" type="text" autocomplete="one-time-code" placeholder="XXXXX-XXXXX" autocapitalize="characters" spellcheck="false" maxlength="20" required>
+        </div>
         <div class="campo">
           <label for="senha-nova">Nova senha</label>
           <input id="senha-nova" type="password" autocomplete="new-password" minlength="8" required>
@@ -1121,18 +1132,8 @@ $('#form-login').addEventListener('submit', function(ev){
   mostrar($('#login-erro'), false);
   api('/login', { metodo:'POST', corpo:{ login: login, senha: senha }, semSessao:true })
     .then(function(r){
-      if (r && r.primeiro_acesso){
-        // usuário existe mas ainda não tem senha: troca para a tela de definição
-        estado.loginPendente = login;
-        mostrar($('#form-login'), false);
-        mostrar($('#form-senha'), true);
-        mostrar($('#login-erro'), false);
-        var av = $('#login-aviso');
-        av.textContent = 'Primeiro acesso de ' + login + '. Defina a sua senha.';
-        mostrar(av, true);
-        $('#senha-nova').focus();
-        return;
-      }
+      // v1.39.1: o servidor não diz mais quem está "sem senha"; o primeiro acesso é pelo
+      // botão "Tenho um código", com o código de uso único que o Tabelião entrega
       entrarComSessao(r, login);
     })
     .catch(erroLogin)
@@ -1142,14 +1143,27 @@ $('#form-login').addEventListener('submit', function(ev){
 $('#form-senha').addEventListener('submit', function(ev){
   ev.preventDefault();
   var a = $('#senha-nova').value, b = $('#senha-confirma').value;
+  var login = $('#codigo-login').value.trim().toLowerCase(), codigo = $('#codigo-acesso').value.trim();
+  if (!login){ erroLogin({ mensagem:'digite o seu login (nome.sobrenome)' }); return; }
+  if (!codigo){ erroLogin({ mensagem:'digite o código de acesso que o Tabelião entregou' }); return; }
   if (a.length < 8){ erroLogin({ mensagem:'a senha precisa ter no mínimo 8 caracteres' }); return; }
   if (a !== b){ erroLogin({ mensagem:'as duas senhas não conferem — digite de novo' }); return; }
   var btn = $('#btn-definir');
   btn.disabled = true; btn.textContent = 'Definindo…';
-  api('/definir-senha', { metodo:'POST', corpo:{ login: estado.loginPendente, senha: a }, semSessao:true })
-    .then(function(r){ entrarComSessao(r, estado.loginPendente); })
+  api('/definir-senha', { metodo:'POST', corpo:{ login: login, codigo: codigo, senha: a }, semSessao:true })
+    .then(function(r){ entrarComSessao(r, login); })
     .catch(erroLogin)
     .then(function(){ btn.disabled = false; btn.textContent = 'Definir senha e entrar'; });
+});
+
+$('#btn-tenho-codigo').addEventListener('click', function(){   // v1.39.1
+  $('#codigo-login').value = $('#login-usuario').value.trim().toLowerCase();
+  $('#codigo-acesso').value = '';
+  mostrar($('#form-login'), false);
+  mostrar($('#form-senha'), true);
+  mostrar($('#login-erro'), false);
+  mostrar($('#login-aviso'), false);
+  ($('#codigo-login').value ? $('#codigo-acesso') : $('#codigo-login')).focus();
 });
 
 $('#btn-voltar-login').addEventListener('click', function(){

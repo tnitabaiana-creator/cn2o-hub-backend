@@ -24,8 +24,47 @@ const CARGOS_ADMIN = ['Tabelião', 'Substituta do Tabelião'];
 const ehAdmin = u => CARGOS_ADMIN.includes(u.cargo) ||
   (process.env.AGENTES_ADMIN || '').split(',').map(s => s.trim()).includes(u.login);
 
-const erro = (res, code, msg, detalhe) =>
-  res.status(code).json(detalhe ? { erro: msg, detalhe } : { erro: msg });
+// v1.39.3 (segurança): o detalhe só vai à tela quando é recado nosso (gemini.js escreve
+// mensagens em português para truncamento, resposta vazia, tempo esgotado e bloqueio);
+// erro cru do banco ou do provedor fica só no log.
+const RE_RECADO = /excedeu o limite de saída|voltou vazia|não respondeu em|bloqueou a requisição|não configurada/i;
+const erro = (res, code, msg, detalhe) => {
+  if (detalhe && !RE_RECADO.test(String(detalhe))) {
+    console.error('agentes:', msg, '—', String(detalhe).slice(0, 300));
+    detalhe = null;
+  }
+  return res.status(code).json(detalhe ? { erro: msg, detalhe } : { erro: msg });
+};
+
+// v1.39.3 (segurança, pacote C): freio nas 4 rotas que chamam a IA — antes não havia
+// limite nenhum além da cota do projeto Google. Mesmo módulo do Hub (limite-ia.js):
+// limite por pessoa a cada 10 min, teto diário de gasto, tipos e tamanho dos arquivos,
+// teto de texto, e a chamada entra na trilha de auditoria (só o caminho, nunca o conteúdo).
+const { aguardarLimite, tetoDiario, MSG_TETO } = require('./limite-ia');
+const MIMES_IA = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']);
+const MAX_ARQUIVOS = 12, MAX_B64 = 18 * 1024 * 1024, MAX_TEXTO = 20000;
+async function freioIA(req, res, next) {
+  const b = req.body || {};
+  const arquivos = Array.isArray(b.arquivos) ? b.arquivos : [];
+  if (arquivos.length > MAX_ARQUIVOS) return erro(res, 400, 'no máximo 12 arquivos por pedido');
+  let total = 0;
+  for (const a of arquivos) {
+    if (!MIMES_IA.has(String((a && a.mime) || '').toLowerCase())) return erro(res, 400, 'formato não aceito: use foto JPG/PNG ou PDF');
+    total += String((a && a.base64) || '').length;
+  }
+  if (total > MAX_B64) return erro(res, 413, 'arquivos grandes demais para um pedido só (máx. ≈ 13 MB somados)');
+  for (const k of ['observacoes', 'pedido', 'titulo']) {
+    if (typeof b[k] === 'string' && b[k].length > MAX_TEXTO) b[k] = b[k].slice(0, MAX_TEXTO);
+  }
+  const espera = aguardarLimite(req.usuario.login);
+  if (espera) return res.status(429).json({ erro: 'muitas análises seguidas — aguarde um pouco e tente de novo', tente_em_s: espera });
+  try {
+    const t = await tetoDiario(req.usuario.login);
+    if (t.excedido) return res.status(429).json({ erro: MSG_TETO(t), motivo: 'teto' });
+  } catch (e) { console.error('agentes teto:', e.message); }
+  try { require('./hub').auditar(req, 'ia', 'agentes', req.path.slice(0, 80)); } catch (e) { /* trilha nunca derruba */ }
+  next();
+}
 
 // ---------------------------------------------------------------- CATÁLOGO
 
@@ -39,6 +78,7 @@ router.get('/', async (req, res) => {
 // GET /agentes/modelos — o que a chave do Gemini enxerga de verdade.
 // Use isto para conferir os IDs antes de culpar o código.
 router.get('/modelos', async (req, res) => {
+  if (!ehAdmin(req.usuario)) return erro(res, 403, 'somente Tabelião ou Substituta');   // v1.39.3
   try {
     res.json({
       configurado: { extracao: gemini.MODELO_EXTRACAO, redacao: gemini.MODELO_REDACAO },
@@ -151,7 +191,7 @@ router.get('/protocolo-catalogo', (req, res) => {
 // → { minuta_id, dados, alertas, uso }
 // Etapa barata: lê os documentos e devolve o JSON para a escrevente CONFERIR.
 // Nada é redigido aqui — de propósito.
-router.post('/:slug/extrair', async (req, res) => {
+router.post('/:slug/extrair', freioIA, async (req, res) => {
   try {
     const ag = await dba.obterAgente(req.params.slug);
     if (!ag || !ag.ativo) return erro(res, 404, 'agente não encontrado');
@@ -195,7 +235,7 @@ router.post('/:slug/extrair', async (req, res) => {
 // Etapa única, para os agentes que não redigem escritura: Qualificação do Imóvel,
 // Extração de Certidões e o Redator Oficial. Grava mesmo assim em `minutas`, para
 // a escrevente reencontrar o resultado no histórico e o custo entrar no relatório.
-router.post('/:slug/executar', async (req, res) => {
+router.post('/:slug/executar', freioIA, async (req, res) => {
   try {
     const ag = await dba.obterAgente(req.params.slug);
     if (!ag || !ag.ativo) return erro(res, 404, 'agente não encontrado');
@@ -237,7 +277,7 @@ router.post('/:slug/executar', async (req, res) => {
 // POST /agentes/minutas/:id/redigir
 // { dados?, observacoes? } — dados = o JSON já corrigido na tela.
 // → { texto, uso }
-router.post('/minutas/:id/redigir', async (req, res) => {
+router.post('/minutas/:id/redigir', freioIA, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const m = await dba.obterMinuta(id);
@@ -269,7 +309,7 @@ router.post('/minutas/:id/redigir', async (req, res) => {
 
 // POST /agentes/minutas/:id/revisar
 // { pedido } → { texto, uso }
-router.post('/minutas/:id/revisar', async (req, res) => {
+router.post('/minutas/:id/revisar', freioIA, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const pedido = (req.body.pedido || '').trim();
@@ -281,7 +321,7 @@ router.post('/minutas/:id/revisar', async (req, res) => {
     if (!m.texto) return erro(res, 409, 'redija a minuta antes de pedir revisão');
 
     const ag = await dba.obterAgente(m.agente);
-    const historico = (m.turnos || []).filter(t => t.papel === 'usuario').map(t => t.conteudo);
+    const historico = (m.turnos || []).filter(t => t.papel === 'usuario').map(t => t.conteudo).slice(-10);   // v1.39.3: só os 10 últimos ajustes
 
     const { texto, uso } = await gemini.revisar({
       agente: ag, minutaAtual: m.texto, pedido, historico

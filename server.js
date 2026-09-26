@@ -3,12 +3,20 @@ const express = require('express');
 const db = require('./db');
 const trello = require('./trello');
 const { dispararRecibos, statusWhatsApp, enviarTemplate, normalizaTelefone } = require('./whats');
-const { hashSenha, verificaSenha, novoToken } = require('./auth');
 const hub = require('./hub');   // router do Hub + vincularAnexosCert (v1.36)
 const { variaveisDoReciboCert, templateCert } = require('./recibo-cert');   // v1.37.1 — recibo próprio do CERT
 const rastreio = require('./rastreio');   // v1.38 — rastreio dos cartões para os relatórios das escreventes
 
 const app = express();
+// v1.39.1: atrás do proxy da Railway, req.ip é o IP do cliente (o último salto que o proxy
+// acrescenta ao X-Forwarded-For) — não o primeiro valor, que o próprio cliente forja.
+app.set('trust proxy', 1);
+// v1.39.2 (segurança, pacote B): cabeçalhos de segurança e CORS só para o site do Hub
+// (antes: "*", qualquer site). Outras origens: CORS_ORIGENS=https://a,https://b. Ver protecao.js.
+const protecao = require('./protecao');
+app.disable('x-powered-by');
+app.use(protecao.cabecalhos);
+app.use(protecao.cors());
 // Corpo pequeno mantem o limite antigo; /agentes e /hub tem parser proprio
 // (24 MB) porque recebem PDF e imagem em base64. v1.38: /webhook/trello le o
 // corpo BRUTO, porque a assinatura do Trello e calculada sobre os bytes exatos.
@@ -17,70 +25,21 @@ app.use((req, res, next) =>
   (req.path.startsWith('/agentes') || req.path.startsWith('/hub/') || req.path === '/webhook/trello')
     ? next() : jsonPequeno(req, res, next));
 
-// CORS: o formulário roda no Netlify
-app.use((req, res, next) => {
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, X-Hub-Key, X-Auth-Token, X-Admin-Key');
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-
 // ---------- autenticação individual (nome.sobrenome + senha própria) ----------
-app.post('/login', async (req, res) => {
-  try {
-    const { login, senha } = req.body || {};
-    const u = await db.buscarUsuario(login);
-    if (!u) return res.status(401).json({ erro: 'usuário ou senha inválidos' });
-    if (!u.senha_hash) return res.json({ primeiro_acesso: true });
-    if (!senha || !verificaSenha(senha, u.senha_hash)) {
-      return res.status(401).json({ erro: 'usuário ou senha inválidos' });
-    }
-    const token = novoToken();
-    await db.criarSessao(token, u.login);
-    res.json({ token, nome: u.nome, cargo: u.cargo });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
-});
+// v1.39.1 (segurança): /login, /definir-senha e /logout moram em acesso.js — primeiro
+// acesso só com o código do Tabelião, limite de tentativas e resposta única. A rota
+// antiga /admin/resetar-senha (HUB_KEY, o código dos balcões, zerava a senha de
+// qualquer um) saiu: quem zera senha agora é o Tabelião, na aba Equipe (código novo).
+app.use(require('./acesso').router);
 
-// primeiro acesso: o próprio usuário define a senha (não existe senha comum)
-app.post('/definir-senha', async (req, res) => {
-  try {
-    const { login, senha } = req.body || {};
-    const u = await db.buscarUsuario(login);
-    if (!u) return res.status(401).json({ erro: 'usuário inválido' });
-    if (u.senha_hash) return res.status(409).json({ erro: 'senha já definida — use o login normal' });
-    if (!senha || senha.length < 8) return res.status(400).json({ erro: 'a senha deve ter no mínimo 8 caracteres' });
-    await db.gravarSenha(u.login, hashSenha(senha));
-    const token = novoToken();
-    await db.criarSessao(token, u.login);
-    res.json({ token, nome: u.nome, cargo: u.cargo });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
-});
+// v1.39.2: a HUB_KEY não vale mais para nada (o teste do WhatsApp passou a exigir sessão
+// de administrador). A variável pode ser apagada da Railway.
 
-app.post('/logout', async (req, res) => {
-  const t = req.get('X-Auth-Token');
-  if (t) await db.encerrarSessao(t).catch(() => {});
-  res.json({ ok: true });
-});
-
-// reset administrativo (tabelião): zera a senha; usuário redefine no próximo acesso
-app.post('/admin/resetar-senha', async (req, res) => {
-  // v1.37.1: fail-closed — sem HUB_KEY configurada, ninguém passa (antes: undefined === undefined)
-  if (!chaveAdminOk(req.get('X-Admin-Key'))) return res.status(401).json({ erro: 'não autorizado' });
-  const u = await db.buscarUsuario(req.body?.login);
-  if (!u) return res.status(404).json({ erro: 'usuário não encontrado' });
-  await db.gravarSenha(u.login, null);
-  res.json({ ok: true, login: u.login });
-});
-
-// v1.37.1 — chave administrativa: só vale se estiver configurada E for igual.
-function chaveAdminOk(chave) {
-  const esperada = String(process.env.HUB_KEY || '').trim();
-  return !!esperada && String(chave || '') === esperada;
-}
-
+// v1.39.1: falha do banco vira 500 (antes, a promessa rejeitada sem catch derrubava o processo)
 const exigeSessao = async (req, res, next) => {
-  const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
+  let sess;
+  try { sess = await db.sessaoValida(req.get('X-Auth-Token') || ''); }
+  catch (e) { console.error('sessão:', e.message); return res.status(500).json({ erro: 'falha ao validar a sessão' }); }
   if (!sess) return res.status(401).json({ erro: 'sessão inválida ou expirada' });
   req.usuario = sess;
   next();
@@ -318,7 +277,8 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
       .then(resps => {
         const falhas = (resps || []).filter(r => !r.ok);
         if (falhas.length) {
-          console.error(`[WhatsApp] Prot ${pad(numero)} teve falhas de envio:`, falhas);
+          // v1.39.4: sem telefone inteiro nem a resposta crua da Meta no log
+          console.error(`[WhatsApp] Prot ${pad(numero)} teve falhas de envio:`, falhas.map(f => ({ para: protecao.mascaraTel(f.to), motivo: f.motivo })));
         } else {
           console.log(`[WhatsApp] Prot ${pad(numero)} todos os recibos enviados com sucesso.`);
         }
@@ -328,7 +288,7 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     res.json({ numero: pad(numero), card_url: card.shortUrl, prazo: due });
   } catch (e) {
     console.error('protocolo:', e);
-    res.status(500).json({ erro: 'falha ao protocolar', detalhe: e.message });
+    res.status(500).json({ erro: 'falha ao protocolar — tente de novo; se continuar, avise o suporte' });   // v1.39.2: o detalhe fica só no log
   }
 });
 
@@ -358,15 +318,15 @@ async function listaConfig(listId, bandeiraPadrao) {
 }
 app.get('/vendedores', async (_req, res) => {
   try { res.json(await listaConfig(process.env.LISTA_VENDEDORES, 'verde')); }
-  catch (e) { res.status(500).json({ erro: e.message }); }
+  catch (e) { console.error('lista (' + _req.path + '):', e.message); res.status(500).json({ erro: 'falha ao ler a lista' }); }
 });
 app.get('/corretores', async (_req, res) => {
   try { res.json(await listaConfig(process.env.LISTA_CORRETORES, 'cinza')); }
-  catch (e) { res.status(500).json({ erro: e.message }); }
+  catch (e) { console.error('lista (' + _req.path + '):', e.message); res.status(500).json({ erro: 'falha ao ler a lista' }); }
 });
 app.get('/advogados', async (_req, res) => {
   try { res.json(await listaConfig(process.env.LISTA_ADVOGADOS, 'roxo')); }
-  catch (e) { res.status(500).json({ erro: e.message }); }
+  catch (e) { console.error('lista (' + _req.path + '):', e.message); res.status(500).json({ erro: 'falha ao ler a lista' }); }
 });
 
 // ---------- Webhook Trello ----------
@@ -386,8 +346,9 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
   try { a = JSON.parse(corpo.toString('utf8') || '{}').action; }
   catch (_) { return res.sendStatus(400); }
   let rastreado = false;
-  if (relatoriosNoAr && rastreio.relevante(a) &&
-      rastreio.verificarWebhook(corpo, req.get('X-Trello-Webhook')) === 'ok') {
+  // uma verificação só (ela conta as entregas inválidas para o painel)
+  const assinatura = rastreio.verificarWebhook(corpo, req.get('X-Trello-Webhook'));
+  if (relatoriosNoAr && rastreio.relevante(a) && assinatura === 'ok') {
     // gravada ANTES do 200: quando o Trello recebe a resposta, a ação já está no banco
     try { await rastreio.registrarEvento(a, 'webhook'); rastreado = true; }
     catch (e) { console.error('webhook (rastreio):', e.message); }
@@ -396,8 +357,16 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
   if (rastreado) {
     rastreio.processarCartao(a.data.card.id).catch(e => console.error('webhook (rastreio):', e.message));
   }
-  reidratarCampos(a).catch(e => console.error('webhook:', e.message));
+  // v1.39.2 (segurança, pacote B): a re-hidratação ESCREVE no Trello, então só com a
+  // assinatura válida. Sem TRELLO_SECRET configurado (instalação nova), só para os quadros
+  // da própria serventia — um pedido forjado de fora não move nada.
+  if (protecao.podeReidratar(assinatura, a && a.data && a.data.board && a.data.board.id, quadrosDaCasa())) {
+    reidratarCampos(a).catch(e => console.error('webhook:', e.message));
+  }
 });
+function quadrosDaCasa() {
+  return [...require('./carga_retroativa').quadrosPadrao(), String(process.env.BOARD_04 || '6a8ca1ddc8f6574231ab8ab0').trim()];
+}
 async function reidratarCampos(a) {
   if (a?.type !== 'moveCardToBoard') return;
   const cardId = a.data?.card?.id;
@@ -430,20 +399,28 @@ async function reidratarCampos(a) {
 
 app.get('/saude', (_req, res) => res.json({ ok: true }));
 
+// v1.39.2 (segurança, pacote B): o diagnóstico do WhatsApp era público e devolvia os
+// telefones dos últimos envios (clientes). Agora: sessão de administrador (HUB_ADMINS),
+// telefones mascarados, e o teste só com os templates da casa, registrado na trilha.
+const exigeAdminHub = (req, res, next) => (hub.ehAdmin(req.usuario) ? next() : res.status(403).json({ erro: 'só o Tabelião' }));
+const mascaraTel = protecao.mascaraTel;
+
 // Diagnóstico do WhatsApp: status da configuração, template ativo e histórico recente
-app.get('/whats/status', (_req, res) => {
-  res.json(statusWhatsApp());
+app.get('/whats/status', exigeSessao, exigeAdminHub, (_req, res) => {
+  const st = statusWhatsApp();
+  res.json({ ...st, ultimos_envios: (st.ultimos_envios || []).map(e => ({ ...e, telOriginal: mascaraTel(e.telOriginal), to: mascaraTel(e.to) })) });
 });
 
 // Teste direto de envio para validar template, token e telefone em tempo real
-app.post('/whats/testar', async (req, res) => {
-  const key = req.get('X-Admin-Key') || req.get('X-Hub-Key');
-  const sess = await db.sessaoValida(req.get('X-Auth-Token') || '');
-  if (!sess && !chaveAdminOk(key)) {   // v1.37.1: fail-closed sem HUB_KEY
-    return res.status(401).json({ erro: 'não autorizado' });
-  }
+app.post('/whats/testar', exigeSessao, exigeAdminHub, async (req, res) => {
   const { telefone, protocolo, ato, template } = req.body || {};
   if (!telefone) return res.status(400).json({ erro: 'telefone obrigatório' });
+  const permitidos = new Set(['recibo_protocolo_2', 'recibo_protocolo_3', 'recibo_certidao_1',
+    String(process.env.WHATS_TEMPLATE_RECIBO || '').trim(), String(templateCert() || '').trim()].filter(Boolean));
+  if (template && !permitidos.has(String(template).trim())) {
+    return res.status(400).json({ erro: 'template fora da lista da casa: ' + [...permitidos].join(', ') });
+  }
+  hub.auditar(req, 'admin', 'whats-teste', 'teste de WhatsApp para ' + mascaraTel(telefone));
 
   const { variaveisDoRecibo } = require('./recibo');
   const ehCertTeste = String(ato || '').toUpperCase() === 'CERT';
@@ -487,6 +464,11 @@ app.use('/hub', hub);
 // A interface (public/index.html). Fica por ultimo entre os middlewares
 // para nao sombrear nenhuma rota da API.
 app.use(express.static(require('path').join(__dirname, 'public')));
+
+// v1.39.2 (segurança, pacote B): erro que escapou das rotas (JSON malformado, corpo
+// grande demais, exceção) vira resposta genérica; o detalhe fica só no log. Sem isto o
+// Express devolve a pilha de execução quando NODE_ENV não é "production".
+app.use(protecao.tratadorDeErros);
 
 // v1.38: as tabelas dos relatórios não derrubam o hub — sem elas, o protocolo e o resto
 // sobem normalmente, o rastreio fica desligado e o agendador não inicia.

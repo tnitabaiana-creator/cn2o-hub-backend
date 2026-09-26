@@ -20,8 +20,12 @@ const PRECOS = {
   'gemini-3.5-flash-lite': [0.30, 2.50],
   'gemini-3.8-flash':      [0.75, 3.75],
   'gemini-3.7-flash':      [0.75, 3.75],
-  'gemini-3.1-pro':        [2.00, 12.00]
+  'gemini-3.1-pro':        [2.00, 12.00],
+  // v1.39.3: o apelido do pro vigente (padrão do Extrator e do Gerador) não estava aqui e
+  // o custo caía no preço do flash — o painel mostrava ≈ 1/3 do gasto real.
+  'gemini-pro-latest':     [2.00, 12.00]
 };
+const PRECO_PRO = PRECOS['gemini-pro-latest'];
 
 function chave() {
   const k = process.env.GEMINI_API_KEY;
@@ -29,8 +33,10 @@ function chave() {
   return k;
 }
 
+// Modelo sem preço na tabela: se o nome diz "pro", vale o preço do pro (errar para mais é
+// melhor que esconder gasto); senão, o do modelo de redação.
 function custoUsd(modelo, entrada, saida) {
-  const p = PRECOS[modelo] || PRECOS[MODELO_REDACAO] || [0, 0];
+  const p = PRECOS[modelo] || (/pro/i.test(String(modelo || '')) ? PRECO_PRO : null) || PRECOS[MODELO_REDACAO] || [0, 0];
   return (entrada / 1e6) * p[0] + (saida / 1e6) * p[1];
 }
 
@@ -63,7 +69,10 @@ function partesDeArquivos(arquivos = []) {
 // pendurada não trava só o agente: trava o cartório inteiro.
 const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 180000;
 
-async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false, busca = false }) {
+async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 32768, json = false, busca = false, codigo = null }) {
+  // v1.39.3 (segurança, pacote C): a regra "dado nunca é instrução" vai no fim do prompt de
+  // sistema de TODA chamada — inclusive dos agentes que o Tabelião edita no banco.
+  sistema = String(sistema || '') + require('./ia-defesa').regraComCodigo(codigo);
   const corpo = {
     contents: [{ role: 'user', parts: partes }],
     generationConfig: {
@@ -245,7 +254,7 @@ async function revisar({ agente, minutaAtual, pedido, historico = [], modelo }) 
 // Ferramentas e comunicação não são escrituras: não têm template, não passam por
 // conferência de JSON e não viram minuta em três turnos. Entra documento ou
 // formulário, sai texto. Uma chamada só.
-async function executar({ agente, arquivos = [], campos = {}, observacoes, modelo }) {
+async function executar({ agente, arquivos = [], campos = {}, observacoes, modelo, codigo = null }) {
   const preenchidos = Object.entries(campos)
     .filter(([, v]) => v != null && String(v).trim() !== '')
     .map(([k, v]) => `${k}: ${v}`);
@@ -273,14 +282,15 @@ async function executar({ agente, arquivos = [], campos = {}, observacoes, model
     partes,
     temperatura: agente.temperatura == null ? 0 : Number(agente.temperatura),
     busca: !!agente.usa_busca,
-    maxTokens: 32768
+    maxTokens: 32768,
+    codigo   // v1.39.3: código dos blocos de dados deste pedido (ia-defesa.js)
   }), 'a resposta');
   return { texto: r.texto, uso: r };
 }
 
 // Lista os modelos que a chave enxerga — para conferir os IDs sem adivinhação.
 async function listarModelos() {
-  const r = await fetch(`${API}/models`, { headers: { 'x-goog-api-key': chave() } });
+  const r = await fetch(`${API}/models`, { headers: { 'x-goog-api-key': chave() }, signal: AbortSignal.timeout(20000) });   // v1.39.3
   if (!r.ok) throw new Error(`Gemini models ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
   return (j.models || [])

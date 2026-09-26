@@ -266,7 +266,7 @@ router.get('/status', async (req, res) => {
       ultimo_envio: env.rows[0] || null,
       carga: estadoCarga
     });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
+  } catch (e) { console.error('[relatórios]', req.path, e.message); res.status(500).json({ erro: 'falha interna — tente de novo' }); }
 });
 
 router.get('/previa', async (req, res) => {
@@ -283,7 +283,7 @@ router.get('/previa', async (req, res) => {
       return res.send(g.csv);
     }
     res.set('Content-Type', 'text/html; charset=utf-8').send(g.html);
-  } catch (e) { res.status(e.status || 500).json({ erro: e.message }); }
+  } catch (e) { if (!e.status) console.error('[relatórios]', req.path, e.message); res.status(e.status || 500).json({ erro: e.status ? e.message : 'falha interna — tente de novo' }); }
 });
 
 router.post('/enviar', json, async (req, res) => {
@@ -292,7 +292,7 @@ router.post('/enviar', json, async (req, res) => {
     const r = await enviarManual(tipo, ref, req.usuario.login);
     auditar(req, `envio manual ${tipo} ${ref}`);
     res.json({ ok: true, ...r });
-  } catch (e) { res.status(e.status || 500).json({ erro: e.message }); }
+  } catch (e) { if (!e.status) console.error('[relatórios]', req.path, e.message); res.status(e.status || 500).json({ erro: e.status ? e.message : 'falha interna — tente de novo' }); }
 });
 
 router.get('/envios', async (req, res) => {
@@ -300,7 +300,7 @@ router.get('/envios', async (req, res) => {
     const r = await q(`SELECT id, tipo, periodo_inicio, periodo_fim, manual, status, tentativas, destinatarios, erro,
                               por, criado_em, enviado_em FROM envios_relatorio ORDER BY id DESC LIMIT 30`);
     res.json({ envios: r.rows });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
+  } catch (e) { console.error('[relatórios]', req.path, e.message); res.status(500).json({ erro: 'falha interna — tente de novo' }); }
 });
 
 // A carga leva minutos: roda em segundo plano, uma de cada vez; o andamento sai no /status.

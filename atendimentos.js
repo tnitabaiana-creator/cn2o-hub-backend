@@ -234,7 +234,11 @@ async function enviarMensalSeDevido(dataRef) {
 const router = express.Router();
 const json = express.json({ limit: '16kb' });
 const auditar = (req, detalhe) => require('./hub').auditar(req, 'admin', 'relatorios', detalhe);
-const falha = (res, e) => res.status(e.status || 500).json({ erro: e.message });
+// v1.39.2: 500 com mensagem genérica (o detalhe vai ao log); 4xx de validação seguem claros
+const falha = (res, e) => {
+  if (!e.status) console.error('[atendimentos]', e.message);
+  res.status(e.status || 500).json({ erro: e.status ? e.message : 'falha interna — tente de novo' });
+};
 
 router.get('/', async (req, res) => {
   res.set('Cache-Control', 'no-store');
