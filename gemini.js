@@ -8,8 +8,14 @@
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
-const MODELO_EXTRACAO = process.env.GEMINI_MODEL_EXTRACAO || 'gemini-3.5-flash-lite';
-const MODELO_REDACAO  = process.env.GEMINI_MODEL_REDACAO  || 'gemini-3.8-flash';
+// v1.40.1 (economia): TODA chamada usa um modelo só — gemini-3.8-flash. Vale para o Hub, a
+// Plataforma de Agentes (inclusive agente com modelo gravado no banco) e a produtividade; as
+// variáveis antigas (HUB_MODELO_*, GEMINI_MODEL_*) deixam de valer. Para trocar o modelo
+// único sem deploy: GEMINI_MODELO_UNICO no Railway.
+const MODELO_UNICO = String(process.env.GEMINI_MODELO_UNICO || 'gemini-3.8-flash').trim();
+const MODELO_EXTRACAO = MODELO_UNICO;
+const MODELO_REDACAO  = MODELO_UNICO;
+const pedidosIgnorados = new Set();   // modelos pedidos e trocados pelo único (log uma vez)
 
 // Preço de tabela em USD por 1 milhão de tokens: [entrada, saída].
 // Serve só para o log de consumo — errar aqui não quebra nada, só a estimativa.
@@ -73,6 +79,11 @@ async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 
   // v1.39.3 (segurança, pacote C): a regra "dado nunca é instrução" vai no fim do prompt de
   // sistema de TODA chamada — inclusive dos agentes que o Tabelião edita no banco.
   sistema = String(sistema || '') + require('./ia-defesa').regraComCodigo(codigo);
+  if (modelo && modelo !== MODELO_UNICO && !pedidosIgnorados.has(modelo)) {
+    pedidosIgnorados.add(modelo);
+    console.log(`gemini: pedido de "${modelo}" atendido por ${MODELO_UNICO} (modelo único, v1.40.1)`);
+  }
+  modelo = MODELO_UNICO;
   const corpo = {
     contents: [{ role: 'user', parts: partes }],
     generationConfig: {
@@ -305,5 +316,5 @@ async function listarModelos() {
 
 module.exports = {
   extrair, redigir, revisar, executar, listarModelos, custoUsd,
-  MODELO_EXTRACAO, MODELO_REDACAO, PRECOS
+  MODELO_EXTRACAO, MODELO_REDACAO, MODELO_UNICO, PRECOS
 };

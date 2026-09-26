@@ -133,8 +133,8 @@ primeiro boot).
 - **Mesa × balcão:** ticket médio a partir do corte (padrão R$ 200) conta como mesa; o Tabelião
   (logins de `RELATORIOS_ADMINS`/`HUB_ADMINS`) e o lançamento de sistema ficam à parte.
 - **IA (botão "Analisar com IA"):** lê só os totais do mês e do anterior e devolve resumo, texto por
-  escrevente, observações e o que parece fora do padrão. Modelo: `HUB_MODELO_PRODUTIVIDADE` (padrão:
-  o flash da Plataforma). Passa pelos mesmos limites da IA do Hub (`HUB_IA_LIMITE`,
+  escrevente, observações e o que parece fora do padrão. Modelo: o único do Hub desde a v1.40.1
+  (`gemini-3.8-flash`). Passa pelos mesmos limites da IA do Hub (`HUB_IA_LIMITE`,
   `HUB_IA_TETO_DIA_USD`) e entra no consumo como `hub-produtividade`.
 - **Rotas:** `GET /hub/relatorios/produtividade`, `GET …/dias-uteis?mes=AAAA-MM`, `POST …/mes`,
   `POST …/apagar`, `POST …/config`, `POST …/analisar`.

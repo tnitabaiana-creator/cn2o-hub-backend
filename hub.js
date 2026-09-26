@@ -68,8 +68,7 @@
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
 // vale 'cesar.bravo'. A IA usa o gemini.js da Plataforma (GEMINI_API_KEY).
-// Modelos por ferramenta: HUB_MODELO_MINUTAS, HUB_MODELO_EXTRATOR, HUB_MODELO_TRANSPOR,
-// HUB_MODELO_ANALISTA, HUB_MODELO_REDATOR, HUB_MODELO_IA (ver modeloDe). Google Docs:
+// Modelo: um só para tudo desde a v1.40.1 — gemini-3.8-flash (GEMINI_MODELO_UNICO; ver modeloDe). Google Docs:
 // HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js). Acervo:
 // HUB_ACERVO_WEBAPP_URL, HUB_ACERVO_SECRET, HUB_ACERVO_CACHE_MIN, HUB_ACERVO_TIMEOUT_MS
 // (ver acervo.js e docs/apps-script/LeitorAcervo.gs). Auditoria: HUB_AUDITORIA_DIAS
@@ -878,30 +877,12 @@ const geradorLiberado = u => ehAdmin(u) || String(process.env.HUB_GERADOR_LIBERA
 // minuta que o servidor gerou — o cliente não manda texto para virar Doc.
 const ultimaMinuta = new Map();          // login → { pedido, em }
 const MINUTA_DOC_MS = 2 * 3600e3;
-function modeloIA() { return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO; }
-// O Extrator e o Gerador usam por padrão o tier PRO da chave (OCR de alto
-// nível pedido pelo Tabelião — qualidade acima do custo). 'gemini-pro-latest'
-// é o apelido estável do Google para o pro vigente: sobrevive às renomeações
-// (o antigo 'gemini-3.1-pro' fixo morreu na API e derrubou a ferramenta).
-// Troca sem deploy: variáveis HUB_MODELO_* no Railway. E, se o modelo
-// configurado não existir mais (NOT_FOUND), a chamada cai sozinha para o
-// modelo comprovado da Plataforma (gemini.MODELO_REDACAO) em vez de parar
-// o balcão — a resposta registra qual modelo respondeu de fato. O mesmo vale
-// para falta de cota (429): a chave no plano gratuito não cobre o tier pro,
-// então a ferramenta responde pelo flash até o faturamento ser habilitado.
-const MODELO_PRO_PADRAO = 'gemini-pro-latest';
-function modeloDe(ferramenta) {
-  if (ferramenta === 'minuta' || ferramenta === 'minuta_ue') return process.env.HUB_MODELO_MINUTAS || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
-  if (ferramenta === 'qualificacao' || ferramenta === 'descricao') return process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
-  // Transposição (v1.29): é leitura de documento sofrido, como o Extrator — mesmo
-  // degrau (pro), com variável própria para o Tabelião aferir separadamente.
-  if (ferramenta === 'transpor') return process.env.HUB_MODELO_TRANSPOR || process.env.HUB_MODELO_EXTRATOR || MODELO_PRO_PADRAO;
-  if (ferramenta === 'matricula') return process.env.HUB_MODELO_ANALISTA || process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
-  // Redator: tarefa de redação, não de leitura de documento sofrido. O flash escreve
-  // bem e custa pouco; HUB_MODELO_REDATOR existe para o Tabelião trocar por aferição.
-  if (ferramenta === 'redator') return process.env.HUB_MODELO_REDATOR || gemini.MODELO_REDACAO;
-  return process.env.HUB_MODELO_IA || gemini.MODELO_REDACAO;
-}
+function modeloIA() { return gemini.MODELO_UNICO; }
+// v1.40.1 (economia): todas as ferramentas do Hub usam o modelo único do gemini.js
+// (gemini-3.8-flash; trocar sem deploy por GEMINI_MODELO_UNICO). Até a v1.40, o Extrator,
+// a transposição e o Gerador iam no tier pro (HUB_MODELO_EXTRATOR, HUB_MODELO_MINUTAS,
+// HUB_MODELO_TRANSPOR…) e o flash era o socorro; essas variáveis não valem mais.
+function modeloDe() { return gemini.MODELO_UNICO; }
 function modeloIndisponivel(e) {
   const m = (e && e.message) || '';
   return /NOT_FOUND|is not found for API version/i.test(m) ||
@@ -925,16 +906,13 @@ function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Esperas entre as retentativas (ms). Uma retentativa por padrão; dá para
 // afrouxar sem deploy pela variável HUB_IA_ESPERA_MS ("1500,4000").
 function esperasRetentativa() {
-  return String(process.env.HUB_IA_ESPERA_MS || '1500')
+  return String(process.env.HUB_IA_ESPERA_MS || '1500,4000')   // v1.40.1: sem modelo de socorro, duas tentativas a mais
     .split(',').map(s => parseInt(s.trim(), 10)).filter(n => n > 0);
 }
 // O socorro é sempre o outro degrau: se o pro congestionou, vai de flash; se
 // foi o flash, tenta o pro. Assim nenhuma ferramenta fica sem plano B.
-function modeloAlternativo(preferido) {
-  const flash = gemini.MODELO_REDACAO;
-  if (preferido !== flash) return flash;
-  return MODELO_PRO_PADRAO !== flash ? MODELO_PRO_PADRAO : null;
-}
+// v1.40.1: com modelo único não há outro degrau — o socorro é insistir no mesmo (esperas).
+function modeloAlternativo() { return null; }
 async function chamarModelo(agenteIA, arquivos, observacoes, modelo, etiqueta, codigo) {
   const esperas = esperasRetentativa();
   for (let i = 0; ; i++) {

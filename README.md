@@ -57,6 +57,12 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - Gerador de Minuta: só o Tabelião, até `HUB_GERADOR_LIBERADO=1`. O Google Doc não nasce
   sozinho: `POST /hub/minuta-doc` cria o documento da última minuta gerada pela pessoa.
 
+## Modelo de IA (v1.40.1)
+
+- Um modelo só para todas as chamadas: `gemini-3.8-flash` (`GEMINI_MODELO_UNICO` troca sem deploy).
+  Pedidos de outro modelo — variáveis antigas `HUB_MODELO_*`/`GEMINI_MODEL_*` ou agente com modelo
+  gravado no banco — são atendidos por ele, com uma linha no log.
+
 ## Dados pessoais (v1.39.4)
 
 - Minutas guardadas: identificador aleatório, abertas só por quem guardou (ou pelo
