@@ -1,0 +1,1083 @@
+[
+ {
+  "ano": 2026,
+  "mes": 6,
+  "fonte": "Pesquisa de Produtividade · Junho/2026 (arquivo detalhado)",
+  "dados": {
+   "v": 1,
+   "formato": "painel-anterior",
+   "total": 357758.57,
+   "atos": 5324,
+   "mediana": 11.8,
+   "diasUteis": 20,
+   "pessoas": [
+    {
+     "id": "LARA.SILVA",
+     "nome": "Lara da Silva Santos",
+     "atos": 57,
+     "total": 74171.17,
+     "mediana": 1301.93,
+     "max": 5085.55,
+     "dias": 17
+    },
+    {
+     "id": "JOSI.SILVA",
+     "nome": "Josilene Silva de Jesus",
+     "atos": 49,
+     "total": 72404.21,
+     "mediana": 963.1,
+     "max": 7344.43,
+     "dias": 14
+    },
+    {
+     "id": "ROMENIA.OLIVEIRA",
+     "nome": "Romênia Meiriellede Sousa Oliveira",
+     "atos": 48,
+     "total": 62610.91,
+     "mediana": 735.67,
+     "max": 9603.31,
+     "dias": 16
+    },
+    {
+     "id": "JONAS.ARAGAO",
+     "nome": "Jonas Jorge Aragão Santos",
+     "atos": 57,
+     "total": 47280.77,
+     "mediana": 453.31,
+     "max": 3956.11,
+     "dias": 16
+    },
+    {
+     "id": "CAMILY.OLIVEIRA",
+     "nome": "Camily Vitória Oliveira Santos",
+     "atos": 338,
+     "total": 29164.5,
+     "mediana": 11.8,
+     "max": 2826.67,
+     "dias": 19
+    },
+    {
+     "id": "HELLEN.LIMA",
+     "nome": "Hellen Oliveira Santos Lima",
+     "atos": 1373,
+     "total": 15834.98,
+     "mediana": 11.8,
+     "max": 151.32,
+     "dias": 19
+    },
+    {
+     "id": "IARA.COSTA",
+     "nome": "Maria Iara Oliveira da Costa",
+     "atos": 1270,
+     "total": 15525.98,
+     "mediana": 11.8,
+     "max": 215.34,
+     "dias": 19
+    },
+    {
+     "id": "CESAR.BRAVO",
+     "nome": "Cesar Augusto Pereira de Macedo Bravo",
+     "atos": 7,
+     "total": 14319.8,
+     "mediana": 2261.95,
+     "max": 3730.22,
+     "dias": 4
+    },
+    {
+     "id": "LAILA.CARVALHO",
+     "nome": "Laila Lorrane Lima de Carvalho",
+     "atos": 1104,
+     "total": 13874.52,
+     "mediana": 11.8,
+     "max": 106.2,
+     "dias": 19
+    },
+    {
+     "id": "GEOVANA.MENEZES",
+     "nome": "Geovana Fontes Silva Menezes",
+     "atos": 1021,
+     "total": 12571.73,
+     "mediana": 11.8,
+     "max": 378.3,
+     "dias": 19
+    }
+   ],
+   "pgto": [
+    {
+     "forma": "Dinheiro",
+     "qtd": 2571,
+     "total": 32145.21
+    },
+    {
+     "forma": "PIX",
+     "qtd": 2223,
+     "total": 28443.49
+    },
+    {
+     "forma": "Sem forma informada",
+     "qtd": 343,
+     "total": 273128.82
+    },
+    {
+     "forma": "Boleto bancário",
+     "qtd": 155,
+     "total": 23491.51
+    },
+    {
+     "forma": "Misto: Dinheiro + PIX",
+     "qtd": 14,
+     "total": 194.6
+    },
+    {
+     "forma": "Cartão de débito",
+     "qtd": 11,
+     "total": 112.73
+    },
+    {
+     "forma": "Cartão de crédito",
+     "qtd": 6,
+     "total": 228.26
+    },
+    {
+     "forma": "Cheque",
+     "qtd": 1,
+     "total": 13.95
+    }
+   ],
+   "faixas": [
+    {
+     "faixa": "até R$ 5",
+     "qtd": 293,
+     "total": 1334.35
+    },
+    {
+     "faixa": "R$ 5–12",
+     "qtd": 3966,
+     "total": 42334.82
+    },
+    {
+     "faixa": "R$ 12–50",
+     "qtd": 732,
+     "total": 13876.05
+    },
+    {
+     "faixa": "R$ 50–200",
+     "qtd": 159,
+     "total": 16548.93
+    },
+    {
+     "faixa": "R$ 200–1 mil",
+     "qtd": 62,
+     "total": 37302.87
+    },
+    {
+     "faixa": "R$ 1–5 mil",
+     "qtd": 108,
+     "total": 218960.35
+    },
+    {
+     "faixa": "+ de R$ 5 mil",
+     "qtd": 4,
+     "total": 27401.2
+    }
+   ],
+   "serie": {
+    "dias": [
+     "2026-06-01",
+     "2026-06-02",
+     "2026-06-03",
+     "2026-06-05",
+     "2026-06-08",
+     "2026-06-09",
+     "2026-06-10",
+     "2026-06-11",
+     "2026-06-12",
+     "2026-06-15",
+     "2026-06-16",
+     "2026-06-17",
+     "2026-06-18",
+     "2026-06-19",
+     "2026-06-22",
+     "2026-06-23",
+     "2026-06-25",
+     "2026-06-26",
+     "2026-06-29",
+     "2026-06-30"
+    ],
+    "total": [
+     7138.08,
+     13260.34,
+     25340.9,
+     29873.01,
+     34740.32,
+     18728.9,
+     18367.24,
+     11742.38,
+     4894.47,
+     29659.21,
+     39865.61,
+     16781.23,
+     17854.14,
+     27603.42,
+     16529.74,
+     4364.42,
+     3376.31,
+     8904.83,
+     9829.21,
+     18904.81
+    ],
+    "porPessoa": {
+     "LARA.SILVA": [
+      509.79,
+      1428.84,
+      3816.75,
+      5282,
+      13319.41,
+      4804.77,
+      1301.93,
+      5151.23,
+      0,
+      179.32,
+      8197.66,
+      6009.21,
+      6675.98,
+      7579.53,
+      2671.22,
+      0,
+      0,
+      3620.35,
+      1275.23,
+      2347.95
+     ],
+     "JOSI.SILVA": [
+      1471.34,
+      2587.22,
+      1783.48,
+      12412.24,
+      6108.19,
+      5314.51,
+      2219.44,
+      0,
+      0,
+      11287.65,
+      3632.78,
+      2261.95,
+      0,
+      6079.94,
+      7344.43,
+      622.73,
+      0,
+      0,
+      0,
+      9278.31
+     ],
+     "ROMENIA.OLIVEIRA": [
+      1529.35,
+      0,
+      4434.82,
+      1584.29,
+      5249.67,
+      2686.78,
+      622.73,
+      1239.63,
+      0,
+      6517.45,
+      20886.52,
+      1642.29,
+      3424.39,
+      3394.47,
+      2363.69,
+      202.16,
+      0,
+      0,
+      3281.52,
+      3551.15
+     ],
+     "JONAS.ARAGAO": [
+      0,
+      4919.21,
+      10081.39,
+      6900.35,
+      5908.76,
+      86,
+      5825.59,
+      1923.12,
+      4894.47,
+      1334.22,
+      0,
+      509.78,
+      1697.23,
+      0,
+      114.66,
+      86,
+      422.47,
+      2037.78,
+      0,
+      539.74
+     ],
+     "CAMILY.OLIVEIRA": [
+      568.02,
+      1016.44,
+      617.12,
+      969.96,
+      1367.07,
+      2321.02,
+      3664.77,
+      322.57,
+      0,
+      656.2,
+      518.24,
+      723.76,
+      2313.67,
+      8263.24,
+      650.93,
+      300.25,
+      438.42,
+      519.32,
+      3268.05,
+      665.45
+     ],
+     "HELLEN.LIMA": [
+      809.82,
+      892.89,
+      1141.57,
+      850.7,
+      793.69,
+      724.61,
+      692.5,
+      1159.52,
+      0,
+      1059.18,
+      768.72,
+      894.1,
+      1308.42,
+      494.88,
+      913.66,
+      693.09,
+      667.66,
+      678.28,
+      595.7,
+      695.99
+     ],
+     "IARA.COSTA": [
+      647.14,
+      945.12,
+      1551.57,
+      769.21,
+      671.35,
+      1050.96,
+      724.86,
+      593.96,
+      0,
+      779.65,
+      906.98,
+      981.72,
+      758.29,
+      576.05,
+      802.71,
+      838.37,
+      845.08,
+      712.69,
+      496.57,
+      873.7
+     ],
+     "CESAR.BRAVO": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2445.33,
+      0,
+      0,
+      6221.13,
+      3730.22,
+      1923.12,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "LAILA.CARVALHO": [
+      890.84,
+      850.2,
+      716.36,
+      704.66,
+      695.2,
+      763.22,
+      510.86,
+      473.22,
+      0,
+      797.58,
+      756.56,
+      993.74,
+      686.2,
+      743.4,
+      1079.16,
+      946.08,
+      663.5,
+      600.44,
+      550.88,
+      452.42
+     ],
+     "GEOVANA.MENEZES": [
+      711.78,
+      620.42,
+      1197.84,
+      399.6,
+      626.98,
+      977.03,
+      359.23,
+      879.13,
+      0,
+      826.83,
+      467.93,
+      841.56,
+      989.96,
+      471.91,
+      589.28,
+      675.74,
+      339.18,
+      735.97,
+      361.26,
+      500.1
+     ]
+    }
+   }
+  }
+ },
+ {
+  "ano": 2026,
+  "mes": 7,
+  "fonte": "Pesquisa de Produtividade · Julho/2026",
+  "dados": {
+   "v": 1,
+   "formato": "painel-anterior",
+   "total": 369276.33,
+   "atos": 6641,
+   "mediana": 11.8,
+   "diasUteis": 22,
+   "pessoas": [
+    {
+     "id": "LARA.SILVA",
+     "nome": "Lara da Silva Santos",
+     "atos": 88,
+     "total": 102304.44,
+     "mediana": 1047.81,
+     "max": 7796.21,
+     "dias": 22
+    },
+    {
+     "id": "JOSI.SILVA",
+     "nome": "Josilene Silva de Jesus",
+     "atos": 46,
+     "total": 65305.68,
+     "mediana": 792.91,
+     "max": 13517.86,
+     "dias": 16
+    },
+    {
+     "id": "ROMENIA.OLIVEIRA",
+     "nome": "Romênia Meiriellede Sousa Oliveira",
+     "atos": 65,
+     "total": 63283.75,
+     "mediana": 679.2,
+     "max": 2826.67,
+     "dias": 19
+    },
+    {
+     "id": "JONAS.ARAGAO",
+     "nome": "Jonas Jorge Aragão Santos",
+     "atos": 49,
+     "total": 49402.78,
+     "mediana": 679.2,
+     "max": 4294.94,
+     "dias": 17
+    },
+    {
+     "id": "HELLEN.LIMA",
+     "nome": "Hellen Oliveira Santos Lima",
+     "atos": 1705,
+     "total": 19514.72,
+     "mediana": 11.8,
+     "max": 133.85,
+     "dias": 22
+    },
+    {
+     "id": "CAMILY.OLIVEIRA",
+     "nome": "Camily Vitória Oliveira Santos",
+     "atos": 541,
+     "total": 18222.56,
+     "mediana": 11.8,
+     "max": 2826.67,
+     "dias": 20
+    },
+    {
+     "id": "IARA.COSTA",
+     "nome": "Maria Iara Oliveira da Costa",
+     "atos": 1408,
+     "total": 17326.19,
+     "mediana": 11.8,
+     "max": 192.07,
+     "dias": 20
+    },
+    {
+     "id": "LAILA.CARVALHO",
+     "nome": "Laila Lorrane Lima de Carvalho",
+     "atos": 1383,
+     "total": 17102.7,
+     "mediana": 11.8,
+     "max": 145.51,
+     "dias": 22
+    },
+    {
+     "id": "GEOVANA.MENEZES",
+     "nome": "Geovana Fontes Silva Menezes",
+     "atos": 1354,
+     "total": 15681,
+     "mediana": 11.8,
+     "max": 162.95,
+     "dias": 22
+    },
+    {
+     "id": "CESAR.BRAVO",
+     "nome": "Cesar Augusto Pereira de Macedo Bravo",
+     "atos": 2,
+     "total": 1132.51,
+     "mediana": 566.27,
+     "max": 1132.52,
+     "dias": 2
+    }
+   ],
+   "pgto": [
+    {
+     "forma": "Dinheiro",
+     "qtd": 3298,
+     "total": 42632.06
+    },
+    {
+     "forma": "PIX",
+     "qtd": 2722,
+     "total": 34577.13
+    },
+    {
+     "forma": "Sem forma informada",
+     "qtd": 451,
+     "total": 284982.19
+    },
+    {
+     "forma": "Boleto bancário",
+     "qtd": 78,
+     "total": 5623.5
+    },
+    {
+     "forma": "Cartão de débito",
+     "qtd": 60,
+     "total": 904.24
+    },
+    {
+     "forma": "Cartão de crédito",
+     "qtd": 20,
+     "total": 226.31
+    },
+    {
+     "forma": "Misto: Dinheiro + PIX",
+     "qtd": 12,
+     "total": 343.08
+    }
+   ],
+   "faixas": null,
+   "serie": {
+    "dias": [
+     "2026-07-01",
+     "2026-07-02",
+     "2026-07-03",
+     "2026-07-06",
+     "2026-07-07",
+     "2026-07-09",
+     "2026-07-10",
+     "2026-07-13",
+     "2026-07-14",
+     "2026-07-15",
+     "2026-07-16",
+     "2026-07-17",
+     "2026-07-20",
+     "2026-07-21",
+     "2026-07-22",
+     "2026-07-23",
+     "2026-07-24",
+     "2026-07-27",
+     "2026-07-28",
+     "2026-07-29",
+     "2026-07-30",
+     "2026-07-31"
+    ],
+    "total": [
+     22381.06,
+     14122.92,
+     7035.34,
+     20238.16,
+     18898.97,
+     8859.77,
+     31146.01,
+     7216.24,
+     13794.14,
+     8694.11,
+     37227.84,
+     19130.2,
+     28079.52,
+     11649.67,
+     13656.91,
+     15692.89,
+     24069.82,
+     7843.1,
+     9768.68,
+     12023.4,
+     11584.83,
+     26174.93
+    ],
+    "porPessoa": {
+     "LARA.SILVA": [
+      12561.37,
+      8310.14,
+      298.87,
+      1892.41,
+      1132.52,
+      1315.9,
+      3398.65,
+      3123.44,
+      5266.78,
+      1076.04,
+      12604.02,
+      1331.45,
+      781.09,
+      1132.52,
+      8219.64,
+      7549.79,
+      12674.28,
+      26.75,
+      2433.96,
+      298.03,
+      5769.37,
+      11107.5
+     ],
+     "JOSI.SILVA": [
+      3170.12,
+      0,
+      114.65,
+      2660.33,
+      304.98,
+      0,
+      16189.08,
+      0,
+      1019.57,
+      3534.12,
+      11584.44,
+      4298.02,
+      8318.28,
+      481.56,
+      818.73,
+      0,
+      0,
+      2137.24,
+      3081.09,
+      4086.09,
+      0,
+      3507.41
+     ],
+     "ROMENIA.OLIVEIRA": [
+      1471.35,
+      286.66,
+      1659.03,
+      6221.13,
+      9699.03,
+      1132.52,
+      2953.46,
+      0,
+      3010.05,
+      622.73,
+      4500.28,
+      2558.27,
+      3140.34,
+      6513.4,
+      0,
+      1557.35,
+      7832.13,
+      322.48,
+      1287.66,
+      0,
+      1273.7,
+      7242.26
+     ],
+     "JONAS.ARAGAO": [
+      987.01,
+      3005.16,
+      1698.94,
+      3660.78,
+      3450.94,
+      2374.89,
+      4370.17,
+      0,
+      604.25,
+      0,
+      3478.11,
+      3846.24,
+      11534.1,
+      0,
+      539.32,
+      2773.26,
+      0,
+      1247.17,
+      0,
+      4978.76,
+      299.7,
+      553.99
+     ],
+     "HELLEN.LIMA": [
+      1004.42,
+      934.64,
+      943.66,
+      874.06,
+      929.74,
+      903.62,
+      804.63,
+      764.19,
+      874.61,
+      759.76,
+      794.58,
+      891.01,
+      1147.6,
+      899.92,
+      795.24,
+      909.78,
+      670.3,
+      1109.73,
+      788.18,
+      590.37,
+      1206.16,
+      921.83
+     ],
+     "CAMILY.OLIVEIRA": [
+      756.41,
+      0,
+      0,
+      703.25,
+      792.05,
+      834.21,
+      979.48,
+      1016.69,
+      740.19,
+      669.29,
+      409.04,
+      3959.12,
+      649.22,
+      498.65,
+      1130.07,
+      725.38,
+      1050.74,
+      797.06,
+      836.67,
+      447.11,
+      665.25,
+      563.52
+     ],
+     "IARA.COSTA": [
+      1114.61,
+      692.95,
+      867.16,
+      1284.94,
+      908.77,
+      690.72,
+      766.84,
+      1022.27,
+      999.64,
+      798.31,
+      1227.41,
+      1034.23,
+      891.71,
+      786.42,
+      662.23,
+      813.72,
+      520.98,
+      0,
+      0,
+      607.8,
+      596.49,
+      1041.78
+     ],
+     "LAILA.CARVALHO": [
+      666.65,
+      555.76,
+      772.63,
+      960.68,
+      800.28,
+      594.72,
+      992.11,
+      717.55,
+      608.99,
+      602.86,
+      816.88,
+      759.38,
+      840.86,
+      830.88,
+      987.66,
+      797.88,
+      784.34,
+      1381.11,
+      869.31,
+      494.71,
+      883.68,
+      386.38
+     ],
+     "GEOVANA.MENEZES": [
+      649.11,
+      337.61,
+      680.39,
+      1980.58,
+      880.67,
+      1013.2,
+      691.6,
+      572.09,
+      670.06,
+      631,
+      680.56,
+      452.47,
+      776.31,
+      506.32,
+      504.02,
+      565.74,
+      537.05,
+      821.56,
+      471.81,
+      520.54,
+      890.48,
+      850.26
+     ],
+     "CESAR.BRAVO": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1132.52,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   }
+  }
+ },
+ {
+  "ano": 2026,
+  "mes": 8,
+  "fonte": "Pesquisa de Produtividade · Agosto/2026 (corte em 01/09)",
+  "dados": {
+   "v": 1,
+   "formato": "painel-anterior",
+   "total": 364765.49,
+   "atos": 5992,
+   "mediana": 11.8,
+   "diasUteis": 21,
+   "pessoas": [
+    {
+     "id": "LARA.SILVA",
+     "nome": "Lara da Silva Santos",
+     "atos": 74,
+     "total": 91800.06,
+     "mediana": 807.03,
+     "max": 9942.14,
+     "dias": null
+    },
+    {
+     "id": "ROMENIA.OLIVEIRA",
+     "nome": "Romênia Meiriellede Sousa Oliveira",
+     "atos": 52,
+     "total": 67139.05,
+     "mediana": 877.62,
+     "max": 6227.3,
+     "dias": null
+    },
+    {
+     "id": "JOSI.SILVA",
+     "nome": "Josilene Silva de Jesus",
+     "atos": 46,
+     "total": 65055.64,
+     "mediana": 1076.04,
+     "max": 5085.55,
+     "dias": null
+    },
+    {
+     "id": "JONAS.ARAGAO",
+     "nome": "Jonas Jorge Aragão Santos",
+     "atos": 46,
+     "total": 52933.97,
+     "mediana": 906.62,
+     "max": 5593.8,
+     "dias": null
+    },
+    {
+     "id": "CAMILY.OLIVEIRA",
+     "nome": "Camily Vitória Oliveira Santos",
+     "atos": 663,
+     "total": 23720.52,
+     "mediana": 11.8,
+     "max": 3956.11,
+     "dias": null
+    },
+    {
+     "id": "HELLEN.LIMA",
+     "nome": "Hellen Oliveira Santos Lima",
+     "atos": 1624,
+     "total": 18347.29,
+     "mediana": 11.8,
+     "max": 186.24,
+     "dias": null
+    },
+    {
+     "id": "IARA.COSTA",
+     "nome": "Maria Iara Oliveira da Costa",
+     "atos": 1374,
+     "total": 17099.64,
+     "mediana": 11.8,
+     "max": 94.4,
+     "dias": null
+    },
+    {
+     "id": "LAILA.CARVALHO",
+     "nome": "Laila Lorrane Lima de Carvalho",
+     "atos": 1075,
+     "total": 13622.5,
+     "mediana": 11.8,
+     "max": 87.3,
+     "dias": null
+    },
+    {
+     "id": "GEOVANA.MENEZES",
+     "nome": "Geovana Fontes Silva Menezes",
+     "atos": 1036,
+     "total": 11994.11,
+     "mediana": 11.8,
+     "max": 186.24,
+     "dias": null
+    },
+    {
+     "id": "CESAR.BRAVO",
+     "nome": "Cesar Augusto Pereira de Macedo Bravo",
+     "atos": 1,
+     "total": 3052.56,
+     "mediana": 3052.56,
+     "max": 3052.56,
+     "dias": null
+    },
+    {
+     "id": "CARTÓRIO - NÃO UTILIZAR",
+     "nome": "Cartório — não utilizar (sistema)",
+     "atos": 1,
+     "total": 0.15,
+     "mediana": 0.15,
+     "max": 0.15,
+     "dias": null
+    }
+   ],
+   "pgto": [
+    {
+     "forma": "Dinheiro",
+     "qtd": 3027,
+     "total": 39291.63
+    },
+    {
+     "forma": "PIX",
+     "qtd": 2135,
+     "total": 29697.5
+    },
+    {
+     "forma": "Sem forma informada",
+     "qtd": 392,
+     "total": 282385.25
+    },
+    {
+     "forma": "Parcela Express",
+     "qtd": 270,
+     "total": 3376.52
+    },
+    {
+     "forma": "Cartão de débito",
+     "qtd": 76,
+     "total": 1013.33
+    },
+    {
+     "forma": "Boleto bancário",
+     "qtd": 54,
+     "total": 8038.66
+    },
+    {
+     "forma": "Misto: Dinheiro + PIX",
+     "qtd": 21,
+     "total": 578.12
+    },
+    {
+     "forma": "Cartão de crédito",
+     "qtd": 17,
+     "total": 384.48
+    }
+   ],
+   "faixas": [
+    {
+     "faixa": "até R$ 5",
+     "qtd": 357,
+     "total": 1597.35
+    },
+    {
+     "faixa": "R$ 5–12",
+     "qtd": 4437,
+     "total": 47318.18
+    },
+    {
+     "faixa": "R$ 12–50",
+     "qtd": 856,
+     "total": 16472.32
+    },
+    {
+     "faixa": "R$ 50–200",
+     "qtd": 169,
+     "total": 19550.87
+    },
+    {
+     "faixa": "R$ 200–1 mil",
+     "qtd": 72,
+     "total": 44864.48
+    },
+    {
+     "faixa": "R$ 1–5 mil",
+     "qtd": 94,
+     "total": 190372.08
+    },
+    {
+     "faixa": "+ de R$ 5 mil",
+     "qtd": 7,
+     "total": 44590.21
+    }
+   ],
+   "serie": null
+  }
+ }
+]

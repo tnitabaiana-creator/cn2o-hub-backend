@@ -113,3 +113,28 @@ O servidor do Hub fala direto com a API do NextQS e substitui os workflows do n8
 - **Rotas** (só o Tabelião): `GET /hub/relatorios/atendimentos?desde=`, `POST …/atualizar {inicio, fim}` (até 92 dias), `POST …/carga {desde}`, `GET …/pdf?mes=AAAA-MM`, `POST …/enviar {mes}`.
 - **Desligar o n8n:** depois de alguns dias com o Hub coletando em paralelo e os números batendo, desative no n8n os dois workflows acima. Os PDFs antigos continuam na pasta do Drive.
 - **Testes:** `test/atendimentos.test.js` (cálculo, cliente da API com respostas simuladas, coleta, PDF, agenda e anexo binário do e-mail).
+
+## Produtividade em reais — v1.40
+
+Terceira visão da aba Relatórios (**Produtividade (R$)**), só para o Tabelião (mesma trava:
+`RELATORIOS_ADMINS` ou `HUB_ADMINS`). Arquivos: `produtividade.js` (rotas, validação e IA) e
+`dados/produtividade-inicial.json` (junho a agosto de 2026, do painel anterior, gravados uma vez no
+primeiro boot).
+
+- **Importar:** o Tabelião arrasta a *Pesquisa de Produtividade* do sistema (.xls do Excel 97-2003
+  ou .csv). A planilha é lida no navegador; o servidor recebe e guarda só os totais do mês (por
+  pessoa, forma de pagamento, faixa de valor e, quando o arquivo tem a coluna de data, por dia).
+  Colunas reconhecidas pelo nome: `Setor` ou `Usuário`, `Valor`, `Forma de Pagamento`/`Forma Pgto.`
+  e, opcional, `Criação` (data). A última linha do sistema, só com o total, é descartada.
+- **Tabelas:** `produtividade_mes` (ano, mês, totais em JSONB, análise da IA) e
+  `produtividade_config` (corte da mesa, FERD e IR estimado).
+- **Dias úteis:** vêm do calendário do Hub (`horas-uteis.js`) e podem ser corrigidos na importação.
+  Feriado municipal ou estadual que falte (ex.: São João, 24/06) entra em `FERIADOS_EXTRA`.
+- **Mesa × balcão:** ticket médio a partir do corte (padrão R$ 200) conta como mesa; o Tabelião
+  (logins de `RELATORIOS_ADMINS`/`HUB_ADMINS`) e o lançamento de sistema ficam à parte.
+- **IA (botão "Analisar com IA"):** lê só os totais do mês e do anterior e devolve resumo, texto por
+  escrevente, observações e o que parece fora do padrão. Modelo: `HUB_MODELO_PRODUTIVIDADE` (padrão:
+  o flash da Plataforma). Passa pelos mesmos limites da IA do Hub (`HUB_IA_LIMITE`,
+  `HUB_IA_TETO_DIA_USD`) e entra no consumo como `hub-produtividade`.
+- **Rotas:** `GET /hub/relatorios/produtividade`, `GET …/dias-uteis?mes=AAAA-MM`, `POST …/mes`,
+  `POST …/apagar`, `POST …/config`, `POST …/analisar`.
