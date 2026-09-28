@@ -394,8 +394,17 @@ function normalizarMural(d) {
     };
   }).filter(Boolean);
 
-  return { versao: 2, avisos, aniversariantes, metas: { em_breve: m.em_breve !== false, itens } };
+  // v1.41 — rodízio de atendimento (escala semanal: quem sai do balcão para as escrituras em cada dia)
+  const rz = d.rodizio && typeof d.rodizio === 'object' && !Array.isArray(d.rodizio) ? d.rodizio : {};
+  const dias = {};
+  const semTags = v => v.replace(/<[^>]*>/g, '').trim();
+  DIAS_RODIZIO.forEach(k => { dias[k] = semTags(txt(rz.dias && rz.dias[k], 60)); });
+  const dataOk = v => { const m = RE_DATA.exec(v || ''); if (!m) return false; const [d, mm, a] = v.split('/').map(Number); const dt = new Date(a, mm - 1, d); return dt.getFullYear() === a && dt.getMonth() === mm - 1 && dt.getDate() === d; };
+  const rodizio = { dias, obs: semTags(txt(rz.obs, 300)), desde: dataOk(rz.desde) ? rz.desde : '' };
+
+  return { versao: 2, avisos, aniversariantes, metas: { em_breve: m.em_breve !== false, itens }, rodizio };
 }
+const DIAS_RODIZIO = ['seg', 'ter', 'qua', 'qui', 'sex'];
 
 const MURAL_PADRAO = {
   versao: 2,
@@ -411,7 +420,13 @@ const MURAL_PADRAO = {
     estilo: 'padrao'
   }],
   aniversariantes: [],
-  metas: { em_breve: true, itens: [] }
+  metas: { em_breve: true, itens: [] },
+  // v1.41 — escala inicial (Tabela de Rodízio dos Escreventes, Itabaiana/SE, 28/09/2026)
+  rodizio: {
+    dias: { seg: 'JONAS', ter: 'LARA', qua: '', qui: 'JOSILENE', sex: 'ROMÊNIA' },
+    obs: 'No dia do rodízio, o escrevente fica livre do atendimento ao público para se dedicar às escrituras.',
+    desde: '28/09/2026'
+  }
 };
 
 router.get('/eu', exigeSessao, (req, res) => {
@@ -424,7 +439,10 @@ router.get('/mural', exigeSessao, async (req, res) => {
     await preparar();
     const r = await q('SELECT dados, atualizado_em, atualizado_por FROM hub_mural WHERE id = 1');
     if (!r.rows.length) return res.json({ dados: MURAL_PADRAO, atualizado_em: null, atualizado_por: null });
-    res.json(r.rows[0]);
+    const linha = r.rows[0];
+    // v1.41 — mural publicado antes do rodízio: entrega a escala padrão até o Tabelião publicar a dele
+    if (linha.dados && typeof linha.dados === 'object' && !linha.dados.rodizio) linha.dados = Object.assign({}, linha.dados, { rodizio: MURAL_PADRAO.rodizio });
+    res.json(linha);
   } catch (e) {
     console.error('hub mural (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler o mural' });
@@ -762,7 +780,7 @@ router.post('/admin/zerar-senha', exigeSessao, exigeAdmin, jsonMural, gerarCodig
 const REGISTRO_ACOES = new Set(['login', 'logout', 'abrir', 'itbi']);
 // ('pdf' é o "como" do evento itbi — a guia saiu em PDF; os demais são as ferramentas do hub)
 const REGISTRO_FERRAMENTAS = new Set(['protocolo', 'calculadora', 'ia', 'extrator', 'analista',
-  'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'acervo', 'agenda', 'notas', 'mural',
+  'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'itcmd', 'acervo', 'agenda', 'notas', 'mural',
   'links', 'ajuda', 'pdf']);
 router.post('/registro', exigeSessao, jsonMural, async (req, res) => {
   try {
