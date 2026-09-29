@@ -1690,22 +1690,30 @@ function numeroItcmd(v) {
   return isFinite(n) && n >= 0 ? String(n) : '';
 }
 function avosItcmd(v) { const n = parseInt(v, 10); return Number.isInteger(n) && n >= 0 && n <= 2 ? n : null; }
-const nomesItcmd = (v, n) => (Array.isArray(v) ? v : []).filter(ehObjeto).slice(0, n).map(x => ({ nome: txtItcmd(x.nome, 160) })).filter(x => x.nome);
+const nomesItcmd = (v, n) => (Array.isArray(v) ? v : []).filter(ehObjeto).slice(0, n).map(x => ({ nome: txtItcmd(x.nome, 160), cpf: txtItcmd(x.cpf, 20) })).filter(x => x.nome);
+// v1.43 — partilha acordada no requerimento/plano de partilha quando difere da legal (cessão gratuita ou onerosa de parte do quinhão)
+// fração "a/b" (até 7 dígitos, a ≤ b) ou percentual 0–100 com vírgula ou ponto ("52,3857" / "52.3857"); fora disso, ""
+const fracaoItcmd = v => { const t = String(v == null ? '' : v).replace(/\s+/g, '').replace(/%$/, ''); const m = /^(\d{1,7})\/(\d{1,7})$/.exec(t); if (m) return +m[2] > 0 && +m[1] <= +m[2] ? t : ''; if (!/^\d{1,3}([.,]\d{1,6})?$/.test(t)) return ''; const n = parseFloat(t.replace(',', '.')); return n >= 0 && n <= 100 ? t : ''; };
+function partilhaItcmd(p) {
+  const o = ehObjeto(p) ? p : {};
+  const cessoes = (Array.isArray(o.cessoes) ? o.cessoes : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(c => ({ cedente: txtItcmd(c.cedente, 160), beneficiario: txtItcmd(c.beneficiario, 160), fracao_do_quinhao: fracaoItcmd(c.fracao_do_quinhao), natureza: enumItcmd(c.natureza, ['nao_onerosa', 'onerosa']), fonte: txtItcmd(c.fonte, 120) })).filter(c => c.cedente && c.beneficiario);
+  return { desigual: boolItcmd(o.desigual), cessoes, descricao: txtItcmd(o.descricao, LIM_ITCMD.texto) };
+}
 // Donatário: nome + doações anteriores do mesmo doador no exercício e o ITCMD já recolhido nelas (art. 8º §1º / art. 10 §7º)
 const donatariosItcmd = (v, n) => (Array.isArray(v) ? v : []).filter(ehObjeto).slice(0, n).map(x => ({ nome: txtItcmd(x.nome, 160), doacoes_anteriores_no_ano: numeroItcmd(x.doacoes_anteriores_no_ano), itcmd_recolhido_anteriores: numeroItcmd(x.itcmd_recolhido_anteriores), fonte: txtItcmd(x.fonte, 120) })).filter(x => x.nome);
 function herdeiroItcmd(p) {
   const o = ehObjeto(p) ? p : {};
-  return { nome: txtItcmd(o.nome, 160), situacao: enumItcmd(o.situacao, ITCMD_ENUM.situacao), filho_do_conjuge_sobrevivente: boolItcmd(o.filho_do_conjuge_sobrevivente),
+  return { nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), situacao: enumItcmd(o.situacao, ITCMD_ENUM.situacao), filho_do_conjuge_sobrevivente: boolItcmd(o.filho_do_conjuge_sobrevivente),
     representantes: nomesItcmd(o.representantes, LIM_ITCMD.representantes), fonte: txtItcmd(o.fonte, 120) };
 }
 function colateralItcmd(p) {
   const o = ehObjeto(p) ? p : {};
-  return { nome: txtItcmd(o.nome, 160), parentesco: enumItcmd(o.parentesco, ITCMD_ENUM.parentesco), vinculo: enumItcmd(o.vinculo, ITCMD_ENUM.vinculo),
+  return { nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), parentesco: enumItcmd(o.parentesco, ITCMD_ENUM.parentesco), vinculo: enumItcmd(o.vinculo, ITCMD_ENUM.vinculo),
     situacao: enumItcmd(o.situacao, ITCMD_ENUM.situacao), representantes: nomesItcmd(o.representantes, LIM_ITCMD.representantes) };
 }
 function bemItcmd(b, comDestino) {
   const o = ehObjeto(b) ? b : {};
-  const bem = { descricao: txtItcmd(o.descricao, 300), tipo: enumItcmd(o.tipo, ITCMD_ENUM.tipo_bem), matricula: txtItcmd(o.matricula, 120),
+  const bem = { descricao: txtItcmd(o.descricao, 300), tipo: enumItcmd(o.tipo, ITCMD_ENUM.tipo_bem), matricula: txtItcmd(o.matricula, 120), inscricao_municipal_incra: txtItcmd(o.inscricao_municipal_incra, 80),
     valor_referencia: numeroItcmd(o.valor_referencia), fonte_valor: txtItcmd(o.fonte_valor, 120), fonte: txtItcmd(o.fonte, 120) };
   if (comDestino) { bem.destino = txtItcmd(o.destino, 160) || 'todos'; bem.fracao = numeroItcmd(o.fracao); }
   else { bem.natureza = enumItcmd(o.natureza, ITCMD_ENUM.natureza); bem.fracao_do_falecido = numeroItcmd(o.fracao_do_falecido); }
@@ -1716,10 +1724,10 @@ function falecidoItcmd(f) {
   const c = ehObjeto(o.conjuge) ? o.conjuge : {}, co = ehObjeto(o.certidao_obito) ? o.certidao_obito : {};
   const a = ehObjeto(o.ascendentes) ? o.ascendentes : {}, pai = ehObjeto(a.pai) ? a.pai : {}, mae = ehObjeto(a.mae) ? a.mae : {};
   return {
-    nome: txtItcmd(o.nome, 160), data_obito: txtItcmd(o.data_obito, 20), local_obito: txtItcmd(o.local_obito, 120),
+    nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), data_obito: txtItcmd(o.data_obito, 20), local_obito: txtItcmd(o.local_obito, 120),
     certidao_obito: { serventia: txtItcmd(co.serventia, 160), matricula: txtItcmd(co.matricula, 60), data_emissao: txtItcmd(co.data_emissao, 20) },
     estado_civil_no_obito: enumItcmd(o.estado_civil_no_obito, ITCMD_ENUM.estado_civil),
-    conjuge: { nome: txtItcmd(c.nome, 160), regime: regimeItcmd(c.regime), regime_como_consta: txtItcmd(c.regime_como_consta, 160), data_casamento: txtItcmd(c.data_casamento, 20),
+    conjuge: { nome: txtItcmd(c.nome, 160), cpf: txtItcmd(c.cpf, 20), regime: regimeItcmd(c.regime), regime_como_consta: txtItcmd(c.regime_como_consta, 160), data_casamento: txtItcmd(c.data_casamento, 20),
       pacto: txtItcmd(c.pacto, 200), sobrevivente: boolItcmd(c.sobrevivente), separado_de_fato: boolItcmd(c.separado_de_fato),
       sumula_377: /377/.test(textoTransposto(c.regime_como_consta) + ' ' + textoTransposto(c.pacto) + ' ' + textoTransposto(c.regime)) },
     filhos: (Array.isArray(o.filhos) ? o.filhos : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(herdeiroItcmd).filter(x => x.nome || x.representantes.length),   // premorto sem nome, com netos, fica (M12)
@@ -1727,15 +1735,18 @@ function falecidoItcmd(f) {
       avos_paternos_vivos: avosItcmd(a.avos_paternos_vivos), avos_maternos_vivos: avosItcmd(a.avos_maternos_vivos) },
     colaterais: (Array.isArray(o.colaterais) ? o.colaterais : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(colateralItcmd).filter(x => x.nome),
     bens: (Array.isArray(o.bens) ? o.bens : []).filter(ehObjeto).slice(0, LIM_ITCMD.bens).map(b => bemItcmd(b, false)).filter(x => x.descricao),
-    dividas: numeroItcmd(o.dividas), inventario_requerido_em: txtItcmd(o.inventario_requerido_em, 20)
+    dividas: numeroItcmd(o.dividas), inventario_requerido_em: txtItcmd(o.inventario_requerido_em, 20),
+    partilha: partilhaItcmd(o.partilha)
   };
 }
 function normalizarDossieItcmd(j) {
-  const adv = ehObjeto(j.advogado) ? j.advogado : {}, req = ehObjeto(j.requerimento) ? j.requerimento : {}, d = ehObjeto(j.doacao) ? j.doacao : {};
+  const adv = ehObjeto(j.advogado) ? j.advogado : {}, req = ehObjeto(j.requerimento) ? j.requerimento : {}, d = ehObjeto(j.doacao) ? j.doacao : {}, inv = ehObjeto(j.inventariante) ? j.inventariante : {};
   return {
     operacao: enumItcmd(j.operacao, ITCMD_ENUM.operacao),
-    advogado: { nome: txtItcmd(adv.nome, 160), oab: txtItcmd(adv.oab, 40) },
-    requerimento: { data: txtItcmd(req.data, 20), resumo: txtItcmd(req.resumo, LIM_ITCMD.resumo) },
+    advogado: { nome: txtItcmd(adv.nome, 160), oab: txtItcmd(adv.oab, 40), cpf: txtItcmd(adv.cpf, 20) },
+    requerimento: { data: txtItcmd(req.data, 20), resumo: txtItcmd(req.resumo, LIM_ITCMD.resumo), tipo_inventario: enumItcmd(req.tipo_inventario, ['extrajudicial', 'judicial']), processo: txtItcmd(req.processo, 60), vara_comarca: txtItcmd(req.vara_comarca, 120) },
+    // v1.43 — dados da Declaração do ITCMD (SEFAZ): inventariante
+    inventariante: { nome: txtItcmd(inv.nome, 160), cpf: txtItcmd(inv.cpf, 20), endereco: txtItcmd(inv.endereco, 300), telefone_email: txtItcmd(inv.telefone_email, 120), fonte: txtItcmd(inv.fonte, 120) },
     falecidos: (Array.isArray(j.falecidos) ? j.falecidos : []).filter(ehObjeto).slice(0, 6).map(falecidoItcmd).filter(f => f.nome || f.data_obito).slice(0, LIM_ITCMD.falecidos),
     doacao: { doadores: nomesItcmd(d.doadores, LIM_ITCMD.pessoas), donatarios: donatariosItcmd(d.donatarios, LIM_ITCMD.pessoas),
       bens: (Array.isArray(d.bens) ? d.bens : []).filter(ehObjeto).slice(0, LIM_ITCMD.bens).map(b => bemItcmd(b, true)).filter(x => x.descricao),
