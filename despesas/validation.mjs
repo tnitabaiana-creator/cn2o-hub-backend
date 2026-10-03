@@ -1,3 +1,4 @@
+import { categories } from './expense-exports.mjs';
 import { demand, uuid } from './auth.mjs';
 const bounded=(value,size)=>typeof value==='string'&&value.trim().length>0&&value.length<=size;
 export function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value||'')&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;}
@@ -7,7 +8,7 @@ export function validateEntry(input){
   demand(Number.isSafeInteger(input.cents)&&input.cents>0&&input.cents<100000000000,'Valor inválido.');
   demand(validDate(input.paidDate),'Data de pagamento inválida.');
   demand(['dedutivel','nao','analise','pendente'].includes(input.treatment),'Tratamento fiscal inválido.');
-  demand(['outros','expediente','energia','aluguel','pessoal','beneficios','equipamento','veiculo','irpf','repasse','misto'].includes(input.category),'Categoria inválida.');
+  demand(Object.hasOwn(categories,input.category),'Categoria inválida.');
   demand(Array.isArray(input.docIds)&&input.docIds.length<=100&&input.docIds.every(uuid)&&new Set(input.docIds).size===input.docIds.length,'Documentos inválidos.');
   demand(typeof input.taxId==='string'&&input.taxId.length<=40&&typeof input.reason==='string'&&input.reason.length<=10000&&typeof input.notes==='string'&&input.notes.length<=10000,'Texto inválido.');
   for(const key of ['paymentConfirmed','docsConfirmed','reviewed'])demand(typeof input[key]==='boolean','Conferência inválida.');
