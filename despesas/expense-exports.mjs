@@ -6,13 +6,13 @@ export const totals=list=>({total:list.reduce((n,e)=>n+e.cents,0),deduct:list.fi
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n/100);
 const decimal=n=>(n/100).toFixed(2).replace('.',',');
-const date=s=>s.split('-').reverse().join('/');
+const date=s=>s?s.split('-').reverse().join('/'):'Pagamento: data pendente';
 function validDate(s){if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const d=new Date(s+'T12:00:00Z');return !Number.isNaN(+d)&&d.toISOString().slice(0,10)===s;}
 export function monthRange(month){if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw new Error('Selecione um mês válido.');const [year,m]=month.split('-').map(Number);const last=new Date(Date.UTC(year,m,0)).getUTCDate();return {from:month+'-01',to:month+'-'+last};}
 export function selectExpenses(entries,{from,to,category=''}){
  if(!validDate(from)||!validDate(to)||from>to)throw new Error('Informe um intervalo válido: a data inicial deve ser igual ou anterior à final.');
  if(category&&!Object.hasOwn(categories,category))throw new Error('Selecione uma natureza válida.');
- return entries.filter(e=>!e.demo&&e.paidDate>=from&&e.paidDate<=to&&(!category||e.category===category)).sort((a,b)=>a.paidDate.localeCompare(b.paidDate)||a.supplier.localeCompare(b.supplier,'pt-BR')||a.id.localeCompare(b.id));
+ return entries.filter(e=>!e.demo&&(e.paidDate?e.paidDate>=from&&e.paidDate<=to:e.referencePeriod>=from.slice(0,7)&&e.referencePeriod<=to.slice(0,7))&&(!category||e.category===category)).sort((a,b)=>a.paidDate.localeCompare(b.paidDate)||a.supplier.localeCompare(b.supplier,'pt-BR')||a.id.localeCompare(b.id));
 }
 export function groupExpenses(list){return [...new Set(list.map(e=>e.category))].map(key=>({key,name:categories[key]||'Natureza não informada',entries:list.filter(e=>e.category===key),...totals(list.filter(e=>e.category===key))})).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));}
 export function safeCell(value){let s=String(value??'');if(/^[\s\u0000-\u001f]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}

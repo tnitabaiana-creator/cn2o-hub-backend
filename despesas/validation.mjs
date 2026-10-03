@@ -6,7 +6,8 @@ export function validateEntry(input){
   demand(uuid(input.id),'Identificador inválido.');
   demand(bounded(input.supplier,300)&&bounded(input.description,2000),'Informe fornecedor e descrição.');
   demand(Number.isSafeInteger(input.cents)&&input.cents>0&&input.cents<100000000000,'Valor inválido.');
-  demand(validDate(input.paidDate),'Data de pagamento inválida.');
+  const undated=input.paidDate===''&&/^\d{4}-(0[1-9]|1[0-2])$/.test(input.referencePeriod||'')&&!input.paymentConfirmed&&!input.reviewed;
+  demand(validDate(input.paidDate)||undated,'Informe data válida ou mês de referência para pré-lançamento sem pagamento confirmado.');
   demand(['dedutivel','nao','analise','pendente'].includes(input.treatment),'Tratamento fiscal inválido.');
   demand(Object.hasOwn(categories,input.category),'Categoria inválida.');
   demand(Array.isArray(input.docIds)&&input.docIds.length<=100&&input.docIds.every(uuid)&&new Set(input.docIds).size===input.docIds.length,'Documentos inválidos.');
@@ -16,6 +17,7 @@ export function validateEntry(input){
   if(input.reviewed&&input.treatment==='dedutivel')demand(input.paymentConfirmed&&input.docsConfirmed&&input.docIds.length>0,'Dedução revisada exige pagamento e documentação conferidos.');
   demand(!input.demo,'Exemplos não podem ser salvos no acervo compartilhado.');
   const data=Object.fromEntries(['id','supplier','description','taxId','cents','paidDate','category','treatment','reason','notes','docIds','paymentConfirmed','docsConfirmed','reviewed'].map(key=>[key,input[key]]));
+  data.referencePeriod=validDate(input.paidDate)?input.paidDate.slice(0,7):input.referencePeriod;
   data.fieldSources=input.fieldSources&&typeof input.fieldSources==='object'?input.fieldSources:{};
   demand(JSON.stringify(data.fieldSources).length<100000,'Fontes de leitura muito extensas.');
   return data;
