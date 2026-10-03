@@ -16,8 +16,11 @@ export function validateEntry(input){
   if(input.reviewed)demand(bounded(input.reason,10000)&&!['pendente','analise'].includes(input.treatment),'Registre a justificativa antes de concluir a revisão.');
   if(input.reviewed&&input.treatment==='dedutivel')demand(input.paymentConfirmed&&input.docsConfirmed&&input.docIds.length>0,'Dedução revisada exige pagamento e documentação conferidos.');
   demand(!input.demo,'Exemplos não podem ser salvos no acervo compartilhado.');
+  demand(input.voided===undefined||typeof input.voided==='boolean','Situação de anulação inválida.');
+  if(input.voided)demand(bounded(input.voidReason,2000)&&!input.reviewed,'Informe o motivo da anulação e retire a aprovação fiscal.');
   const data=Object.fromEntries(['id','supplier','description','taxId','cents','paidDate','category','treatment','reason','notes','docIds','paymentConfirmed','docsConfirmed','reviewed'].map(key=>[key,input[key]]));
   data.referencePeriod=validDate(input.paidDate)?input.paidDate.slice(0,7):input.referencePeriod;
+  data.voided=!!input.voided;data.voidReason=input.voided?input.voidReason.trim():'';
   data.fieldSources=input.fieldSources&&typeof input.fieldSources==='object'?input.fieldSources:{};
   demand(JSON.stringify(data.fieldSources).length<100000,'Fontes de leitura muito extensas.');
   return data;
