@@ -781,7 +781,7 @@ const REGISTRO_ACOES = new Set(['login', 'logout', 'abrir', 'itbi']);
 // ('pdf' é o "como" do evento itbi — a guia saiu em PDF; os demais são as ferramentas do hub)
 const REGISTRO_FERRAMENTAS = new Set(['protocolo', 'calculadora', 'ia', 'extrator', 'analista',
   'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'itcmd', 'acervo', 'agenda', 'notas', 'mural',
-  'links', 'ajuda', 'pdf']);
+  'links', 'ajuda', 'pdf', 'despesas']);
 router.post('/registro', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
