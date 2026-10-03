@@ -7,12 +7,12 @@ export async function processRequest(request,{authenticate=requireUser,db=null}=
     db??=database();
     if(request.method==='GET'){
       const [docs,entries]=await Promise.all([
-        db.sql`SELECT id,hash,metadata,ocr,version,created_by,created_at FROM despesas_documents WHERE state='complete' ORDER BY created_at DESC`,
+        db.sql`SELECT d.id,d.hash,d.metadata,d.ocr,d.version,d.created_by,d.created_at,f.url AS drive_url FROM despesas_documents d LEFT JOIN despesas_google_files f ON f.document_id=d.id WHERE d.state='complete' ORDER BY d.created_at DESC`,
         db.sql`SELECT e.id,e.data,e.version,e.updated_at,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('at',a.at,'by',a.actor,'snapshot',a.snapshot) ORDER BY a.sequence) FROM despesas_audit a WHERE a.record_id=e.id),'[]'::jsonb) AS history
           FROM despesas_entries e ORDER BY e.updated_at DESC`
       ]);
-      return reply({user:{id:user.id,login:user.login,name:user.name||user.login},documents:docs.map(d=>({...d.metadata,id:d.id,hash:d.hash,ocr:d.ocr,version:d.version,person:d.created_by,createdAt:d.created_at})),entries:entries.map(e=>({...e.data,id:e.id,version:e.version,updatedAt:e.updated_at,history:e.history}))});
+      return reply({user:{id:user.id,login:user.login,name:user.name||user.login},documents:docs.map(d=>({...d.metadata,id:d.id,hash:d.hash,ocr:d.ocr,version:d.version,person:d.created_by,createdAt:d.created_at,driveUrl:d.drive_url||null})),entries:entries.map(e=>({...e.data,id:e.id,version:e.version,updatedAt:e.updated_at,history:e.history}))});
     }
     if(request.method==='POST'){
       demand(Number(request.headers.get('content-length')||0)<300000,'Lançamento muito grande.',413);

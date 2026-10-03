@@ -10,7 +10,7 @@ test('Controle de Despesas permite somente César e Jonas, mesmo para outros adm
   const server=app.listen(0);await new Promise(resolve=>server.once('listening',resolve));
   try{
     const base='http://127.0.0.1:'+server.address().port+'/hub/despesas/';
-    for(const path of ['data','documents?action=chunk&id=00000000-0000-4000-8000-000000000000&chunk=0','ocr','ocr-config']){
+    for(const path of ['data','documents?action=chunk&id=00000000-0000-4000-8000-000000000000&chunk=0','ocr','ocr-config','google/status','google/config','google/connect','google/sync']){
       assert.equal((await fetch(base+path)).status,401,path+' sem sessão');
       assert.equal((await fetch(base+path,{headers:{'X-Auth-Token':'outra.pessoa'}})).status,403,path+' outro usuário');
     }

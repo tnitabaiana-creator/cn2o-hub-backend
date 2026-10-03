@@ -13,6 +13,7 @@ async function init(pool=native.pool){
     await client.query("SELECT pg_advisory_xact_lock(hashtext('cn2o-despesas-v1'))");
     const existing=await client.query("SELECT to_regclass('public.despesas_documents') AS name");
     if(!existing.rows[0].name)await client.query(await fs.readFile(path.join(__dirname,'despesas/schema.sql'),'utf8'));
+    await client.query(await fs.readFile(path.join(__dirname,'despesas/google-schema.sql'),'utf8'));
     await client.query('COMMIT');
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}
   finally{client.release();}
@@ -20,6 +21,12 @@ async function init(pool=native.pool){
 function ready(){return initialization??=(init().catch(error=>{initialization=null;throw error;}));}
 function createRouter({session=native.sessaoValida,pool=native.pool,initialize=ready,env=process.env,fetcher=fetch}={}){
   const router=express.Router();
+  const google=require('./despesas/google-sync').createGoogleSync({pool,initialize,fetcher});
+  router.get('/google/callback',async(req,res)=>{
+    res.set('Cache-Control','no-store');
+    try{await google.finish(req.query);res.type('html').send('<!doctype html><meta charset="utf-8"><title>CN2O · Google conectado</title><h1>Google conectado</h1><p>A sincronização foi iniciada. Você pode voltar ao Controle de Despesas.</p><a href="https://cn2o-hub.netlify.app/#despesas">Voltar ao Hub CN2O</a>');}
+    catch(error){res.status(400).type('text').send(error.publicMessage||'Não foi possível concluir a conexão Google. Volte ao Hub e tente novamente.');}
+  });
   router.use(async(req,res,next)=>{
     res.set('Cache-Control','private, no-store');
     try{
@@ -31,6 +38,16 @@ function createRouter({session=native.sessaoValida,pool=native.pool,initialize=r
   });
   router.use(express.json({limit:'4mb'}));
   router.use(express.raw({type:'application/octet-stream',limit:1024*1024+1024}));
+  router.get('/google/status',async(req,res)=>{try{res.json(await google.status());google.poke();}catch{res.status(503).json({error:'Não foi possível consultar a sincronização Google.'});}});
+  router.post('/google/config',async(req,res)=>{
+    if(req.expenseUser.login!=='cesar.bravo')return res.status(403).json({error:'Somente César Bravo pode configurar a conta Google.'});
+    try{res.json(await google.configure(req.body));}catch(error){res.status(400).json({error:error.publicMessage||'Não foi possível configurar o Google.'});}
+  });
+  router.post('/google/connect',async(req,res)=>{
+    if(req.expenseUser.login!=='cesar.bravo')return res.status(403).json({error:'Somente César Bravo pode conectar a conta Google.'});
+    try{res.json(await google.connect());}catch(error){res.status(400).json({error:error.publicMessage||'Não foi possível iniciar a conexão Google.'});}
+  });
+  router.post('/google/sync',async(req,res)=>{try{await initialize();await google.enqueueAll();google.poke();res.json({queued:true});}catch{res.status(503).json({error:'Não foi possível solicitar a sincronização.'});}});
   router.get('/ocr-config',async(req,res)=>{
     const {settings}=await import('./despesas/ocr-config.mjs');res.json(settings(env));
   });
@@ -58,8 +75,11 @@ function createRouter({session=native.sessaoValida,pool=native.pool,initialize=r
       res.status(response.status);
       for(const [key,value] of response.headers)res.set(key,value);
       res.send(Buffer.from(await response.arrayBuffer()));
+      if(response.ok&&req.method==='POST'&&(route==='data'||route==='documents'&&['finish','ocr'].includes(req.query.action)))google.poke();
     }catch{res.status(503).json({error:'Controle de Despesas indisponível. O salvamento não foi confirmado.'});}
   });
+  // Continuous copying also resumes after a process restart, without an open browser.
+  if(pool===native.pool&&initialize===ready)google.poke();
   return router;
 }
 module.exports={router:createRouter(),createRouter,allowed,init};
