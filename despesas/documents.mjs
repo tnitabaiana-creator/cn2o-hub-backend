@@ -12,7 +12,7 @@ export async function processRequest(request,{authenticate=requireUser,db=null,s
       demand(typeof doc.name==='string'&&doc.name.length>0&&doc.name.length<500,'Nome inválido.');
       demand(['Comprovante de pagamento','Nota fiscal ou recibo','Contrato','Ordem de serviço','Outro documento'].includes(doc.kind),'Tipo documental inválido.');
       demand(/^\d{4}-(0[1-9]|1[0-2])$/.test(doc.period||''),'Período inválido.');
-      demand(Number.isSafeInteger(doc.size)&&doc.size>0&&doc.size<=20*1024*1024&&['application/pdf','image/png','image/jpeg','image/webp'].includes(doc.type),'Arquivo inválido ou acima de 20 MB.');
+      demand(Number.isSafeInteger(doc.size)&&doc.size>0&&doc.size<=50*1024*1024&&['application/pdf','image/png','image/jpeg','image/webp'].includes(doc.type),'Arquivo inválido ou acima de 50 MB.');
       const metadata={name:doc.name,kind:doc.kind,period:doc.period,size:doc.size,type:doc.type};
       await db.sql`INSERT INTO despesas_documents(id,hash,metadata,created_by) VALUES (${doc.id}::uuid,${doc.hash},${JSON.stringify(metadata)}::jsonb,${user.login}) ON CONFLICT(hash) DO NOTHING`;
       const [saved]=await db.sql`SELECT id,state,created_by FROM despesas_documents WHERE hash=${doc.hash}`;
