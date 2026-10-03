@@ -13,6 +13,7 @@ async function init(pool=native.pool){
     await client.query("SELECT pg_advisory_xact_lock(hashtext('cn2o-despesas-v1'))");
     const existing=await client.query("SELECT to_regclass('public.despesas_documents') AS name");
     if(!existing.rows[0].name)await client.query(await fs.readFile(path.join(__dirname,'despesas/schema.sql'),'utf8'));
+    await client.query(await fs.readFile(path.join(__dirname,'despesas/pre-lancamentos.sql'),'utf8'));
     await client.query(await fs.readFile(path.join(__dirname,'despesas/google-schema.sql'),'utf8'));
     await client.query('COMMIT');
   }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}
