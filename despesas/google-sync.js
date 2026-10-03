@@ -59,13 +59,19 @@ function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
   const summary=new Map();for(const r of entries){const e=r.data,k=e.paidDate.slice(0,7)+'|'+e.category,g=summary.get(k)||[e.paidDate.slice(0,7),categories[e.category]||e.category,0,0,0,0,0];g[2]++;g[3]+=e.cents;g[4]+=eligible(e)?e.cents:0;g[5]+=e.treatment==='nao'&&e.reviewed?e.cents:0;g[6]+=pending(e)?1:0;summary.set(k,g);}
   const summaries=[['Mês','Natureza da despesa','Quantidade','Total pago (R$)','Dedutíveis revisadas antes do limite (R$)','Não dedutíveis revisadas (R$)','Lançamentos pendentes'],...[...summary.values()].map(g=>g.map((v,i)=>i>=3&&i<=5?v/100:v))];
   const metadata=await api(c,SHEETS+'/'+c.spreadsheet_id+'?fields=sheets(properties(sheetId,title,gridProperties))');
-  const definitions=[['Lançamentos',values],['Documentos',docValues],['Resumo por natureza',summaries]],requests=[];
+  const definitions=[['Lançamentos',values],['Documentos',docValues],['Resumo por natureza',summaries]],requests=[{updateSpreadsheetProperties:{properties:{locale:'pt_BR',timeZone:'America/Sao_Paulo'},fields:'locale,timeZone'}}];
   let next=Math.max(0,...metadata.sheets.map(s=>s.properties.sheetId))+1;
-  for(const [title,rows] of definitions){let prop=metadata.sheets.find(s=>s.properties.title===title)?.properties;
-   if(!prop){prop={sheetId:next++,title,gridProperties:{rowCount:Math.max(1000,rows.length),columnCount:rows[0].length}};requests.push({addSheet:{properties:prop}});}
-   requests.push({updateSheetProperties:{properties:{sheetId:prop.sheetId,gridProperties:{rowCount:Math.max(prop.gridProperties.rowCount,rows.length),columnCount:Math.max(prop.gridProperties.columnCount,rows[0].length),frozenRowCount:1}},fields:'gridProperties'}});
-   requests.push({updateCells:{range:{sheetId:prop.sheetId},fields:'userEnteredValue'}});
-   requests.push({updateCells:{start:{sheetId:prop.sheetId,rowIndex:0,columnIndex:0},rows:rows.map(row=>({values:row.map(v=>({userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:String(v??'')}}))})),fields:'userEnteredValue'}});
+  for(const [index,[title,rows]] of definitions.entries()){let prop=metadata.sheets.find(s=>s.properties.title===title)?.properties;
+   if(!prop){prop={sheetId:next++,title,index,gridProperties:{rowCount:Math.max(1000,rows.length),columnCount:rows[0].length}};requests.push({addSheet:{properties:prop}});}
+   requests.push({updateSheetProperties:{properties:{sheetId:prop.sheetId,index,gridProperties:{rowCount:Math.max(prop.gridProperties.rowCount,rows.length),columnCount:Math.max(prop.gridProperties.columnCount,rows[0].length),frozenRowCount:1}},fields:'gridProperties,index'}});
+   requests.push({updateCells:{range:{sheetId:prop.sheetId},fields:'userEnteredValue,textFormatRuns'}});
+   requests.push({updateCells:{start:{sheetId:prop.sheetId,rowIndex:0,columnIndex:0},rows:rows.map((row,rowIndex)=>({values:row.map((v,column)=>{
+    const cell={userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:String(v??'')}};
+    if(rowIndex>0&&(title==='Documentos'&&column===5||title==='Lançamentos'&&column===16)&&typeof v==='string'){
+     let start=0;const runs=[];for(const line of v.split('\n')){if(/^https:\/\/drive\.google\.com\//.test(line))runs.push({startIndex:start,format:{link:{uri:line}}});else runs.push({startIndex:start,format:{}});start+=line.length+1;}cell.textFormatRuns=runs;
+    }
+    return cell;
+   })})),fields:'userEnteredValue,textFormatRuns'}});
    requests.push({repeatCell:{range:{sheetId:prop.sheetId,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{backgroundColor:{red:.39,green:.075,blue:.145},textFormat:{foregroundColor:{red:1,green:1,blue:1},bold:true},wrapStrategy:'WRAP'}},fields:'userEnteredFormat'}});
    requests.push({setBasicFilter:{filter:{range:{sheetId:prop.sheetId,startRowIndex:0,endRowIndex:Math.max(2,rows.length),endColumnIndex:rows[0].length}}}});
    requests.push({updateDimensionProperties:{range:{sheetId:prop.sheetId,dimension:'COLUMNS',startIndex:0,endIndex:rows[0].length},properties:{pixelSize:170},fields:'pixelSize'}});
