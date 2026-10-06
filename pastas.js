@@ -1,11 +1,12 @@
 'use strict';
-// pastas.js — Ficheiro de Pastas (v1.44)
+// pastas.js — Ficheiro de Pastas (v1.44; v1.44.2: arquivar/excluir o cartão libera a pasta)
 //
 // Pastas fixas numeradas (001 a 300) para os protocolos de escrituras. Todo cartão de
 // protocolo que entra numa lista de trabalho recebe a próxima pasta do GIRO CIRCULAR
 // (segue até 300 e volta ao 001, pulando as ocupadas); o cartão ganha o campo "Pasta" e
 // o comentário "📁 Guardar na PASTA nnn". A pasta volta ao montante quando o cartão entra
-// em "Arquivo Geral" ou "Escrituras Sem Efeito" no quadro 00. Os 27 protocolos antigos
+// em "Arquivo Geral" ou "Escrituras Sem Efeito" no quadro 00, ou quando o cartão é
+// ARQUIVADO (ou excluído) no Trello, em qualquer quadro. Os 27 protocolos antigos
 // (decisão do Tabelião, out/2026) ficam fora da numeração. Nada é atribuído antes da
 // carga inicial, feita pelo Tabelião no quadro do Hub.
 //
@@ -442,9 +443,30 @@ async function processarAcao(pool, action, { log = console } = {}) {
 
   const mudouLista = type === 'updateCard' && d.listAfter;
   const renomeou = type === 'updateCard' && d.old && Object.prototype.hasOwnProperty.call(d.old, 'name');
-  const relevante = type === 'createCard' || type === 'moveCardToBoard' || mudouLista || renomeou;
+  const mudouArquivo = type === 'updateCard' && d.old && Object.prototype.hasOwnProperty.call(d.old, 'closed');
+  const arquivou = mudouArquivo && d.card.closed === true;
+  const desarquivou = mudouArquivo && d.card.closed === false;
+  const excluiu = type === 'deleteCard';
+  const relevante = type === 'createCard' || type === 'moveCardToBoard' || mudouLista || renomeou
+    || arquivou || desarquivou || excluiu;
   if (!relevante) return { ignorada: true };
   if (!(await estaAtivo(pool))) return { ignorada: true, motivo: 'aguardando carga inicial' };
+
+  // 0) Cartão arquivado (Arquivar do Trello, em qualquer quadro) ou excluído: a pasta volta
+  //    ao montante. Desarquivado: segue para a regra 3 e, se estiver numa lista de trabalho,
+  //    recebe a próxima pasta do giro.
+  if (arquivou || excluiu) {
+    const motivo = arquivou ? 'cartão arquivado' : 'cartão excluído';
+    const r = await liberar(pool, { cardId, motivo, por });
+    if (r.status === 'liberada' && arquivou && boardId) {
+      try {
+        await gravarCampo(pool, { cardId, boardId, numero: null });
+        const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Maceio' });
+        await comentar(cardId, `📁 Pasta ${r.pasta} liberada em ${hoje} (cartão arquivado).`);
+      } catch (e) { log.error('[pastas] liberada, mas falhou atualizar o cartão arquivado:', e.message); }
+    }
+    return { acao: 'liberar', ...r };
+  }
 
   // 1) Liberação: entrou em "Arquivo Geral" ou "Escrituras Sem Efeito" no quadro 00.
   const listaDestino = mudouLista ? norm(d.listAfter.name)
