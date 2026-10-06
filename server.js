@@ -161,9 +161,17 @@ function rotuloPreco(ato) {
   return 'PREÇO AJUSTADO';
 }
 
+const fonteContrato = require('./protocolo-fonte');
+const fonteDB = require('./protocolo-fonte-db');
+// Esta credencial não autentica usuários nem qualquer rota de escrita.
+app.get('/integracoes/eprotocolo/:cardId', require('./protocolo-fonte-integracao').handler({ query: (sql, params) => db.pool.query(sql, params) }));
+
 // ---------- POST /protocolo — o coração do Momento 1 ----------
 app.post('/protocolo', exigeSessao, async (req, res) => {
-  const p = req.body || {};
+  let p;
+  try { p = fonteContrato.prepararDados(req.body || {}, req.usuario); }
+  catch (e) { return res.status(e.status || 400).json({ erro: e.message, motivo: e.codigo }); }
+  let numeroCriado = null;
   p.escrevente = req.usuario.nome; // identidade vem da sessão, nunca do formulário
   if (!p.ato || !p.apresentante?.nome || !p.apresentante?.telefone || !p.parte_envolvida?.nome) {
     return res.status(400).json({ erro: 'payload incompleto' });
@@ -188,7 +196,10 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
   }
   try {
     // 1) número atômico + registro canônico
+    // Limite verificado antes de reservar número; jamais corta o JSON canônico.
+    fonteContrato.atualizarDescricao('', fonteContrato.criarFonte({ numero: 9999999999, dados: p, usuario: req.usuario.login }));
     const numero = await db.registrarProtocolo(p, req.usuario.login);
+    numeroCriado = numero;
     const titulo = `Prot. (${p.ato}) ${pad(numero)} - ${p.parte_envolvida.nome.toUpperCase()}`;
 
     // 2) descrição: observações humanas + bloco de dados de máquina
@@ -196,18 +207,18 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     const quadro = ehCert ? CERT_BOARD() : process.env.BOARD_00;
     const listaDestino = ehCert ? CERT_LISTA() : process.env.LISTA_ENTRADA;
     const pendentes = (p.dossie && p.dossie.pendentes) || [];
-    const bloco = ['<!--DADOS', JSON.stringify({ numero, ...p }, null, 1), 'DADOS-->'].join('\n');
+    const fonte = await fonteDB.obter(numero, req.usuario);
     // v1.37 — preço ajustado / valor declarado pelas partes, em destaque no cartão
     const preco = precoDoProtocolo(p);
-    const desc = [
+    const descHumana = [
       preco ? `**${rotuloPreco(p.ato)}: ${preco}**` : '',
       ehCert ? certDescricao(p.cert, numero) : '',
       p.observacoes_nao_documentadas ? `**OBSERVAÇÕES NÃO DOCUMENTADAS**\n${p.observacoes_nao_documentadas}` : '',
       (pendentes.length ? (p.ato === 'CERT'
         ? '**DOCUMENTOS PENDENTES — conferir com o solicitante antes de expedir**\n- '
         : '**DOCUMENTOS PENDENTES — cobrar do interessado antes da lavratura**\n- ') + pendentes.join('\n- ') : ''),
-      bloco
     ].filter(Boolean).join('\n\n');
+    const desc = fonteContrato.atualizarDescricao(descHumana, fonte);
 
     // 3) bandeiramento -> labels por nome (cores semânticas do cartório)
     // v1.36.1: no quadro 04 as etiquetas não podem derrubar o protocolo do CERT
@@ -287,8 +298,9 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
 
     res.json({ numero: pad(numero), card_url: card.shortUrl, prazo: due });
   } catch (e) {
-    console.error('protocolo:', e);
-    res.status(500).json({ erro: 'falha ao protocolar — tente de novo; se continuar, avise o suporte' });   // v1.39.2: o detalhe fica só no log
+    console.error('protocolo:', e.codigo || 'falha de integração');
+    if (numeroCriado) return res.status(502).json({ registrado: true, numero: pad(numeroCriado), erro: 'O protocolo ' + pad(numeroCriado) + ' já foi registrado, mas a integração não terminou. Não protocole novamente: confira o número no Hub e peça a regularização do cartão.' });
+    res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'falha ao protocolar — tente de novo; se continuar, avise o suporte' });   // v1.39.2: o detalhe fica só no log
   }
 });
 
@@ -477,6 +489,7 @@ app.use(protecao.tratadorDeErros);
 // sobem normalmente, o rastreio fica desligado e o agendador não inicia.
 db.init()
   .then(() => require('./db-agentes').init())
+  .then(() => fonteDB.init())
   .then(() => require('./db-relatorios').init()
     .then(() => { relatoriosNoAr = true; })
     .catch(e => console.error('relatórios das escreventes desligados (tabelas):', e.message)))

@@ -6,6 +6,9 @@
 // Railway — nenhuma alteração de código. GET /agentes/modelos lista o que
 // a chave enxerga de verdade.
 
+const fonteContrato = require('./protocolo-fonte');
+const fonteIA = require('./protocolo-fonte-ia');
+
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
 // v1.40.1 (economia): TODA chamada usa um modelo só — gemini-3.8-flash. Vale para o Hub, a
@@ -150,7 +153,7 @@ async function chamar({ modelo, sistema, partes, temperatura = 0.2, maxTokens = 
 // ---------------------------------------------------------------- ETAPA 1
 // Extração: documentos (PDF/imagem) → JSON com os campos do ato.
 // Roda no modelo barato. A usuária confere o JSON na tela antes de redigir.
-async function extrair({ agente, arquivos, observacoes, modelo }) {
+async function extrair({ agente, arquivos, observacoes, modelo, fonte, manifestos = [] }) {
   const campos = Array.isArray(agente.campos) ? agente.campos : [];
   const esquema = campos.map(c =>
     `- ${c.id} (${c.tipo || 'texto'})${c.obrigatorio ? ' [OBRIGATÓRIO]' : ''}: ${c.rotulo || ''}`
@@ -173,11 +176,13 @@ async function extrair({ agente, arquivos, observacoes, modelo }) {
     'folhas faltantes e erros materiais reproduzidos. Array vazio se não houver nada.',
     '',
     'CAMPOS A EXTRAIR:',
-    esquema || '(nenhum campo declarado — devolva tudo que conseguir identificar)'
+    esquema || '(nenhum campo declarado — devolva tudo que conseguir identificar)',
+    fonte ? fonteContrato.REGRA_FONTE + '\nAlém dos campos e _alertas, inclua _fonte_decisoes seguindo: ' + fonteContrato.FORMATO_DECISOES : ''
   ].join('\n');
 
   const partes = [
     ...partesDeArquivos(arquivos),
+    ...(fonte ? [{ text: fonteContrato.contextoFonte(fonte, manifestos) }] : []),
     { text: observacoes
         ? `Observações da escrevente sobre este caso:\n${observacoes}\n\nExtraia os campos.`
         : 'Extraia os campos dos documentos acima.' }
@@ -202,15 +207,17 @@ async function extrair({ agente, arquivos, observacoes, modelo }) {
 
 // ---------------------------------------------------------------- ETAPA 2
 // Redação: JSON conferido + template do ato → minuta completa.
-async function redigir({ agente, dados, observacoes, modelo }) {
+async function redigir({ agente, dados, observacoes, modelo, fonte, manifestos = [], conferencia = [] }) {
   const sistema = [
     agente.prompt_sistema,
-    agente.template ? '\n\n===== TEMPLATE VIGENTE DO ATO (siga a estrutura e as cláusulas condicionais) =====\n' + agente.template : ''
+    agente.template ? '\n\n===== TEMPLATE VIGENTE DO ATO (siga a estrutura e as cláusulas condicionais) =====\n' + agente.template : '',
+    fonte ? '\n' + fonteIA.instrucaoSaida() : ''
   ].join('');
 
   const partes = [{
     text: [
-      'DADOS DO ATO (já conferidos pela escrevente — use apenas estes; não invente nada):',
+      fonte ? fonteContrato.contextoFonte(fonte, manifestos, conferencia) : '',
+      'DADOS COMPLEMENTARES CONFERIDOS PELA ESCREVENTE (não substituem silenciosamente a fonte autenticada e a documentação):',
       '```json',
       JSON.stringify(dados, null, 2),
       '```',
@@ -231,14 +238,15 @@ async function redigir({ agente, dados, observacoes, modelo }) {
 
 // ---------------------------------------------------------------- ETAPA 3
 // Revisão: minuta + pedido de ajuste → minuta corrigida por inteiro.
-async function revisar({ agente, minutaAtual, pedido, historico = [], modelo }) {
+async function revisar({ agente, minutaAtual, pedido, historico = [], modelo, fonte, manifestos = [], conferencia = [] }) {
   const sistema = [
     agente.prompt_sistema,
     agente.template ? '\n\n===== TEMPLATE VIGENTE DO ATO =====\n' + agente.template : '',
     '\n\n===== MODO REVISÃO =====',
     'Você está revisando uma minuta já redigida. Aplique EXATAMENTE o ajuste pedido.',
     'Devolva a MINUTA INTEIRA corrigida, do começo ao fim — nunca só o trecho alterado,',
-    'nunca um diff, nunca "restante inalterado". Sem preâmbulo e sem comentário final.'
+    'nunca um diff, nunca "restante inalterado". Sem preâmbulo e sem comentário final.',
+    fonte ? '\n' + fonteIA.instrucaoSaida() : ''
   ].join('');
 
   const contexto = historico.length
@@ -247,6 +255,7 @@ async function revisar({ agente, minutaAtual, pedido, historico = [], modelo }) 
 
   const partes = [{
     text: [
+      fonte ? fonteContrato.contextoFonte(fonte, manifestos, conferencia) : '',
       'MINUTA ATUAL:', '---', minutaAtual, '---',
       contexto,
       '', 'AJUSTE PEDIDO AGORA:', pedido,

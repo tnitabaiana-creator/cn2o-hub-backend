@@ -1,0 +1,6 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "preDeployCommand": ["node -e \"require('./protocolo-fonte'); console.log('Contrato de protocolo validado')\""]
+  }
+}

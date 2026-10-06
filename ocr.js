@@ -189,7 +189,7 @@ async function visionImagem(arq, corte, conta) {
   if (r0.error) throw new Error('Cloud Vision: ' + String(r0.error.message || '').slice(0, 200));
   const incertas = [];
   const texto = lerAnotacao(r0.fullTextAnnotation, 1, corte, incertas, conta);
-  return { texto: texto, paginas: 1, incertas: incertas };
+  return { texto: texto, paginas: 1, incertas: incertas, paginas_texto: [{ pagina: 1, texto }] };
 }
 
 // PDF: o files:annotate síncrono lê no máximo 5 páginas por chamada, então o
@@ -199,6 +199,7 @@ async function visionPdf(arq, corte, conta) {
   const teto = maxPaginas();
   const incertas = [];
   const textos = [];
+  const paginasTexto = [];
   let proxima = 1, tamanho = PAGINAS_POR_CHAMADA, total = null, lidas = 0;
 
   while (proxima <= teto && (total === null || proxima <= total)) {
@@ -233,12 +234,13 @@ async function visionPdf(arq, corte, conta) {
       const num = (resp.context && resp.context.pageNumber) || lista[i] || (proxima + i);
       const t = lerAnotacao(resp.fullTextAnnotation, num, corte, incertas, conta);
       if (t.trim()) textos.push(t);
+      paginasTexto.push({ pagina: num, texto: t });
       lidas++;
     });
     proxima += lista.length;
   }
 
-  return { texto: textos.join('\n'), paginas: lidas, incertas: incertas };
+  return { texto: textos.join('\n'), paginas: lidas, incertas: incertas, paginas_texto: paginasTexto };
 }
 
 // ---------------------------------------------------------------- Document AI
@@ -279,7 +281,7 @@ async function docaiArquivo(arq, corte, conta) {
       if (palavra && palavra.length > 1) incertas.push({ palavra: palavra.slice(0, 40), pagina: i + 1, conf: Math.round(conf * 100) / 100, peso: pesoDaPalavra(palavra) });
     });
   });
-  return { texto: textoTotal, paginas: paginas.length, incertas: incertas };
+  return { texto: textoTotal, paginas: paginas.length, incertas: incertas, paginas_texto: paginas.map((pg, i) => ({ pagina: i + 1, texto: textoDoTrecho(textoTotal, pg.layout && pg.layout.textAnchor) })) };
 }
 
 // Lê UM arquivo pelo motor configurado → { texto, paginas, incertas }
@@ -303,6 +305,7 @@ async function lerArquivos(arquivos, opcoes = {}) {
   const conta = { lidas: 0 };
   let paginas = 0, lidos = 0;
   const todasIncertas = [];
+  const leituras = [];
 
   for (let i = 0; i < arquivos.length; i++) {
     const a = arquivos[i] || {};
@@ -312,6 +315,7 @@ async function lerArquivos(arquivos, opcoes = {}) {
     try {
       const r = await processar(a, conta);
       lidos++; paginas += r.paginas;
+      leituras.push({ indice: i, paginas_texto: (r.paginas_texto || []).map(pg => ({ ...pg, incertas: r.incertas.filter(x => x.pagina === pg.pagina) })) });
       partes.push('[' + defesa.neutralizar(nome) + '] (' + r.paginas + ' página(s))\n' + defesa.neutralizar(r.texto.trim()));
       r.incertas.forEach(function (p) { todasIncertas.push({ arquivo: nome, palavra: p.palavra, pagina: p.pagina, conf: p.conf, peso: p.peso || 1 }); });
     } catch (e) {
@@ -373,6 +377,7 @@ async function lerArquivos(arquivos, opcoes = {}) {
 
   return {
     bloco: bloco,
+    leituras,
     resumo: {
       ativo: true,
       motor: motor(),

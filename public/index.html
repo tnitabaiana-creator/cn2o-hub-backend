@@ -540,6 +540,7 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
             <div class="campo">
               <label for="ato-protocolo">Protocolo nº <span style="font-weight:400;color:var(--tinta-fraca)">(opcional)</span></label>
               <input id="ato-protocolo" type="text" inputmode="numeric" autocomplete="off" placeholder="ex.: 1042">
+              <label style="font-weight:400"><input id="ato-sem-protocolo" type="checkbox"> Este pedido ainda não tem protocolo; conferir somente os documentos e dados informados.</label>
               <p class="ajuda">Ao sair do campo, buscamos o que o balcão já cadastrou.</p>
             </div>
             <div class="campo">
@@ -568,7 +569,7 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
           <h3>Confira o que o agente leu</h3>
           <p class="legenda">Nada é lavrado com o que está errado aqui. Corrija o que precisar antes de gerar a minuta.</p>
           <div id="erro-passo2"></div>
-          <div id="alertas-extracao"></div>
+          <div id="alertas-extracao"></div><div id="fonte-conferencia-extracao"></div>
           <div id="contador-verificar"></div>
           <form id="form-conferencia" autocomplete="off"></form>
           <div class="campo" style="margin-top:6px">
@@ -599,7 +600,8 @@ td .acoes{ display:flex; gap:6px; justify-content:flex-end; }
           </div>
           <div id="erro-passo3"></div>
           <label class="rot" for="editor-minuta">Texto da minuta</label>
-          <textarea id="editor-minuta" class="editor-minuta" spellcheck="true"></textarea>
+          <div id="fonte-conferencia-minuta"></div>
+            <textarea id="editor-minuta" class="editor-minuta" spellcheck="true"></textarea>
 
           <div class="barra-acoes">
             <button type="button" class="btn btn-principal" id="btn-baixar">Baixar Word</button>
@@ -1517,6 +1519,7 @@ function abrirAto(slug){
   // limpa a tela do ato anterior
   $('#input-arquivos').value = '';
   $('#ato-protocolo').value = '';
+  $('#ato-sem-protocolo').checked = false;
   $('#ato-titulo-minuta').value = '';
   $('#ato-observacoes').value = '';
   $('#obs-redacao').value = '';
@@ -1661,16 +1664,20 @@ function lerBase64(file){
   });
 }
 
-// Consulta do protocolo ao sair do campo — 404 não trava nada.
+// Consulta autenticada: número informado exige fonte carregada e revisão válida.
+$('#ato-protocolo').addEventListener('input', function(){ if(estado.ato) estado.ato.protocoloDados=null; $('#ato-sem-protocolo').checked=false; });
+$('#ato-sem-protocolo').addEventListener('change', function(){ if(this.checked){ $('#ato-protocolo').value=''; if(estado.ato) estado.ato.protocoloDados=null; limpa($('#resumo-protocolo')); } });
 $('#ato-protocolo').addEventListener('blur', function(){
   var num = $('#ato-protocolo').value.trim();
   var alvo = $('#resumo-protocolo');
   if (!estado.ato) return;
+  var atoDaConsulta=estado.ato;
   estado.ato.protocolo = num;
   if (!num){ limpa(alvo); estado.ato.protocoloDados = null; return; }
   alvo.innerHTML = '<div class="carregando"><span class="girando"></span><span>Buscando o protocolo ' + esc(num) + '…</span></div>';
   api('/agentes/protocolo/' + encodeURIComponent(num))
     .then(function(p){
+      if(estado.ato!==atoDaConsulta || $('#ato-protocolo').value.trim()!==num) return;
       estado.ato.protocoloDados = p;
       var d = (p && p.dados) || {};
       var linhas = Object.keys(d).slice(0, 10).map(function(k){
@@ -1686,10 +1693,11 @@ $('#ato-protocolo').addEventListener('blur', function(){
     })
     .catch(function(e){
       if (e && e.status === 401) return;
+      if(estado.ato!==atoDaConsulta || $('#ato-protocolo').value.trim()!==num) return;
       estado.ato.protocoloDados = null;
-      // aviso discreto: seguir sem protocolo é perfeitamente possível
+      // Não confundir número não encontrado com ausência declarada de protocolo.
       alvo.innerHTML = '<div class="aviso aviso-neutro">Protocolo ' + esc(num) + ': ' +
-        esc((e && e.mensagem) || 'não encontrado') + '. Pode seguir normalmente — ele é opcional.</div>';
+        esc((e && e.mensagem) || 'não encontrado') + '. Confira o número para continuar ou declare que o pedido ainda não tem protocolo.</div>';
     });
 });
 
@@ -1702,6 +1710,8 @@ $('#btn-extrair').addEventListener('click', function(){
   ato.obsCaso = $('#ato-observacoes').value.trim();
   ato.titulo  = $('#ato-titulo-minuta').value.trim();
   ato.protocolo = $('#ato-protocolo').value.trim();
+  if(ato.protocolo && (!ato.protocoloDados || !ato.protocoloDados.fonte || String(ato.protocoloDados.numero)!==ato.protocolo)){ erroEl.innerHTML=html_erro('Aguarde a consulta e confira o protocolo informado.'); return; }
+  if(!ato.protocolo && !$('#ato-sem-protocolo').checked){ erroEl.innerHTML=html_erro('Informe o protocolo ou marque expressamente que este pedido ainda não tem protocolo.'); return; }
 
   if (!ato.arquivos.length && !ato.obsCaso){
     erroEl.innerHTML = html_erro('anexe ao menos um documento ou escreva as observações do caso.');
@@ -1718,13 +1728,15 @@ $('#btn-extrair').addEventListener('click', function(){
   })).then(function(arquivos){
     var corpo = { arquivos: arquivos };
     if (ato.obsCaso) corpo.observacoes = ato.obsCaso;
-    if (ato.protocolo) corpo.protocolo = ato.protocolo;
+    if (ato.protocolo) { corpo.protocolo = ato.protocolo; corpo.protocolo_revisao=ato.protocoloDados.fonte.revisao.sha256; }
+    else corpo.protocolo_ausente=true;
     if (ato.titulo) corpo.titulo = ato.titulo;
     return api('/agentes/' + encodeURIComponent(ato.agente.slug) + '/extrair', { metodo:'POST', corpo: corpo });
   }).then(function(r){
     ato.minutaId = r.minuta_id;
     ato.dados = r.dados || {};
     ato.alertas = r.alertas || [];
+    ato.fonteConferencia = r.conferencia_fonte || [];
     ato.campos = Array.isArray(r.campos) ? r.campos : [];
     if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
     ato.passosLiberados[2] = true;
@@ -1776,6 +1788,7 @@ function valorTexto(v){
 function renderConferencia(){
   var ato = estado.ato;
   var form = $('#form-conferencia');
+  renderFonteConferencia($('#fonte-conferencia-extracao'), ato.fonteConferencia);
 
   // 1) alertas do agente, em destaque, acima de tudo
   var elAl = $('#alertas-extracao');
@@ -1936,6 +1949,8 @@ $('#btn-redigir').addEventListener('click', function(){
     metodo:'POST', corpo: obs ? { dados: ato.dados, observacoes: obs } : { dados: ato.dados }
   }).then(function(r){
     ato.texto = r.texto || '';
+    ato.fonteConferencia = r.conferencia_fonte || [];
+    renderFonteConferencia($('#fonte-conferencia-minuta'), ato.fonteConferencia);
     if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
     ato.passosLiberados[3] = true;
     ato.conferenciaEditada = false;   // as correções já foram para o servidor
@@ -1951,9 +1966,16 @@ $('#btn-redigir').addEventListener('click', function(){
 
 /* ---- passo 3: minuta ---- */
 
+function renderFonteConferencia(alvo, campos){
+  if(!alvo) return;
+  if(!campos || !campos.length){ limpa(alvo); return; }
+  var pend=campos.filter(function(c){ return c.revisao_humana; }).length;
+  alvo.innerHTML='<details class="aviso aviso-ambar"><summary>Conferência do protocolo: '+campos.length+' campos · '+pend+' pontos para revisão</summary><p>Protocolo como origem; documentação do mesmo fato prevalece quando a contraposição é demonstrada. Esta conferência fica fora da escritura.</p><ul>'+campos.map(function(c){return '<li><b>'+esc(c.campo)+'</b> — '+esc(c.decisao)+' / '+esc(c.cobertura)+': '+esc(c.motivo)+(c.documento?' — '+esc(c.documento.nome)+', página '+esc(c.documento.pagina):'')+'</li>';}).join('')+'</ul></details>';
+}
 function renderMinuta(){
   var ato = estado.ato;
   $('#editor-minuta').value = ato.texto || '';
+  renderFonteConferencia($('#fonte-conferencia-minuta'), ato.fonteConferencia);
   $('#minuta-titulo-texto').textContent = ato.titulo || (ato.agente && ato.agente.nome) || 'Minuta';
   renderProtocoloMinuta();
   $('#minuta-legenda').textContent = ato.minutaId
@@ -2014,6 +2036,8 @@ $('#btn-revisar').addEventListener('click', function(){
     return api('/agentes/minutas/' + ato.minutaId + '/revisar', { metodo:'POST', corpo:{ pedido: pedido } });
   }).then(function(r){
     ato.texto = r.texto || '';
+    ato.fonteConferencia = r.conferencia_fonte || [];
+    renderFonteConferencia($('#fonte-conferencia-minuta'), ato.fonteConferencia);
     if (r.uso && r.uso.custo_usd) ato.custoUsd += Number(r.uso.custo_usd) || 0;
     ato.turnos = (ato.turnos || []).concat([{ papel:'usuario', conteudo: pedido, criado: new Date().toISOString() }]);
     $('#editor-minuta').value = ato.texto;
@@ -2683,6 +2707,7 @@ function abrirMinuta(id){
       ato.minutaId = m.id;
       ato.titulo = m.titulo || '';
       ato.protocolo = m.protocolo || '';
+      ato.fonteConferencia = m.fonte_conferencia || [];
       ato.dados = m.dados || {};
       ato.alertas = m.alertas || [];
       ato.texto = m.texto || '';

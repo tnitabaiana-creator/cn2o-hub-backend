@@ -156,12 +156,12 @@ async function versoesDoAgente(slug) {
 
 // ------------------------------------------------------------------ MINUTAS
 
-async function criarMinuta({ protocolo, agente, usuario, titulo, dados, alertas }) {
-  const { rows } = await pool.query(
-    `INSERT INTO minutas (protocolo, agente, usuario, titulo, dados, alertas)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb) RETURNING *`,
+async function criarMinuta({ protocolo, agente, usuario, titulo, dados, alertas, fonte_snapshot = null, fonte_conferencia = [], fonte_manifestos = [] }, executor = pool) {
+  const { rows } = await executor.query(
+    `INSERT INTO minutas (protocolo, agente, usuario, titulo, dados, alertas, fonte_snapshot, fonte_conferencia, fonte_manifestos)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb) RETURNING *`,
     [protocolo || null, agente, usuario, titulo || null,
-     JSON.stringify(dados || {}), JSON.stringify(alertas || [])]
+     JSON.stringify(dados || {}), JSON.stringify(alertas || []), JSON.stringify(fonte_snapshot), JSON.stringify(fonte_conferencia), JSON.stringify(fonte_manifestos)]
   );
   return rows[0];
 }
@@ -169,10 +169,10 @@ async function criarMinuta({ protocolo, agente, usuario, titulo, dados, alertas 
 // As colunas que podem ser atualizadas ficam aqui dentro, e não na confiança de
 // quem chama. O nome da coluna entra no SQL por interpolação — se um dia alguém
 // passar as chaves de um req.body direto, a lista branca é o que impede injeção.
-const COLUNAS_MINUTA = new Set(['protocolo', 'titulo', 'status', 'dados', 'alertas', 'texto']);
-const COLUNAS_JSONB = new Set(['dados', 'alertas']);
+const COLUNAS_MINUTA = new Set(['protocolo', 'titulo', 'status', 'dados', 'alertas', 'texto', 'fonte_snapshot', 'fonte_conferencia', 'fonte_manifestos']);
+const COLUNAS_JSONB = new Set(['dados', 'alertas', 'fonte_snapshot', 'fonte_conferencia', 'fonte_manifestos']);
 
-async function atualizarMinuta(id, campos) {
+async function atualizarMinuta(id, campos, executor = pool) {
   const set = [], vals = [];
   let i = 1;
   for (const [k, v] of Object.entries(campos)) {
@@ -184,7 +184,7 @@ async function atualizarMinuta(id, campos) {
   if (!set.length) throw new Error('nada para atualizar');
   set.push('atualizado = now()');
   vals.push(id);
-  const { rows } = await pool.query(
+  const { rows } = await executor.query(
     `UPDATE minutas SET ${set.join(', ')} WHERE id = $${i} RETURNING *`, vals
   );
   return rows[0] || null;

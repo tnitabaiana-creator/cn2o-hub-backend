@@ -11,6 +11,10 @@ const dba = require('./db-agentes');
 const gemini = require('./gemini');
 const docx = require('./docx');
 const { pool } = require('./db');
+const fonteContrato = require('./protocolo-fonte');
+const fonteDB = require('./protocolo-fonte-db');
+const fonteIA = require('./protocolo-fonte-ia');
+const ocr = require('./ocr');
 
 const router = express.Router();
 
@@ -66,6 +70,20 @@ async function freioIA(req, res, next) {
   next();
 }
 
+function erroFonte(res, e) { if (e.codigo) { res.status(e.status || 409).json({ erro: e.message, motivo: e.codigo }); return true; } return false; }
+async function manifestosDoPedido(arquivos, fonte, usuario) {
+  const manifesto = fonteContrato.manifestarArquivos(arquivos);
+  if (!fonte || !ocr.ativo() || !arquivos.length) return manifesto;
+  try {
+    const l = await ocr.lerArquivos(arquivos);
+    if (l.resumo?.ativo && l.resumo.paginas) await dba.registrarConsumo({ usuario: usuario.login, agente: 'fonte-protocolo', etapa: 'ocr',
+      uso: { modelo: 'ocr-' + (l.resumo.motor || 'desconhecido'), tokens_entrada: 0, tokens_saida: 0, custo_usd: l.resumo.paginas * 0.0015 }
+    }).catch(() => console.error('agentes: falha ao registrar consumo OCR'));
+    return fonteContrato.juntarLeituras(manifesto, l.leituras);
+  }
+  catch (_) { return manifesto; } // sem OCR não existe override documental validado
+}
+
 // ---------------------------------------------------------------- CATÁLOGO
 
 // GET /agentes — os cards do painel.
@@ -114,6 +132,7 @@ router.get('/minutas/:id', async (req, res) => {
     const m = await dba.obterMinuta(parseInt(req.params.id, 10));
     if (!m) return erro(res, 404, 'minuta não encontrada');
     if (m.usuario !== req.usuario.login && !ehAdmin(req.usuario)) return erro(res, 403, 'minuta de outra escrevente');
+    Object.assign(m, await fonteDB.situacao(m.fonte_snapshot, req.usuario));
     res.json(m);
   } catch (e) { erro(res, 500, 'falha ao abrir a minuta', e.message); }
 });
@@ -201,31 +220,37 @@ router.post('/:slug/extrair', freioIA, async (req, res) => {
       return erro(res, 400, 'anexe ao menos um documento ou escreva as observações do caso');
     }
 
+    const fonte = await fonteDB.doPedido(req.body, req.usuario);
+    fonteContrato.validarAtoAgente(fonte, ag);
+    const manifestos = await manifestosDoPedido(arquivos, fonte, req.usuario);
+    await fonteDB.conferir(fonte, req.usuario);
     const { dados, uso } = await gemini.extrair({
-      agente: ag, arquivos, observacoes: req.body.observacoes
+      agente: ag, arquivos, observacoes: req.body.observacoes, fonte, manifestos
     });
+    const conferencia = fonte ? fonteContrato.matrizCobertura(fonte, dados._fonte_decisoes, manifestos, null, dados) : [];
+    delete dados._fonte_decisoes;
 
     const alertas = Array.isArray(dados._alertas) ? dados._alertas : [];
     delete dados._alertas;
 
-    const m = await dba.criarMinuta({
-      protocolo: req.body.protocolo ? parseInt(req.body.protocolo, 10) : null,
+    const m = await fonteDB.comFonteAtual(fonte, req.usuario, client => dba.criarMinuta({
+      protocolo: fonte ? fonte.protocolo.numero : null,
       agente: ag.slug,
       usuario: req.usuario.login,
       titulo: req.body.titulo || ag.nome,
-      dados, alertas
-    });
+      dados, alertas, fonte_snapshot: fonte, fonte_conferencia: conferencia, fonte_manifestos: manifestos
+    }, client));
 
     await dba.registrarConsumo({
       minuta_id: m.id, usuario: req.usuario.login, agente: ag.slug, etapa: 'extracao', uso
     });
 
     res.json({
-      minuta_id: m.id, dados, alertas,
+      minuta_id: m.id, dados, alertas, ...fonteIA.resumo(fonte, conferencia),
       campos: ag.campos,
       uso: { modelo: uso.modelo, tokens_entrada: uso.tokens_entrada, tokens_saida: uso.tokens_saida, custo_usd: uso.custo_usd }
     });
-  } catch (e) { erro(res, 502, 'falha na extração dos documentos', e.message); }
+  } catch (e) { if (!erroFonte(res, e)) erro(res, 502, 'falha na extração dos documentos', e.message); }
 });
 
 // POST /agentes/:slug/executar
@@ -287,24 +312,28 @@ router.post('/minutas/:id/redigir', freioIA, async (req, res) => {
     const ag = await dba.obterAgente(m.agente);
     if (!ag) return erro(res, 404, 'agente não encontrado');
 
-    // O que a escrevente conferiu na tela manda; o que veio da extração é só ponto de partida.
+    const fonte = m.fonte_snapshot || null;
+    if (m.protocolo && !fonte) throw fonteContrato.falha(409, "FONTE_LEGADA", "Esta minuta é anterior à fonte comum. Refaça a extração com o protocolo para vinculá-la.");
+    await fonteDB.conferir(fonte, req.usuario);
+    // Edições são dados complementares; não alteram a fonte canônica nem suas decisões.
     const dados = req.body.dados && typeof req.body.dados === 'object' ? req.body.dados : m.dados;
 
-    const { texto, uso } = await gemini.redigir({
-      agente: ag, dados, observacoes: req.body.observacoes
+    const resultado = await gemini.redigir({
+      agente: ag, dados, observacoes: req.body.observacoes, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
     });
-
-    await dba.atualizarMinuta(id, { dados, texto, status: 'redigida' });
+    const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);
+    const uso = resultado.uso;
+    await fonteDB.comFonteAtual(fonte, req.usuario, client => dba.atualizarMinuta(id, { dados, texto, status: 'redigida', fonte_conferencia: conferencia }, client));
     await dba.registrarTurno(id, 'agente', texto);
     await dba.registrarConsumo({
       minuta_id: id, usuario: req.usuario.login, agente: ag.slug, etapa: 'redacao', uso
     });
 
     res.json({
-      minuta_id: id, texto,
+      minuta_id: id, texto, ...fonteIA.resumo(fonte, conferencia),
       uso: { modelo: uso.modelo, tokens_entrada: uso.tokens_entrada, tokens_saida: uso.tokens_saida, custo_usd: uso.custo_usd }
     });
-  } catch (e) { erro(res, 502, 'falha ao redigir a minuta', e.message); }
+  } catch (e) { if (!erroFonte(res, e)) erro(res, 502, 'falha ao redigir a minuta', e.message); }
 });
 
 // POST /agentes/minutas/:id/revisar
@@ -320,25 +349,31 @@ router.post('/minutas/:id/revisar', freioIA, async (req, res) => {
     if (m.usuario !== req.usuario.login && !ehAdmin(req.usuario)) return erro(res, 403, 'minuta de outra escrevente');
     if (!m.texto) return erro(res, 409, 'redija a minuta antes de pedir revisão');
 
+    const fonte = m.fonte_snapshot || null;
+    if (m.protocolo && !fonte) throw fonteContrato.falha(409, 'FONTE_LEGADA', 'Refaça a extração para vincular esta minuta antiga ao protocolo.');
+    await fonteDB.conferir(fonte, req.usuario);
     const ag = await dba.obterAgente(m.agente);
     const historico = (m.turnos || []).filter(t => t.papel === 'usuario').map(t => t.conteudo).slice(-10);   // v1.39.3: só os 10 últimos ajustes
 
-    const { texto, uso } = await gemini.revisar({
-      agente: ag, minutaAtual: m.texto, pedido, historico
+    const resultado = await gemini.revisar({
+      agente: ag, minutaAtual: m.texto, pedido, historico, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
     });
+    const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);
+    const uso = resultado.uso;
+    await fonteDB.comFonteAtual(fonte, req.usuario, client => dba.atualizarMinuta(id, { texto, status: 'revisada', fonte_conferencia: conferencia }, client));
 
     await dba.registrarTurno(id, 'usuario', pedido);
     await dba.registrarTurno(id, 'agente', texto);
-    await dba.atualizarMinuta(id, { texto, status: 'revisada' });
+
     await dba.registrarConsumo({
       minuta_id: id, usuario: req.usuario.login, agente: m.agente, etapa: 'revisao', uso
     });
 
     res.json({
-      minuta_id: id, texto,
+      minuta_id: id, texto, ...fonteIA.resumo(fonte, conferencia),
       uso: { modelo: uso.modelo, tokens_entrada: uso.tokens_entrada, tokens_saida: uso.tokens_saida, custo_usd: uso.custo_usd }
     });
-  } catch (e) { erro(res, 502, 'falha ao revisar a minuta', e.message); }
+  } catch (e) { if (!erroFonte(res, e)) erro(res, 502, 'falha ao revisar a minuta', e.message); }
 });
 
 // POST /agentes/minutas/:id/salvar — edição manual do texto, sem gastar token.
@@ -358,9 +393,12 @@ router.post('/minutas/:id/salvar', async (req, res) => {
     if (req.body.protocolo != null && req.body.protocolo !== '') {
       const n = parseInt(req.body.protocolo, 10);
       if (!Number.isInteger(n)) return erro(res, 400, 'número de protocolo inválido');
+      if (m.fonte_snapshot && n !== m.protocolo) return erro(res, 409, 'a fonte desta minuta é imutável; refaça a extração para outro protocolo');
+      await fonteDB.obter(n, req.usuario);
       campos.protocolo = n;
     }
     if (!Object.keys(campos).length) return erro(res, 400, 'nada para salvar');
+    if (m.fonte_snapshot && (campos.texto || campos.dados)) campos.fonte_conferencia = (m.fonte_conferencia || []).map(c => ({ ...c, cobertura: 'pendente', revisao_humana: true, motivo: 'Texto ou dados editados manualmente; conferir novamente.' }));
 
     res.json(await dba.atualizarMinuta(id, campos));
   } catch (e) { erro(res, 500, 'falha ao salvar', e.message); }
@@ -373,13 +411,10 @@ router.post('/minutas/:id/salvar', async (req, res) => {
 // tipo de ato e checklist do dossiê já estão em protocolos.dados.
 router.get('/protocolo/:numero', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      'SELECT numero, dados, card_id, usuario, criado_em FROM protocolos WHERE numero = $1',
-      [parseInt(req.params.numero, 10)]
-    );
-    if (!rows[0]) return erro(res, 404, 'protocolo não encontrado');
-    res.json(rows[0]);
-  } catch (e) { erro(res, 500, 'falha ao buscar o protocolo', e.message); }
+    const fonte = await fonteDB.obter(req.params.numero, req.usuario);
+    res.set('Cache-Control', 'no-store');
+    res.json({ numero: fonte.protocolo.numero, dados: fonte.dados, usuario: fonte.revisao.autor, criado_em: fonte.revisao.data, fonte });
+  } catch (e) { if (!erroFonte(res, e)) erro(res, 500, 'falha ao buscar o protocolo', e.message); }
 });
 
 // ---------------------------------------------------------------- CADASTRO

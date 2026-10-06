@@ -1,0 +1,142 @@
+{
+  "row": {
+    "numero": 999001,
+    "usuario": "teste.escrevente",
+    "criado_em": "2026-10-06T15:00:00.000Z",
+    "card_id": "card-ficticio",
+    "dados": {
+      "ato": "CV-Urbano",
+      "preco": "100.000,00",
+      "triagem": {
+        "pag_momento": "antes",
+        "pag_ant_forma": "espécie"
+      },
+      "curadoria": {
+        "versao": 1,
+        "estado": "compativeis",
+        "confirmado": true,
+        "observacao": "Conferência fictícia",
+        "divergencias": [],
+        "autor": "teste.escrevente",
+        "data": "2026-10-06T15:00:00.000Z"
+      },
+      "pagamentos": [
+        {
+          "valor_centavos": 10000000,
+          "forma": "especie",
+          "forma_detalhe": "",
+          "data": "2026-10-05",
+          "status": "realizado",
+          "pagador": "",
+          "beneficiario": "",
+          "comprovante_referencia": ""
+        }
+      ]
+    }
+  },
+  "fonte": {
+    "schema_version": "cn2o.eprotocolo.v1",
+    "protocolo": {
+      "numero": 999001,
+      "ato": "CV-Urbano",
+      "card_id": "card-ficticio"
+    },
+    "revisao": {
+      "sha256": "441907e2cf4b7a6a6aa0cd964fc1e3ac70fd9187f093f90d6ebd39db788ebda7",
+      "autor": "teste.escrevente",
+      "data": "2026-10-06T15:00:00.000Z"
+    },
+    "dados": {
+      "ato": "CV-Urbano",
+      "preco": "100.000,00",
+      "triagem": {
+        "pag_momento": "antes",
+        "pag_ant_forma": "espécie"
+      },
+      "pagamentos": [
+        {
+          "valor_centavos": 10000000,
+          "forma": "especie",
+          "forma_detalhe": "",
+          "data": "2026-10-05",
+          "status": "realizado",
+          "pagador": "",
+          "beneficiario": "",
+          "comprovante_referencia": ""
+        }
+      ]
+    },
+    "campos": [
+      {
+        "id": "/dados/ato",
+        "valor": "CV-Urbano",
+        "grupo": "protocolo"
+      },
+      {
+        "id": "/dados/pagamentos/0/beneficiario",
+        "valor": "",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/comprovante_referencia",
+        "valor": "",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/data",
+        "valor": "2026-10-05",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/forma",
+        "valor": "especie",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/forma_detalhe",
+        "valor": "",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/pagador",
+        "valor": "",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/status",
+        "valor": "realizado",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/pagamentos/0/valor_centavos",
+        "valor": 10000000,
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/preco",
+        "valor": "100.000,00",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/triagem/pag_ant_forma",
+        "valor": "espécie",
+        "grupo": "negocio_pagamento"
+      },
+      {
+        "id": "/dados/triagem/pag_momento",
+        "valor": "antes",
+        "grupo": "negocio_pagamento"
+      }
+    ],
+    "curadoria": {
+      "versao": 1,
+      "estado": "compativeis",
+      "confirmado": true,
+      "observacao": "Conferência fictícia",
+      "divergencias": [],
+      "autor": "teste.escrevente",
+      "data": "2026-10-06T15:00:00.000Z"
+    }
+  },
+  "trello": "<!--CN2O_FONTE\n{\"schema_version\":\"cn2o.eprotocolo.v1\",\"protocolo\":{\"numero\":999001,\"ato\":\"CV-Urbano\",\"card_id\":\"card-ficticio\"},\"revisao\":{\"sha256\":\"441907e2cf4b7a6a6aa0cd964fc1e3ac70fd9187f093f90d6ebd39db788ebda7\",\"autor\":\"teste.escrevente\",\"data\":\"2026-10-06T15:00:00.000Z\"},\"projecao\":\"integral\"}\nCN2O_FONTE-->\n\n<!--DADOS\n{\"numero\":999001,\"ato\":\"CV-Urbano\",\"preco\":\"100.000,00\",\"triagem\":{\"pag_momento\":\"antes\",\"pag_ant_forma\":\"espécie\"},\"pagamentos\":[{\"valor_centavos\":10000000,\"forma\":\"especie\",\"forma_detalhe\":\"\",\"data\":\"2026-10-05\",\"status\":\"realizado\",\"pagador\":\"\",\"beneficiario\":\"\",\"comprovante_referencia\":\"\"}],\"curadoria\":{\"versao\":1,\"estado\":\"compativeis\",\"confirmado\":true,\"observacao\":\"Conferência fictícia\",\"divergencias\":[],\"autor\":\"teste.escrevente\",\"data\":\"2026-10-06T15:00:00.000Z\"}}\nDADOS-->"
+}

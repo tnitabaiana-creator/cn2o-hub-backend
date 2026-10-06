@@ -17,7 +17,7 @@
 //                                'redator' recebe ainda a data de hoje, quem assina (pela
 //                                sessão) e, com 'protocolo', os dados reais do ato.
 //                                'minuta' (Gerador de Minuta) recebe a data de hoje e quem
-//                                está minutando (pela sessão) — nunca lê protocolo. Seu
+//                                está minutando (pela sessão) e a fonte autenticada do protocolo. Seu
 //                                prompt (v1.28) = fatia de docs/prompt-mestre-bv-4.0.txt
 //                                + docs/hub-camada-integracao.txt (montados em hub-prompts.js
 //                                por backend/gerar-prompt-minuta.py). v1.29: com a ponte
@@ -78,6 +78,9 @@ const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
 const gemini = require('./gemini');    // cliente Gemini da Plataforma CN2O (GEMINI_API_KEY)
 const PROMPTS = require('./hub-prompts');
+const fonteContrato = require('./protocolo-fonte');
+const fonteDB = require('./protocolo-fonte-db');
+const fonteIA = require('./protocolo-fonte-ia');
 const trello = require('./trello');    // cliente da API do Trello (t genérico + operações)
 const ocr = require('./ocr');          // dupla leitura: OCR dedicado (Document AI), liga por env
 const docs = require('./docs');        // v1.29: minuta → Google Doc pelo Apps Script, liga por env
@@ -116,6 +119,8 @@ function preparar() {
       );
       -- v1.29: link do Google Doc criado para a minuta (quando a ponte está ligada)
       ALTER TABLE hub_minutas ADD COLUMN IF NOT EXISTS doc_url TEXT;
+      ALTER TABLE hub_minutas ADD COLUMN IF NOT EXISTS fonte_geracao_id UUID;
+      ALTER TABLE hub_minutas ADD COLUMN IF NOT EXISTS fonte_conferencia_estado TEXT;
       -- v1.32: "Minha Agenda" — agenda pessoal de cada escrevente (uma célula por dia e faixa;
       -- faixa 0 = dia inteiro / prazos, 7..18 = hora cheia). Só o dono lê e escreve.
       CREATE TABLE IF NOT EXISTS hub_agenda (
@@ -427,6 +432,28 @@ const MURAL_PADRAO = {
     desde: '28/09/2026'
   }
 };
+
+// Fonte comum: sessão obrigatória; GET não faz migração nem altera o protocolo.
+router.get('/protocolos/:numero/fonte', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try { res.json({ fonte: await fonteDB.obter(req.params.numero, req.usuario) }); }
+  catch (e) { res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'Falha ao consultar a fonte.', motivo: e.codigo }); }
+});
+router.post('/protocolos/:numero/curadoria', exigeSessao, jsonMural, async (req, res) => {
+  try {
+    const fonte = await fonteDB.salvarCuradoria(req.params.numero, req.body || {}, req.usuario);
+    const sincronizacao = await fonteDB.sincronizar(fonte);
+    auditar(req, 'protocolo', 'curadoria', 'protocolo ' + fonte.protocolo.numero + ' revisão ' + fonte.revisao.sha256.slice(0, 12));
+    res.json({ fonte, sincronizacao });
+  } catch (e) { res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'Falha ao salvar a curadoria.', motivo: e.codigo }); }
+});
+router.post('/protocolos/:numero/sincronizar-fonte', exigeSessao, jsonMural, async (req, res) => {
+  try {
+    const fonte = await fonteDB.obter(req.params.numero, req.usuario);
+    fonteContrato.validarRevisao(fonte, req.body?.expected_sha256);
+    res.json({ sincronizacao: await fonteDB.sincronizar(fonte) });
+  } catch (e) { res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'Falha na sincronização.', motivo: e.codigo }); }
+});
 
 router.get('/eu', exigeSessao, (req, res) => {
   res.json({ login: req.usuario.login, nome: req.usuario.nome, cargo: req.usuario.cargo || '', admin: ehAdmin(req.usuario) });
@@ -1146,14 +1173,17 @@ router.post('/minutas', exigeSessao, jsonMural, async (req, res) => {
     const id = require('crypto').randomBytes(12).toString('base64url');
     const docUrl = docUrlSegura(corpo.doc_url);
     limparMinutas();
-    await q('INSERT INTO hub_minutas (id, titulo, texto, criado_por, doc_url) VALUES ($1,$2,$3,$4,$5)',
-      [id, titulo, texto, req.usuario.login, docUrl]);
+    const geracao = corpo.fonte_geracao_id ? await fonteDB.obterGeracao(corpo.fonte_geracao_id, req.usuario) : null;
+    const estadoFonte = geracao ? (fonteContrato.hash(texto) === geracao.texto_sha256 ? 'conferencia_da_geracao' : 'texto_editado_requer_conferencia') : 'sem_fonte_vinculada';
+    await fonteDB.comFonteAtual(geracao?.fonte_snapshot, req.usuario, client => client.query(
+      'INSERT INTO hub_minutas (id, titulo, texto, criado_por, doc_url, fonte_geracao_id, fonte_conferencia_estado) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [id, titulo, texto, req.usuario.login, docUrl, geracao?.id || null, estadoFonte]));
     // metadados apenas: o título costuma trazer o nome das partes, o texto é a minuta
     auditar(req, 'minuta', 'guardar', 'id ' + id + ' · ' + texto.length + ' caracteres' + (docUrl ? ' · com Google Doc' : ''));
     res.json({ id });
   } catch (e) {
-    console.error('hub minutas (gravar):', e.message);
-    res.status(500).json({ erro: 'falha ao guardar a minuta' });
+    console.error('hub minutas (gravar):', e.codigo || 'falha');
+    res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'falha ao guardar a minuta', motivo: e.codigo });
   }
 });
 router.get('/minutas/:id', exigeSessao, async (req, res) => {
@@ -1163,10 +1193,16 @@ router.get('/minutas/:id', exigeSessao, async (req, res) => {
     const id = txt(req.params.id, 40);
     await limparMinutas();
     // v1.39.4: só quem guardou (ou o Tabelião) abre — para os outros, "não encontrada"
-    const r = await q(`SELECT id, titulo, texto, criado_por, em, doc_url FROM hub_minutas
+    const r = await q(`SELECT id, titulo, texto, criado_por, em, doc_url, fonte_geracao_id, fonte_conferencia_estado FROM hub_minutas
                        WHERE id = $1 AND (criado_por = $2 OR $3)`, [id, req.usuario.login, ehAdmin(req.usuario)]);
     if (!r.rows.length) return res.status(404).json({ erro: 'minuta não encontrada' });
-    res.json(r.rows[0]);
+    const minuta = r.rows[0];
+    if (minuta.fonte_geracao_id) {
+      const g = await q('SELECT fonte_snapshot, conferencia FROM protocolo_fonte_geracoes WHERE id=$1', [minuta.fonte_geracao_id]);
+      if (g.rows[0]) { minuta.fonte_snapshot = g.rows[0].fonte_snapshot; minuta.conferencia_fonte = g.rows[0].conferencia; }
+    }
+    Object.assign(minuta, await fonteDB.situacao(minuta.fonte_snapshot, req.usuario));
+    res.json(minuta);
   } catch (e) {
     console.error('hub minutas (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler a minuta' });
@@ -1514,8 +1550,8 @@ async function contextoRedator(corpo, usuario) {
 // que só o servidor pode dar (camada de integração, itens 1.1 e 1.2): "=== HOJE ==="
 // (idade, prazos e datação — o modelo nunca deduz a data) e "=== QUEM ESTÁ
 // MINUTANDO ===" (a escrevente logada, pela SESSÃO, nunca pelo formulário). Não lê
-// protocolo: a ficha da entrevista dirigida e os anexos são a única fonte de fatos
-// (itens 1.3 e 1.4 da camada).
+// protocolo nesta função de cabeçalho; a rota injeta a fonte comum autenticada
+// separadamente e aplica a hierarquia documental antes da saída.
 const RODAPE_MINUTA = 'Minuta de rascunho gerada pelo Hub CN2O — sujeita à conferência e ao aperfeiçoamento do Tabelião.';
 function contextoMinuta(usuario) {
   const h = hojeExtenso();
@@ -1822,6 +1858,15 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   if (nome === 'itcmd' && !arquivos.length) return res.status(400).json({ erro: 'anexe o requerimento e os documentos do dossiê (PDF ou fotos)' });
   if (!texto && !arquivos.length) return res.status(400).json({ erro: 'cole o texto ou anexe os documentos' });
 
+  const geraMinuta = nome === 'minuta' || nome === 'minuta_ue';
+  let fonte = null;
+  if (geraMinuta) {
+    try { fonte = await fonteDB.doPedido(corpo, req.usuario); }
+    catch (e) { return res.status(e.status || 500).json({ erro: e.codigo ? e.message : 'Falha ao consultar o protocolo.', motivo: e.codigo }); }
+  }
+  let manifestosFonte = fonteContrato.manifestarArquivos(arquivos);
+  let conferenciaFonte = [];
+
   const espera = aguardarLimite(req.usuario.login);
   if (espera) {
     auditar(req, 'ia', nome, 'recusada: limite de análises seguidas (aguardar ' + espera + ' s)');
@@ -1857,6 +1902,7 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
       try {
         const lido = await ocr.lerArquivos(arquivos, { codigo });
         resumoOcr = lido.resumo;
+        manifestosFonte = fonteContrato.juntarLeituras(manifestosFonte, lido.leituras);
         blocoOcr = lido.bloco || '';
         if (lido.bloco) observacoesFinais = observacoes + '\n\n' + lido.bloco;
       } catch (e) {
@@ -1865,9 +1911,11 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
       }
     }
 
-    const agenteIA = { prompt_sistema: PROMPTS[nome].prompt, temperatura: 0, usa_busca: false };
+    if (fonte) observacoesFinais += '\n\n' + fonteContrato.contextoFonte(fonte, manifestosFonte);
+    const agenteIA = { prompt_sistema: PROMPTS[nome].prompt + (fonte ? '\n' + fonteIA.instrucaoSaida() : ''), temperatura: 0, usa_busca: false };
     const modeloPreferido = modeloDe(nome);
     let r;
+    if (fonte) await fonteDB.conferir(fonte, req.usuario);
     try {
       r = await chamarModelo(agenteIA, arquivos, observacoesFinais, modeloPreferido, nome, codigo);
     } catch (e0) {
@@ -1931,6 +1979,11 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
       return res.json(Object.assign({ dados }, consumo,
         { ms: Date.now() - inicio, ocr: resumoOcr, alertas: defesa.alertas(texto + '\n' + blocoOcr, JSON.stringify(bruto), { conferirOnus: false }) }));
     }
+    if (fonte) {
+      const conferido = fonteIA.conferirResultado(fonte, r, manifestosFonte);
+      r.texto = conferido.texto;
+      conferenciaFonte = conferido.conferencia;
+    }
     // v1.28 — o rodapé de rascunho do Gerador de Minuta é institucional (a minuta
     // é rascunho sujeito à conferência do Tabelião). O prompt o exige, mas o
     // modelo pode omiti-lo; o servidor garante a linha, uma única vez.
@@ -1943,16 +1996,21 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
     // "traslado" com CPF e RG no Drive sem ninguém conferir. Agora a minuta fica guardada
     // no servidor (2 h, por pessoa) e o Doc nasce só no clique (POST /hub/minuta-doc),
     // depois da conferência na tela.
+    let fonteGeracaoId = null;
+    if (geraMinuta) fonteGeracaoId = await fonteDB.comFonteAtual(fonte, req.usuario, client => fonteDB.registrarGeracao({
+      fonte, matriz: conferenciaFonte, manifestos: manifestosFonte, texto: textoFinal, usuario: req.usuario, ferramenta: nome
+    }, client));
     let docDisponivel = false;
     if ((nome === 'minuta' || nome === 'minuta_ue') && docs.ativo()) {
       const partes = separarMinuta(textoFinal);
       if (partes && !estadoFechado(partes.estado)) {
-        ultimaMinuta.set(req.usuario.login, { pedido: pedidoDocs(partes, corpo, texto, req.usuario, uso.modelo), em: Date.now() });
+        ultimaMinuta.set(req.usuario.login, { pedido: pedidoDocs(partes, corpo, texto, req.usuario, uso.modelo), em: Date.now(), fonte });
         docDisponivel = true;
       }
     }
     const resposta = Object.assign({ texto: textoFinal }, consumo,
       { ms: Date.now() - inicio, ocr: resumoOcr, alertas: alertasDe(textoFinal) });
+    if (geraMinuta) Object.assign(resposta, fonteIA.resumo(fonte, conferenciaFonte), { fonte_geracao_id: fonteGeracaoId });
     if (docDisponivel) resposta.doc_disponivel = true;
     auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) +
       (resposta.alertas.length ? ' · alertas: ' + resposta.alertas.map(a => a.tipo).join(',') : ''));
@@ -1974,7 +2032,7 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
         erro: 'a cota de IA da serventia se esgotou por ora — tente de novo em alguns minutos ou avise o Tabelião'
       });
     }
-    res.status(502).json({ erro: e.message || 'falha na IA' });
+    res.status(e.status || 502).json({ erro: e.message || 'falha na IA', motivo: e.codigo });
   }
 });
 
@@ -1989,13 +2047,14 @@ router.post('/minuta-doc', exigeSessao, async (req, res) => {
     return res.status(404).json({ erro: 'não há minuta recente para virar Google Doc — gere a minuta de novo' });
   }
   try {
+    await fonteDB.conferir(u.fonte, req.usuario);
     const doc = await docs.criarMinuta(u.pedido);
     ultimaMinuta.delete(req.usuario.login);   // um Doc por minuta
     auditar(req, 'minuta', 'google-doc', 'Google Doc criado por clique');
     res.json({ ok: true, doc });
   } catch (e) {
     console.error('hub docs (clique):', e.message);
-    res.status(502).json({ erro: 'Google Docs: falha ao criar o documento — tente de novo' });
+    res.status(e.status || 502).json({ erro: e.codigo ? e.message : 'Google Docs: falha ao criar o documento — tente de novo', motivo: e.codigo });
   }
 });
 
