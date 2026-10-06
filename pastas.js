@@ -1,5 +1,5 @@
 'use strict';
-// pastas.js — Ficheiro de Pastas (v1.44; v1.44.2: arquivar/excluir o cartão libera a pasta)
+// pastas.js — Ficheiro de Pastas (v1.44; v1.44.2: arquivar/excluir libera; v1.44.3: conferência automática a cada 30 min)
 //
 // Pastas fixas numeradas (001 a 300) para os protocolos de escrituras. Todo cartão de
 // protocolo que entra numa lista de trabalho recebe a próxima pasta do GIRO CIRCULAR
@@ -560,6 +560,55 @@ async function executarCargaInicial(pool, { simular = true, por = 'carga inicial
 }
 
 
+/**
+ * Conferência automática (v1.44.3): revisa as pastas ocupadas no Trello e libera as de
+ * cartões arquivados, excluídos ou que já estão em "Arquivo Geral"/"Escrituras Sem Efeito"
+ * (quadro 00). Cobre eventos de webhook perdidos (deploy, queda do Trello ou do servidor).
+ */
+let CONFERINDO = false;
+async function conferirOcupadas(pool, { log = console, intervaloMs = 150 } = {}) {
+  if (CONFERINDO) return { emAndamento: true };
+  if (!(await estaAtivo(pool))) return { conferidas: 0, liberadas: [] };
+  CONFERINDO = true;
+  try {
+    const { rows } = await pool.query(
+      'SELECT numero, protocolo, card_id FROM pastas WHERE protocolo IS NOT NULL AND card_id IS NOT NULL ORDER BY numero');
+    const liberadas = [];
+    let erros = 0;
+    for (const r of rows) {
+      let card = null, sumiu = false;
+      try {
+        card = await trello('GET', `/cards/${r.card_id}?fields=closed,idBoard&list=true&list_fields=name`);
+      } catch (e) {
+        if (/→ 404/.test(e.message)) sumiu = true;
+        else { erros++; log.error('[pastas] conferência:', e.message); continue; }
+      }
+      let motivo = null;
+      if (sumiu || !card) motivo = 'cartão excluído';
+      else if (card.closed) motivo = 'cartão arquivado';
+      else if (card.idBoard === QUADRO_00 && card.list && LISTAS_QUE_LIBERAM.includes(norm(card.list.name))) motivo = norm(card.list.name);
+      if (motivo) {
+        const l = await liberar(pool, { cardId: r.card_id, motivo: motivo + ' (conferência automática)', por: 'conferência automática' });
+        if (l.status === 'liberada') {
+          liberadas.push({ pasta: l.pasta, protocolo: fmtProt(l.protocolo), motivo });
+          if (card) {
+            try {
+              await gravarCampo(pool, { cardId: r.card_id, boardId: card.idBoard, numero: null });
+              const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Maceio' });
+              await comentar(r.card_id, `📁 Pasta ${l.pasta} liberada em ${hoje} (${motivo}).`);
+            } catch (e) { log.error('[pastas] conferência: liberada, mas falhou atualizar o cartão:', e.message); }
+          }
+        }
+      }
+      if (intervaloMs) await esperar(intervaloMs);
+    }
+    if (liberadas.length) log.info('[pastas] conferência liberou:', JSON.stringify(liberadas));
+    return { conferidas: rows.length, liberadas, erros };
+  } finally {
+    CONFERINDO = false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rotas /hub/pastas (sessão do Hub; carga inicial, liberação e ampliação: Tabelião)
 // ---------------------------------------------------------------------------
@@ -622,6 +671,7 @@ router.post('/liberar', soTabeliao, h(async (req, res) => {
   const { protocolo, motivo } = req.body || {};
   res.json(await liberar(db.pool, { protocolo, motivo: motivo || 'correção manual', por: nomeDe(req.usuario) }));
 }));
+router.post('/conferir', soTabeliao, h(async (req, res) => res.json(await conferirOcupadas(db.pool, { log }))));
 router.post('/ampliar', soTabeliao, h(async (req, res) => res.json(await ampliar(db.pool, req.body && req.body.total))));
 
 // Chamado pelo POST /webhook/trello do server.js (já com a assinatura conferida).
@@ -633,10 +683,19 @@ function aoWebhook(action) {
     .catch((e) => log.error('[pastas] webhook:', e.message));
 }
 
+// Conferência automática a cada 30 min (PASTAS_CONFERENCIA_MIN; 0 desliga). Não segura o processo.
+const MIN_CONF = Number(process.env.PASTAS_CONFERENCIA_MIN ?? 30);
+if (MIN_CONF > 0 && process.env.DATABASE_URL) {
+  const rodar = () => pronto().then(() => conferirOcupadas(db.pool, { log }))
+    .catch((e) => log.error('[pastas] conferência automática:', e.message));
+  const t1 = setTimeout(rodar, 2 * 60 * 1000); if (t1.unref) t1.unref();
+  const t2 = setInterval(rodar, MIN_CONF * 60 * 1000); if (t2.unref) t2.unref();
+}
+
 module.exports = {
   router, aoWebhook,
   // uso interno e testes
   _interno: { init, reservar, liberar, ocupacao, listar, porProtocolo, porPasta, porCard, ampliar,
     cargaInicial, conferencia, estaAtivo, extrairProtocolo, processarAcao, atribuirPasta,
-    coletarAtivos, executarCargaInicial, QUADRO_00, QUADROS },
+    coletarAtivos, executarCargaInicial, conferirOcupadas, QUADRO_00, QUADROS },
 };
