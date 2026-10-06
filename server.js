@@ -362,6 +362,7 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
   // da própria serventia — um pedido forjado de fora não move nada.
   if (protecao.podeReidratar(assinatura, a && a.data && a.data.board && a.data.board.id, quadrosDaCasa())) {
     reidratarCampos(a).catch(e => console.error('webhook:', e.message));
+    require('./pastas').aoWebhook(a);   // v1.44 — Ficheiro de Pastas: entrega/libera pasta
   }
 });
 function quadrosDaCasa() {
@@ -460,6 +461,7 @@ app.use('/hub/relatorios', require('./relatorios').router);
 // --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
 // Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
 app.use('/hub/despesas', require('./despesas').router);
+app.use('/hub/pastas', require('./pastas').router);   // v1.44 — Ficheiro de Pastas (pastas.js)
 app.use('/hub', hub);
 
 // A interface (public/index.html). Fica por ultimo entre os middlewares
