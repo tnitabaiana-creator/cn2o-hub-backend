@@ -1,0 +1,1 @@
+export function settings(env=process.env){return {enabled:!!env.GCP_VISION_KEY,provider:'Google Cloud Vision',authenticationRequired:true,monthlyPageLimit:Math.max(1,Math.min(10000,Number(env.DESPESAS_OCR_MONTHLY_LIMIT)||500))};}

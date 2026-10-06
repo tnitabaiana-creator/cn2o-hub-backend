@@ -459,6 +459,7 @@ app.use('/hub/relatorios', require('./relatorios').router);
 
 // --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
 // Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
+app.use('/hub/despesas', require('./despesas').router);
 app.use('/hub', hub);
 
 // A interface (public/index.html). Fica por ultimo entre os middlewares

@@ -11,7 +11,7 @@
 //   POST /hub/mural            → (admin) grava o mural inteiro e guarda histórico
 //   GET  /hub/mural/historico  → (admin) últimas versões publicadas
 //   GET  /hub/ia/status        → { configurada, modelo, modelo_extrator, ocr_dedicado, ocr_motor, docs_ativo }
-//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta | transpor | redator
+//   POST /hub/ia/:ferramenta   → qualificacao | descricao | matricula | minuta | transpor | redator | itcmd (v1.42)
 //                                (minuta_ue = alias de compatibilidade de 'minuta')
 //                                { texto, arquivos[], protocolo? } → { texto, … }
 //                                'redator' recebe ainda a data de hoje, quem assina (pela
@@ -393,8 +393,17 @@ function normalizarMural(d) {
     };
   }).filter(Boolean);
 
-  return { versao: 2, avisos, aniversariantes, metas: { em_breve: m.em_breve !== false, itens } };
+  // v1.41 — rodízio de atendimento (escala semanal: quem sai do balcão para as escrituras em cada dia)
+  const rz = d.rodizio && typeof d.rodizio === 'object' && !Array.isArray(d.rodizio) ? d.rodizio : {};
+  const dias = {};
+  const semTags = v => v.replace(/<[^>]*>/g, '').trim();
+  DIAS_RODIZIO.forEach(k => { dias[k] = semTags(txt(rz.dias && rz.dias[k], 60)); });
+  const dataOk = v => { const m = RE_DATA.exec(v || ''); if (!m) return false; const [d, mm, a] = v.split('/').map(Number); const dt = new Date(a, mm - 1, d); return dt.getFullYear() === a && dt.getMonth() === mm - 1 && dt.getDate() === d; };
+  const rodizio = { dias, obs: semTags(txt(rz.obs, 300)), desde: dataOk(rz.desde) ? rz.desde : '' };
+
+  return { versao: 2, avisos, aniversariantes, metas: { em_breve: m.em_breve !== false, itens }, rodizio };
 }
+const DIAS_RODIZIO = ['seg', 'ter', 'qua', 'qui', 'sex'];
 
 const MURAL_PADRAO = {
   versao: 2,
@@ -410,7 +419,13 @@ const MURAL_PADRAO = {
     estilo: 'padrao'
   }],
   aniversariantes: [],
-  metas: { em_breve: true, itens: [] }
+  metas: { em_breve: true, itens: [] },
+  // v1.41 — escala inicial (Tabela de Rodízio dos Escreventes, Itabaiana/SE, 28/09/2026)
+  rodizio: {
+    dias: { seg: 'JONAS', ter: 'LARA', qua: '', qui: 'JOSILENE', sex: 'ROMÊNIA' },
+    obs: 'No dia do rodízio, o escrevente fica livre do atendimento ao público para se dedicar às escrituras.',
+    desde: '28/09/2026'
+  }
 };
 
 router.get('/eu', exigeSessao, (req, res) => {
@@ -423,7 +438,10 @@ router.get('/mural', exigeSessao, async (req, res) => {
     await preparar();
     const r = await q('SELECT dados, atualizado_em, atualizado_por FROM hub_mural WHERE id = 1');
     if (!r.rows.length) return res.json({ dados: MURAL_PADRAO, atualizado_em: null, atualizado_por: null });
-    res.json(r.rows[0]);
+    const linha = r.rows[0];
+    // v1.41 — mural publicado antes do rodízio: entrega a escala padrão até o Tabelião publicar a dele
+    if (linha.dados && typeof linha.dados === 'object' && !linha.dados.rodizio) linha.dados = Object.assign({}, linha.dados, { rodizio: MURAL_PADRAO.rodizio });
+    res.json(linha);
   } catch (e) {
     console.error('hub mural (ler):', e.message);
     res.status(500).json({ erro: 'falha ao ler o mural' });
@@ -761,8 +779,8 @@ router.post('/admin/zerar-senha', exigeSessao, exigeAdmin, jsonMural, gerarCodig
 const REGISTRO_ACOES = new Set(['login', 'logout', 'abrir', 'itbi']);
 // ('pdf' é o "como" do evento itbi — a guia saiu em PDF; os demais são as ferramentas do hub)
 const REGISTRO_FERRAMENTAS = new Set(['protocolo', 'calculadora', 'ia', 'extrator', 'analista',
-  'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'acervo', 'agenda', 'notas', 'mural',
-  'links', 'ajuda', 'pdf']);
+  'minutas', 'redator', 'clausulas', 'consulta', 'itbi', 'itcmd', 'acervo', 'agenda', 'notas', 'mural',
+  'links', 'ajuda', 'pdf', 'despesas']);
 router.post('/registro', exigeSessao, jsonMural, async (req, res) => {
   try {
     await preparar();
@@ -1595,6 +1613,123 @@ function extrairJson(texto) {
   } catch (_) { return null; }
 }
 
+// ---------------------------------------------------------------- Leitor de dossiê — Calculadora ITCMD (v1.42)
+// O botão "Extrair dados do dossiê" da Calculadora ITCMD/SE manda o requerimento do
+// advogado e os documentos que o instruem (POST /hub/ia/itcmd). O prompt
+// (backend/prompt-itcmd.txt) devolve JSON; aqui ele vira um objeto de FORMA FIXA para a
+// tela preencher os campos da sucessão: chaves sempre presentes, enumerações conferidas
+// (valor fora da lista vira ""), tetos de quantidade e de tamanho, booleanos só
+// true/false/null. O VALOR DECLARADO dos bens nunca vem daqui — só "valor_referencia"
+// (o que um documento diz) para a escrevente lançar à mão.
+const ITCMD_ENUM = {
+  operacao: ['inventario', 'cumulativo', 'doacao'],
+  estado_civil: ['casado', 'uniao_estavel', 'solteiro', 'viuvo', 'divorciado', 'separado'],
+  regime: ['parcial', 'universal', 'separacao_conv', 'separacao_obrig', 'aquestos'],
+  situacao: ['vivo', 'falecido', 'renunciou'],
+  parentesco: ['irmao', 'sobrinho', 'tio', 'primo'],
+  vinculo: ['bilateral', 'unilateral'],
+  tipo_bem: ['imovel_urbano', 'imovel_rural', 'veiculo', 'quotas', 'dinheiro', 'outros'],
+  natureza: ['comum', 'particular']
+};
+const LIM_ITCMD = { falecidos: 2, pessoas: 30, representantes: 20, bens: 40, alertas: 40, texto: 400, resumo: 600 };
+// Enumeração tolerante a acento e a gênero ("viúva", "casada", "união estável", "Irmã" → código).
+const enumItcmd = (v, lista) => {
+  let t = textoTransposto(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]+/g, '_');
+  t = t.replace(/^(casad|viuv|solteir|divorciad|separad|falecid)a$/, '$1o').replace(/^irma$/, 'irmao').replace(/^(sobrinh|ti|prim)a$/, '$1o');
+  return lista.includes(t) ? t : '';
+};
+// O regime pode vir por extenso ("comunhão parcial de bens") — aceita o código ou a expressão.
+function regimeItcmd(v) {
+  const t = textoTransposto(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!t) return '';
+  if (/^(parcial|universal|separacao_conv|separacao_obrig|aquestos)$/.test(t)) return t;
+  // A separação decide primeiro: "separação obrigatória … Súmula 377 (comunhão dos aquestos)" NÃO é
+  // participação final nos aquestos (auditoria v1.42, G3).
+  if (/separacao|separado/.test(t)) return /obrigat|legal|1\.?641|377/.test(t) ? 'separacao_obrig' : 'separacao_conv';
+  if (/participacao.*aquesto|aquesto.*final/.test(t)) return 'aquestos';
+  if (/universal/.test(t)) return 'universal';
+  if (/parcial/.test(t)) return 'parcial';
+  return '';
+}
+const boolItcmd = v => (v === true || v === false) ? v : (v === 'true' ? true : v === 'false' ? false : null);
+const txtItcmd = (v, n) => textoTransposto(v).slice(0, n || LIM_ITCMD.texto);
+// "12.000,00" / "12000.00" / 12000 → "12000.00" (texto; a tela converte). Sem dígito → "".
+function numeroItcmd(v) {
+  if (typeof v === 'number') return isFinite(v) && v >= 0 ? String(v) : '';
+  let t = textoTransposto(v).replace(/[R$\s]/g, '');
+  if (!/\d/.test(t) || /\d[eE][+-]?\d/.test(t) || /^-/.test(t)) return '';   // sem notação científica nem negativo (auditoria v1.42, M8)
+  t = t.replace(/\(.*$/, '').replace(/[^\d.,-]+.*$/, '');   // "180.000,00 (valor venal)" → "180.000,00"   // sem notação científica nem negativo (auditoria v1.42, M8)
+  if (/,\d{1,2}$/.test(t) || (t.includes(',') && !t.includes('.'))) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = parseFloat(t.replace(/[^\d.]/g, ''));
+  return isFinite(n) && n >= 0 ? String(n) : '';
+}
+function avosItcmd(v) { const n = parseInt(v, 10); return Number.isInteger(n) && n >= 0 && n <= 2 ? n : null; }
+const nomesItcmd = (v, n) => (Array.isArray(v) ? v : []).filter(ehObjeto).slice(0, n).map(x => ({ nome: txtItcmd(x.nome, 160), cpf: txtItcmd(x.cpf, 20) })).filter(x => x.nome);
+// v1.43 — partilha acordada no requerimento/plano de partilha quando difere da legal (cessão gratuita ou onerosa de parte do quinhão)
+// fração "a/b" (até 7 dígitos, a ≤ b) ou percentual 0–100 com vírgula ou ponto ("52,3857" / "52.3857"); fora disso, ""
+const fracaoItcmd = v => { const t = String(v == null ? '' : v).replace(/\s+/g, '').replace(/%$/, ''); const m = /^(\d{1,7})\/(\d{1,7})$/.exec(t); if (m) return +m[2] > 0 && +m[1] <= +m[2] ? t : ''; if (!/^\d{1,3}([.,]\d{1,6})?$/.test(t)) return ''; const n = parseFloat(t.replace(',', '.')); return n >= 0 && n <= 100 ? t : ''; };
+function partilhaItcmd(p) {
+  const o = ehObjeto(p) ? p : {};
+  const cessoes = (Array.isArray(o.cessoes) ? o.cessoes : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(c => ({ cedente: txtItcmd(c.cedente, 160), beneficiario: txtItcmd(c.beneficiario, 160), fracao_do_quinhao: fracaoItcmd(c.fracao_do_quinhao), natureza: enumItcmd(c.natureza, ['nao_onerosa', 'onerosa']), fonte: txtItcmd(c.fonte, 120) })).filter(c => c.cedente && c.beneficiario);
+  return { desigual: boolItcmd(o.desigual), cessoes, descricao: txtItcmd(o.descricao, LIM_ITCMD.texto) };
+}
+// Donatário: nome + doações anteriores do mesmo doador no exercício e o ITCMD já recolhido nelas (art. 8º §1º / art. 10 §7º)
+const donatariosItcmd = (v, n) => (Array.isArray(v) ? v : []).filter(ehObjeto).slice(0, n).map(x => ({ nome: txtItcmd(x.nome, 160), doacoes_anteriores_no_ano: numeroItcmd(x.doacoes_anteriores_no_ano), itcmd_recolhido_anteriores: numeroItcmd(x.itcmd_recolhido_anteriores), fonte: txtItcmd(x.fonte, 120) })).filter(x => x.nome);
+function herdeiroItcmd(p) {
+  const o = ehObjeto(p) ? p : {};
+  return { nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), situacao: enumItcmd(o.situacao, ITCMD_ENUM.situacao), filho_do_conjuge_sobrevivente: boolItcmd(o.filho_do_conjuge_sobrevivente),
+    representantes: nomesItcmd(o.representantes, LIM_ITCMD.representantes), fonte: txtItcmd(o.fonte, 120) };
+}
+function colateralItcmd(p) {
+  const o = ehObjeto(p) ? p : {};
+  return { nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), parentesco: enumItcmd(o.parentesco, ITCMD_ENUM.parentesco), vinculo: enumItcmd(o.vinculo, ITCMD_ENUM.vinculo),
+    situacao: enumItcmd(o.situacao, ITCMD_ENUM.situacao), representantes: nomesItcmd(o.representantes, LIM_ITCMD.representantes) };
+}
+function bemItcmd(b, comDestino) {
+  const o = ehObjeto(b) ? b : {};
+  const bem = { descricao: txtItcmd(o.descricao, 300), tipo: enumItcmd(o.tipo, ITCMD_ENUM.tipo_bem), matricula: txtItcmd(o.matricula, 120), inscricao_municipal_incra: txtItcmd(o.inscricao_municipal_incra, 80),
+    valor_referencia: numeroItcmd(o.valor_referencia), fonte_valor: txtItcmd(o.fonte_valor, 120), fonte: txtItcmd(o.fonte, 120) };
+  if (comDestino) { bem.destino = txtItcmd(o.destino, 160) || 'todos'; bem.fracao = numeroItcmd(o.fracao); }
+  else { bem.natureza = enumItcmd(o.natureza, ITCMD_ENUM.natureza); bem.fracao_do_falecido = numeroItcmd(o.fracao_do_falecido); }
+  return bem;
+}
+function falecidoItcmd(f) {
+  const o = ehObjeto(f) ? f : {};
+  const c = ehObjeto(o.conjuge) ? o.conjuge : {}, co = ehObjeto(o.certidao_obito) ? o.certidao_obito : {};
+  const a = ehObjeto(o.ascendentes) ? o.ascendentes : {}, pai = ehObjeto(a.pai) ? a.pai : {}, mae = ehObjeto(a.mae) ? a.mae : {};
+  return {
+    nome: txtItcmd(o.nome, 160), cpf: txtItcmd(o.cpf, 20), data_obito: txtItcmd(o.data_obito, 20), local_obito: txtItcmd(o.local_obito, 120),
+    certidao_obito: { serventia: txtItcmd(co.serventia, 160), matricula: txtItcmd(co.matricula, 60), data_emissao: txtItcmd(co.data_emissao, 20) },
+    estado_civil_no_obito: enumItcmd(o.estado_civil_no_obito, ITCMD_ENUM.estado_civil),
+    conjuge: { nome: txtItcmd(c.nome, 160), cpf: txtItcmd(c.cpf, 20), regime: regimeItcmd(c.regime), regime_como_consta: txtItcmd(c.regime_como_consta, 160), data_casamento: txtItcmd(c.data_casamento, 20),
+      pacto: txtItcmd(c.pacto, 200), sobrevivente: boolItcmd(c.sobrevivente), separado_de_fato: boolItcmd(c.separado_de_fato),
+      sumula_377: /377/.test(textoTransposto(c.regime_como_consta) + ' ' + textoTransposto(c.pacto) + ' ' + textoTransposto(c.regime)) },
+    filhos: (Array.isArray(o.filhos) ? o.filhos : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(herdeiroItcmd).filter(x => x.nome || x.representantes.length),   // premorto sem nome, com netos, fica (M12)
+    ascendentes: { pai: { nome: txtItcmd(pai.nome, 160), vivo: boolItcmd(pai.vivo) }, mae: { nome: txtItcmd(mae.nome, 160), vivo: boolItcmd(mae.vivo) },
+      avos_paternos_vivos: avosItcmd(a.avos_paternos_vivos), avos_maternos_vivos: avosItcmd(a.avos_maternos_vivos) },
+    colaterais: (Array.isArray(o.colaterais) ? o.colaterais : []).filter(ehObjeto).slice(0, LIM_ITCMD.pessoas).map(colateralItcmd).filter(x => x.nome),
+    bens: (Array.isArray(o.bens) ? o.bens : []).filter(ehObjeto).slice(0, LIM_ITCMD.bens).map(b => bemItcmd(b, false)).filter(x => x.descricao),
+    dividas: numeroItcmd(o.dividas), inventario_requerido_em: txtItcmd(o.inventario_requerido_em, 20),
+    partilha: partilhaItcmd(o.partilha)
+  };
+}
+function normalizarDossieItcmd(j) {
+  const adv = ehObjeto(j.advogado) ? j.advogado : {}, req = ehObjeto(j.requerimento) ? j.requerimento : {}, d = ehObjeto(j.doacao) ? j.doacao : {}, inv = ehObjeto(j.inventariante) ? j.inventariante : {};
+  return {
+    operacao: enumItcmd(j.operacao, ITCMD_ENUM.operacao),
+    advogado: { nome: txtItcmd(adv.nome, 160), oab: txtItcmd(adv.oab, 40), cpf: txtItcmd(adv.cpf, 20) },
+    requerimento: { data: txtItcmd(req.data, 20), resumo: txtItcmd(req.resumo, LIM_ITCMD.resumo), tipo_inventario: enumItcmd(req.tipo_inventario, ['extrajudicial', 'judicial']), processo: txtItcmd(req.processo, 60), vara_comarca: txtItcmd(req.vara_comarca, 120) },
+    // v1.43 — dados da Declaração do ITCMD (SEFAZ): inventariante
+    inventariante: { nome: txtItcmd(inv.nome, 160), cpf: txtItcmd(inv.cpf, 20), endereco: txtItcmd(inv.endereco, 300), telefone_email: txtItcmd(inv.telefone_email, 120), fonte: txtItcmd(inv.fonte, 120) },
+    falecidos: (Array.isArray(j.falecidos) ? j.falecidos : []).filter(ehObjeto).slice(0, 6).map(falecidoItcmd).filter(f => f.nome || f.data_obito).slice(0, LIM_ITCMD.falecidos),
+    doacao: { doadores: nomesItcmd(d.doadores, LIM_ITCMD.pessoas), donatarios: donatariosItcmd(d.donatarios, LIM_ITCMD.pessoas),
+      bens: (Array.isArray(d.bens) ? d.bens : []).filter(ehObjeto).slice(0, LIM_ITCMD.bens).map(b => bemItcmd(b, true)).filter(x => x.descricao),
+      reserva_usufruto: boolItcmd(d.reserva_usufruto), data_prevista: txtItcmd(d.data_prevista, 20) },
+    alertas: listaTransposta(j.alertas).slice(0, LIM_ITCMD.alertas)
+  };
+}
+
 // ---------------------------------------------------------------- Minuta → Google Docs (v1.29)
 // Com a ponte ligada (docs.js), a minuta PRONTA ou PRELIMINAR nasce como Google Doc
 // na pasta do Gerador: o corpo do documento é o trecho entre os marcadores do
@@ -1684,6 +1819,7 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   }
   // Transposição: a matéria-prima são os documentos; texto sozinho não tem o que transpor.
   if (nome === 'transpor' && !arquivos.length) return res.status(400).json({ erro: 'anexe os documentos das partes para transpor' });
+  if (nome === 'itcmd' && !arquivos.length) return res.status(400).json({ erro: 'anexe o requerimento e os documentos do dossiê (PDF ou fotos)' });
   if (!texto && !arquivos.length) return res.status(400).json({ erro: 'cole o texto ou anexe os documentos' });
 
   const espera = aguardarLimite(req.usuario.login);
@@ -1778,6 +1914,21 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
       }
       auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length));
       return res.json(Object.assign({ dados: normalizarTransposicao(bruto) }, consumo,
+        { ms: Date.now() - inicio, ocr: resumoOcr, alertas: defesa.alertas(texto + '\n' + blocoOcr, JSON.stringify(bruto), { conferirOnus: false }) }));
+    }
+    // v1.42 — Leitor de dossiê (Calculadora ITCMD): mesma disciplina da transposição —
+    // dados de forma fixa, nunca texto; sem JSON aproveitável, 502 motivo 'json'.
+    if (nome === 'itcmd') {
+      const bruto = extrairJson(r.texto);
+      if (!bruto) {
+        const resp = String(r.texto == null ? '' : r.texto);
+        console.error('hub itcmd: o modelo não devolveu JSON — ' + resp.length + ' caracteres');
+        auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) + ' · sem JSON aproveitável');
+        return res.status(502).json({ erro: 'o modelo não devolveu dados estruturados — tente de novo', motivo: 'json' });
+      }
+      const dados = normalizarDossieItcmd(bruto);
+      auditar(req, 'ia', nome, resumoIA(consumo, inicio, arquivos.length) + ' · ' + (dados.operacao || 'operação indefinida') + ' · ' + dados.falecidos.length + ' falecido(s)');
+      return res.json(Object.assign({ dados }, consumo,
         { ms: Date.now() - inicio, ocr: resumoOcr, alertas: defesa.alertas(texto + '\n' + blocoOcr, JSON.stringify(bruto), { conferirOnus: false }) }));
     }
     // v1.28 — o rodapé de rascunho do Gerador de Minuta é institucional (a minuta
