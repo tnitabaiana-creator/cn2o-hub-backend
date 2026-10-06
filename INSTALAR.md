@@ -111,8 +111,7 @@ Só uma é obrigatória:
 | Variável | Valor | Obrigatória |
 |---|---|---|
 | `GEMINI_API_KEY` | a chave do Google AI Studio | **sim** |
-| `GEMINI_MODEL_EXTRACAO` | `gemini-3.5-flash-lite` | não (é o padrão) |
-| `GEMINI_MODEL_REDACAO` | `gemini-3.8-flash` | não (é o padrão) |
+| `GEMINI_MODELO_UNICO` | `gemini-3.8-flash` | não (é o padrão; desde a v1.40.1 vale para todas as chamadas) |
 | `LIMITE_UPLOAD` | `24mb` | não |
 | `CAMBIO_USD_BRL` | `5.12` | não (só para a tela de consumo) |
 | `AGENTES_ADMIN` | logins extras com poder de editar agentes, separados por vírgula | não |

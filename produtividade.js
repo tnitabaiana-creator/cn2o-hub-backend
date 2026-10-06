@@ -222,7 +222,7 @@ async function analisar(m, anterior, login) {
   const cfg = await lerConfig();
   const codigo = defesa.novoCodigo();
   const pacote = resumoParaIA(m, anterior, nomes, cfg);
-  const modelo = process.env.HUB_MODELO_PRODUTIVIDADE || gemini.MODELO_REDACAO;
+  const modelo = gemini.MODELO_UNICO;   // v1.40.1: modelo único (gemini-3.8-flash)
   const r = await gemini.executar({
     agente: { prompt_sistema: PROMPT_IA, temperatura: 0.2 },
     observacoes: defesa.blocoDados('NÚMEROS DO MÊS', JSON.stringify(pacote, null, 1), codigo),
