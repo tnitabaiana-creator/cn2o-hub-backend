@@ -24,7 +24,7 @@ function ambiente(){
   }};
   const deps={express:{Router:()=>router,json:()=>()=>{}},'./db':{pool:{query}},'./gemini':gemini,'./hub-prompts':{minuta:{prompt:'Prompt fictício'}},
     './protocolo-fonte':f,'./protocolo-fonte-db':source,'./protocolo-fonte-ia':ia,'./trello':{},'./ocr':{ativo:()=>false},'./docs':{ativo:()=>false},
-    './auth':{},'./limite-ia':{aguardarLimite:()=>0,tetoDiario:async()=>({excedido:false})},'./ia-defesa':require('../ia-defesa'),
+    './auth':{},'./agenda-imagem':require('../agenda-imagem'),'./limite-ia':{aguardarLimite:()=>0,tetoDiario:async()=>({excedido:false})},'./ia-defesa':require('../ia-defesa'),
     './atos':{NOMES_ATO:{}},'./acervo':{},'./db-agentes':{registrarConsumo:async()=>{}},'./protecao':{mascaraIp:()=>''}};
   const sandbox={module:{exports:{}},process:{env:{GEMINI_API_KEY:'chave-falsa-sem-rede',HUB_ADMINS:'teste.escrevente'}},console:{error(){},log(){}},Buffer,setTimeout,clearTimeout,
     require:n=>{if(n==='crypto')return require('crypto');if(Object.hasOwn(deps,n))return deps[n];throw Error('Dependência inesperada '+n);}};

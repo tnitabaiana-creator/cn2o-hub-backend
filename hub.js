@@ -53,6 +53,8 @@
 //                                com csv=1 devolve text/csv (BOM UTF-8, separador ';', até
 //                                20.000 linhas) para o Excel em português
 //   GET  /hub/agenda?de=&ate=  → (v1.32) agenda pessoal do login da sessão; POST grava a célula
+//   POST /hub/agenda/imagem    → { dia, faixa, imagem: { mime, base64 } | null }; até 1 MiB
+//   GET  /hub/agenda/imagem?dia=&faixa= → imagem privada da célula, exige a mesma sessão
 //   GET  /hub/notas            → (v1.33) Bloco de Notas pessoal; POST /hub/notas cria ou
 //                                atualiza; POST /hub/notas/apagar apaga (o CORS só tem GET/POST)
 //   GET  /hub/acervo/status?fonte=antigo1|cn2o
@@ -85,10 +87,12 @@ const trello = require('./trello');    // cliente da API do Trello (t genérico 
 const ocr = require('./ocr');          // dupla leitura: OCR dedicado (Document AI), liga por env
 const docs = require('./docs');        // v1.29: minuta → Google Doc pelo Apps Script, liga por env
 const { novoCodigo, hashCodigo } = require('./auth');   // v1.39.1: código de primeiro acesso
+const agendaImagem = require('./agenda-imagem');
 
 const router = express.Router();
 const jsonMural = express.json({ limit: '8mb' });
 const jsonIA = express.json({ limit: '24mb' });
+const jsonAgendaImagem = express.json({ limit: '1500kb' });
 
 // ---------------------------------------------------------------- banco
 // Mesmo pool do db.js (um só banco, um só conjunto de conexões).
@@ -131,6 +135,10 @@ function preparar() {
         atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (login, dia, faixa)
       );
+      -- Imagens pessoais da agenda: preserva as anotações e acrescenta um anexo por célula.
+      ALTER TABLE hub_agenda ADD COLUMN IF NOT EXISTS imagem_dados BYTEA;
+      ALTER TABLE hub_agenda ADD COLUMN IF NOT EXISTS imagem_mime TEXT;
+      ALTER TABLE hub_agenda ADD COLUMN IF NOT EXISTS imagem_hash TEXT;
       -- v1.33: "Bloco de Notas" — ao lado da agenda, os textos que cada escrevente repete
       -- todo dia (modelos de mensagem de WhatsApp/e-mail, comandos, trechos padrão), para
       -- copiar com um clique. Pessoal: só o dono lê, escreve e apaga.
@@ -1213,7 +1221,7 @@ router.get('/minutas/:id', exigeSessao, async (req, res) => {
 // Agenda pessoal do escrevente logado: observações, prazos e providências por dia e
 // faixa de horário. A tela salva sozinha a cada pausa na digitação (POST por célula —
 // o CORS do server.js só libera GET/POST, e a gravação é idempotente: um upsert);
-// texto vazio apaga a célula. O login vem SEMPRE da sessão — ninguém lê nem escreve a
+// texto vazio só apaga a célula se também não houver imagem. O login vem SEMPRE da sessão — ninguém lê nem escreve a
 // agenda de outra pessoa. Faixas: 0 = "dia inteiro / prazos"; 1..23 = hora cheia.
 const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const AGENDA_TEXTO_MAX = 2000;
@@ -1224,6 +1232,7 @@ function diaValido(v) {
   return isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? null : v;
 }
 function faixaValida(v) {
+  if (typeof v !== 'number' && (typeof v !== 'string' || !/^\d{1,2}$/.test(v))) return null;
   const n = Number(v);
   return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
 }
@@ -1236,7 +1245,7 @@ router.get('/agenda', exigeSessao, async (req, res) => {
     const dias = (Date.parse(ate + 'T00:00:00Z') - Date.parse(de + 'T00:00:00Z')) / 86400000;
     if (dias < 0 || dias > AGENDA_JANELA_MAX_DIAS) return res.status(400).json({ erro: 'período inválido (até ' + AGENDA_JANELA_MAX_DIAS + ' dias, de ≤ ate)' });
     const r = await q(
-      `SELECT to_char(dia, 'YYYY-MM-DD') AS dia, faixa, texto, atualizado_em
+      `SELECT to_char(dia, 'YYYY-MM-DD') AS dia, faixa, texto, atualizado_em, ${agendaImagem.SQL_METADATA}
          FROM hub_agenda WHERE login = $1 AND dia BETWEEN $2 AND $3 ORDER BY dia, faixa`,
       [req.usuario.login, de, ate]);
     res.json({ de, ate, itens: r.rows });
@@ -1256,19 +1265,50 @@ router.post('/agenda', exigeSessao, jsonMural, async (req, res) => {
     // trilha espaçada (10 min): o autosave grava a cada pausa na digitação — e o que a
     // pessoa anotou na agenda NUNCA entra aqui, só o fato de ter usado a agenda.
     if (espacado(req.usuario.login, 'agenda', AUD_ESPACO_PESSOAL_MS)) auditar(req, 'agenda', 'gravar', '');
-    if (!texto) {
-      await q('DELETE FROM hub_agenda WHERE login = $1 AND dia = $2 AND faixa = $3', [req.usuario.login, dia, faixa]);
-      return res.json({ ok: true, dia, faixa, texto: '', apagado: true });
-    }
-    const r = await q(
-      `INSERT INTO hub_agenda (login, dia, faixa, texto) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (login, dia, faixa) DO UPDATE SET texto = EXCLUDED.texto, atualizado_em = now()
-       RETURNING atualizado_em`,
-      [req.usuario.login, dia, faixa, texto]);
-    res.json({ ok: true, dia, faixa, texto, atualizado_em: r.rows[0].atualizado_em });
+    const salvo = await agendaImagem.salvarCelula(db.pool, req.usuario.login, dia, faixa, { texto });
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, dia, faixa, ...salvo });
   } catch (e) {
     console.error('hub agenda (gravar):', e.message);
     res.status(500).json({ erro: 'falha ao guardar a anotação' });
+  }
+});
+
+router.post('/agenda/imagem', exigeSessao, jsonAgendaImagem, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const corpo = req.body || {};
+    const dia = diaValido(corpo.dia), faixa = faixaValida(corpo.faixa);
+    if (!dia || faixa === null) return res.status(400).json({ erro: 'dia (aaaa-mm-dd) e faixa (0 a 23) são obrigatórios' });
+    if (!Object.hasOwn(corpo, 'imagem')) return res.status(400).json({ erro: 'informe a imagem ou null para remover' });
+    const imagem = corpo.imagem === null ? null : agendaImagem.validarImagem(corpo.imagem);
+    await preparar();
+    const salvo = await agendaImagem.salvarCelula(db.pool, req.usuario.login, dia, faixa, { imagem });
+    auditar(req, 'agenda', imagem ? 'anexar-imagem' : 'remover-imagem', '');
+    res.json({ ok: true, dia, faixa, imagem: salvo.imagem, atualizado_em: salvo.atualizado_em, ...(salvo.apagado ? { apagado: true } : {}) });
+  } catch (e) {
+    if (e.status === 400 || e.status === 413) return res.status(e.status).json({ erro: e.message });
+    console.error('hub agenda (imagem):', e.message);
+    res.status(500).json({ erro: 'falha ao guardar a imagem da agenda' });
+  }
+});
+router.get('/agenda/imagem', exigeSessao, async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  try {
+    const dia = diaValido(req.query.dia), faixa = faixaValida(req.query.faixa);
+    if (!dia || faixa === null) return res.status(400).json({ erro: 'dia (aaaa-mm-dd) e faixa (0 a 23) são obrigatórios' });
+    await preparar();
+    const r = await q(`SELECT imagem_dados, imagem_mime FROM hub_agenda
+      WHERE login = $1 AND dia = $2 AND faixa = $3 AND imagem_dados IS NOT NULL`, [req.usuario.login, dia, faixa]);
+    if (!r.rows.length) return res.status(404).json({ erro: 'imagem não encontrada' });
+    const item = r.rows[0];
+    res.set('Content-Type', item.imagem_mime);
+    res.set('Content-Disposition', 'inline; filename="agenda.' + ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[item.imagem_mime] || 'img') + '"');
+    res.send(item.imagem_dados);
+  } catch (e) {
+    console.error('hub agenda (ler imagem):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a imagem da agenda' });
   }
 });
 
@@ -2186,6 +2226,9 @@ async function vincularAnexosCert(ids, numero) {
 // Erros do parser (corpo grande demais / JSON quebrado) sempre em JSON.
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {
+    if (/\/agenda\/imagem/.test(req.path || '')) {
+      return res.status(413).json({ erro: 'imagem grande demais — o limite é 1 MB após a redução' });
+    }
     // v1.36.1: o recado certo para cada tela — o anexo da certidão não é "análise"
     if (/\/cert\//.test(req.path || '')) {
       return res.status(413).json({ erro: 'anexo grande demais — envie um arquivo de até 8 MB por vez' });
