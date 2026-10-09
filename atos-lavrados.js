@@ -23,13 +23,16 @@ function createRouter({ pool = db.pool, session = db.sessaoValida, ehAdmin = () 
     }
   };
   r.get('/meses', executar(() => store.meses(pool)));
-  r.get('/resumo', executar(req => store.resumo(pool, req.query.inicio, req.query.fim)));
+  r.get('/resumo', executar(req => store.resumo(pool, req.query.inicio, req.query.fim, true)));
+  r.get('/semana', executar(req => store.semana(pool, req.query.referencia)));
   r.get('/atos', executar(req => store.atos(pool, req.query.inicio, req.query.fim, req.query.pagina === undefined ? 1 : Number(req.query.pagina))));
   r.get('/meses/:mes/versoes', executar(async req => ({ versoes: await store.versoes(pool, req.params.mes) })));
   r.get('/lotes/:id/backup', executar(req => store.backup(pool, req.params.id)));
   r.post('/lotes/validar', executar(req => store.importar(pool, req.body, req.usuario.login, true)));
   r.post('/lotes', executar(req => store.importar(pool, req.body, req.usuario.login)));
   r.post('/vinculos', executar(req => store.vincular(pool, req.body, req.usuario.login)));
+  r.post('/autorias', executar(req => store.atribuirAutoria(pool, req.body, req.usuario.login)));
+  r.get('/autorias/:chave/historico', executar(async req => ({ historico: await store.historicoAutoria(pool, req.params.chave) })));
   r.use((e, req, res, next) => {
     if (e?.type === 'entity.too.large') return res.status(413).json({ erro: 'lote maior que 20 MiB', codigo: 'LOTE_GRANDE' });
     if (e?.type === 'entity.parse.failed') return res.status(400).json({ erro: 'JSON inválido', codigo: 'LOTE_INVALIDO' });

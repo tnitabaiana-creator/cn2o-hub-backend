@@ -99,6 +99,7 @@ async function init(pool) {
       await c.query('BEGIN');
       await c.query("SELECT pg_advisory_xact_lock(hashtext('cn2o-atos-lavrados-schema'))");
       await c.query(await fs.readFile(path.join(__dirname, 'migrations', '20261009-atos-lavrados.sql'), 'utf8'));
+      await c.query(await fs.readFile(path.join(__dirname, 'migrations', '20261009-atos-lavrados-autoria.sql'), 'utf8'));
       await c.query('COMMIT');
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   })().catch(e => { cache.delete(pool); throw e; }));
@@ -161,9 +162,7 @@ async function listar(c) {
 }
 async function meses(pool) { await init(pool); return { criterio: CRITERIO, meses: await listar(pool) }; }
 function periodo(inicio, fim) { data(inicio); data(fim); if (fim < inicio || Date.parse(fim) - Date.parse(inicio) > 3660 * 864e5) throw invalido('período inválido ou superior a dez anos'); return { inicio, fim }; }
-async function resumo(pool, inicio, fim) {
-  periodo(inicio, fim); await init(pool);
-  return transacao(pool, true, async c => {
+async function resumoNoCliente(c, inicio, fim, detalhar) {
     const ms = (await listar(c)).filter(m => m.mes >= inicio.slice(0, 7) && m.mes <= fim.slice(0, 7));
     let completo = true, dia = inicio.slice(0, 7) + '-01';
     while (dia <= fim) {
@@ -176,8 +175,52 @@ async function resumo(pool, inicio, fim) {
       count(*) FILTER (WHERE i.registro->>'protocolo'='')::int AS com_pendencia_identificacao
       FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao)
       LEFT JOIN atos_lavrados_vinculos v ON v.chave=i.chave WHERE i.data_lavratura BETWEEN $1::date AND $2::date`, [inicio, fim])).rows[0];
-    return { criterio: CRITERIO, inicio, fim, ...r, total_oficial: completo ? r.total_observado : null, sem_vinculo: r.total_observado - r.com_vinculo, cobertura_completa: completo, meses: ms };
-  });
+    const resultado = { criterio: CRITERIO, inicio, fim, ...r, total_oficial: completo ? r.total_observado : null, sem_vinculo: r.total_observado - r.com_vinculo, cobertura_completa: completo, meses: ms };
+    if (detalhar) {
+      const grupos = (await c.query(`SELECT i.registro->'originais'->>'Sub-tipo' AS subtipo,
+        i.registro->'originais'->>'Finalidade' AS finalidade,count(*)::int AS total
+        FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao)
+        WHERE i.data_lavratura BETWEEN $1::date AND $2::date GROUP BY 1,2`, [inicio, fim])).rows;
+      const atribuicoes = (await c.query(`SELECT a.colaborador_id AS id,
+        (array_agg(a.colaborador_nome ORDER BY a.confirmado_em DESC,a.documento,a.minuta))[1] AS nome,
+        array_agg(DISTINCT a.marco ORDER BY a.marco) AS marcos,count(*)::int AS total_observado
+        FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao)
+        JOIN atos_lavrados_autorias a ON a.documento=i.registro->>'documento' AND a.minuta=i.registro->>'minuta'
+        WHERE i.data_lavratura BETWEEN $1::date AND $2::date AND a.situacao='confirmada'
+        GROUP BY a.colaborador_id ORDER BY count(*) DESC,a.colaborador_id`, [inicio, fim])).rows;
+      const comAutoria = atribuicoes.reduce((n, a) => n + a.total_observado, 0), semAutoria = r.total_observado - comAutoria;
+      const coberturaAutoria = completo && semAutoria === 0;
+      Object.assign(resultado, require('./atos-lavrados-tipos').distribuir(grupos, completo), {
+        colaboradores: atribuicoes.map(a => ({ ...a, fonte: 'Extra Digital', total_oficial: coberturaAutoria ? a.total_observado : null })),
+        autoria: {
+          status: !comAutoria ? 'pendente' : semAutoria ? 'parcial' : 'confirmada',
+          sem_autoria_confirmada: semAutoria, com_autoria_confirmada: comAutoria, cobertura_completa: coberturaAutoria,
+          criterio: 'Responsável que lavrou ou registrou, com evidência no Extra Digital. Criador, última alteração e quem protocolou não atribuem autoria da escritura.'
+        }
+      });
+    }
+    return resultado;
+}
+async function resumo(pool, inicio, fim, detalhar = false) {
+  periodo(inicio, fim); await init(pool);
+  return transacao(pool, true, c => resumoNoCliente(c, inicio, fim, detalhar));
+}
+function periodoSemanal(referencia, agora = new Date()) {
+  const fuso = 'America/Sao_Paulo';
+  if (referencia === undefined) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(agora);
+    const parte = k => p.find(x => x.type === k).value;
+    referencia = `${parte('year')}-${parte('month')}-${parte('day')}`;
+  }
+  data(referencia);
+  const d = new Date(referencia + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+  const inicio = d.toISOString().slice(0, 10); d.setUTCDate(d.getUTCDate() + 6);
+  return { referencia, fuso, inicio, fim: d.toISOString().slice(0, 10) };
+}
+async function semana(pool, referencia, agora) {
+  const p = periodoSemanal(referencia, agora); await init(pool);
+  return transacao(pool, true, async c => ({ ...p, ...await resumoNoCliente(c, p.inicio, p.fim, true) }));
 }
 async function versoes(pool, m) {
   mes(m); await init(pool);
@@ -219,4 +262,49 @@ async function vincular(pool, p, autor) {
     return { chave: p.chave, revisao: rev, protocolo_hub: p.protocolo_hub };
   });
 }
-module.exports = { MAX_BYTES, CRITERIO, erro, init, validarLote, periodo, importar, meses, resumo, atos, versoes, backup, vincular };
+function validarAutoria(p) {
+  jsonSeguro(p);
+  if (!p || !/^[a-f0-9]{64}$/.test(p.chave || '')) throw invalido('ato inválido');
+  revisao(p.revisao_base);
+  if (p.revogar === true) {
+    if (p.colaborador || p.evidencia) throw invalido('revogação não recebe nova atribuição');
+    return { chave: p.chave, revisao_base: p.revisao_base, situacao: 'revogada', colaborador: null, marco: null,
+      evidencia: { tipo: 'revogacao_atribuicao', motivo: texto(p.motivo, 2000) } };
+  }
+  if (p.revogar !== undefined && p.revogar !== false) throw invalido('revogar deve ser booleano');
+  if (p.evidencia?.tipo !== 'registro_lavratura_extra' || !['lavratura', 'registro'].includes(p.evidencia?.marco)) throw invalido('exige evidência explícita de lavratura ou registro no Extra Digital');
+  const campo = texto(p.evidencia.campo_ou_evento, 200);
+  const normalizado = campo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (/criador|criado por|alterou|ultima alteracao|protocolado por/.test(normalizado)) throw invalido('criador, última alteração e protocolo não comprovam autoria da escritura');
+  texto(p.evidencia.valor_original, 2000);
+  return { chave: p.chave, revisao_base: p.revisao_base, situacao: 'confirmada',
+    colaborador: { id: texto(p.colaborador?.id, 160), nome: texto(p.colaborador?.nome, 200) }, marco: p.evidencia.marco,
+    evidencia: { tipo: 'registro_lavratura_extra', marco: p.evidencia.marco, referencia: texto(p.evidencia.referencia, 2000), campo_ou_evento: campo, valor_original: p.evidencia.valor_original } };
+}
+async function atribuirAutoria(pool, entrada, autor) {
+  const p = validarAutoria(entrada); autor = texto(autor, 160); await init(pool);
+  return transacao(pool, false, async c => {
+    const ato = (await c.query('SELECT i.registro FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao) WHERE i.chave=$1', [p.chave])).rows[0];
+    if (!ato) throw erro(404, 'NAO_ENCONTRADO', 'ato ativo não encontrado');
+    const { documento, minuta } = ato.registro;
+    const atual = (await c.query('SELECT revisao FROM atos_lavrados_autorias WHERE documento=$1 AND minuta=$2', [documento, minuta])).rows[0];
+    if ((atual?.revisao || 0) !== p.revisao_base) throw erro(409, 'REVISAO_DESATUALIZADA', 'a atribuição mudou; confira seu histórico antes de confirmar');
+    if (p.situacao === 'revogada' && !atual) throw erro(404, 'NAO_ENCONTRADO', 'não há atribuição para revogar');
+    const valores = [documento, minuta, p.revisao_base + 1, p.situacao, p.colaborador?.id || null, p.colaborador?.nome || null, p.marco, JSON.stringify(p.evidencia), autor];
+    await c.query(`INSERT INTO atos_lavrados_autorias(documento,minuta,revisao,situacao,colaborador_id,colaborador_nome,marco,evidencia,confirmado_por)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT(documento,minuta) DO UPDATE SET
+      revisao=EXCLUDED.revisao,situacao=EXCLUDED.situacao,colaborador_id=EXCLUDED.colaborador_id,colaborador_nome=EXCLUDED.colaborador_nome,
+      marco=EXCLUDED.marco,evidencia=EXCLUDED.evidencia,confirmado_por=EXCLUDED.confirmado_por,confirmado_em=clock_timestamp()`, valores);
+    await c.query(`INSERT INTO atos_lavrados_autoria_historico(documento,minuta,revisao,situacao,colaborador_id,colaborador_nome,marco,evidencia,confirmado_por)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`, valores);
+    return { chave: p.chave, documento, minuta, revisao: p.revisao_base + 1, situacao: p.situacao };
+  });
+}
+async function historicoAutoria(pool, chave) {
+  if (!/^[a-f0-9]{64}$/.test(chave || '')) throw invalido('ato inválido');
+  await init(pool);
+  const ato = (await pool.query('SELECT registro FROM atos_lavrados_itens WHERE chave=$1 ORDER BY revisao DESC LIMIT 1', [chave])).rows[0];
+  if (!ato) throw erro(404, 'NAO_ENCONTRADO', 'ato não encontrado');
+  return (await pool.query('SELECT * FROM atos_lavrados_autoria_historico WHERE documento=$1 AND minuta=$2 ORDER BY revisao DESC', [ato.registro.documento, ato.registro.minuta])).rows;
+}
+module.exports = { MAX_BYTES, CRITERIO, erro, init, validarLote, periodo, periodoSemanal, importar, meses, resumo, semana, atos, versoes, backup, vincular, validarAutoria, atribuirAutoria, historicoAutoria };
