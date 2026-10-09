@@ -81,3 +81,16 @@ test('envio sem provedor configurado falha com mensagem clara', async () => {
     for (const [k, v] of Object.entries(antes)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
 });
+
+test('fonte oficial no HTML/texto/CSV não substitui cartões, pesos ou inventa ranking', () => {
+  const r = rel(); r.atos_lavrados = { total_oficial: 8, total_observado: 8, cobertura_completa: true, sem_vinculo: 7 };
+  const h = email.html(r), txt = email.texto(r, false), csv = email.csv([], PESOS, {}, r.atos_lavrados);
+  for (const s of [h, txt]) {
+    assert.match(s, /8 escrituras lavradas na contagem oficial/); assert.match(s, /7 sem vínculo/);
+    assert.match(s, /não gera ranking individual/); assert.match(s, /Cartões|cartões/);
+  }
+  assert.equal(r.equipe.concluidos, 1); assert.equal(r.equipe.pontos, 1);
+  assert.match(csv, /Extra Digital status 4 - escrituras por data de lavratura;8;8;sim;7/);
+  r.atos_lavrados.total_oficial = null; r.atos_lavrados.cobertura_completa = false;
+  assert.match(email.html(r), /total oficial do período ainda não fechado/);
+});

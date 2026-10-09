@@ -107,6 +107,11 @@ async function gerar(tipo, dataRef, opcoes = {}) {
   const per = periodo(tipo, dataRef);
   const d = await coletar(tipo, per, opcoes);
   const rel = reports.calcular({ tipo, periodo: per, ...d });
+  // Contagens oficiais não substituem os cartões que sustentam tempos e pesos.
+  // A fonte não atribui U.criador a uma escrevente.
+  try { rel.atos_lavrados = await require('./atos-lavrados-db').resumo(db.pool, per.inicioISO, per.fimISO); }
+  catch { rel.atos_lavrados = { indisponivel: true, total_oficial: null, total_observado: null, cobertura_completa: false }; }
+  rel.criterio_cartoes = 'Cartões Trello: chegada à lista Finalizado; métricas de fluxo, não quantidade oficial de atos lavrados';
   rel.pesos = d.pesos;
   const { para, homologacao } = email.destinatarios();
   const expediente = cal.calendario.faixas
@@ -118,7 +123,7 @@ async function gerar(tipo, dataRef, opcoes = {}) {
     assunto: email.assunto(rel, homologacao),
     html: email.html(rel, { homologacao, expediente }),
     texto: email.texto(rel, homologacao),
-    csv: email.csv(d.conclusoes, d.pesos, nomes),
+    csv: email.csv(d.conclusoes, d.pesos, nomes, rel.atos_lavrados),
     nomeCsv: `relatorio-${tipo}-${per.inicioISO}_${per.fimISO}.csv`
   };
 }
@@ -126,6 +131,7 @@ async function gerar(tipo, dataRef, opcoes = {}) {
 function resumo(rel) {
   return {
     concluidos: rel.equipe.concluidos, pontos: rel.equipe.pontos, mediana_mesa: rel.equipe.mediana_mesa,
+    atos_lavrados: rel.atos_lavrados, criterio_cartoes: rel.criterio_cartoes,
     taxa_retorno: rel.equipe.taxa_retorno,
     escreventes: rel.escreventes.map(e => ({ login: e.login, concluidos: e.concluidos, indice_custo: e.indice_custo }))
   };

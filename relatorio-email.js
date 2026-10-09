@@ -106,7 +106,7 @@ function tabelaEquipe(rel) {
   </tr>`).join('');
   const f = `background:${C.band}`;
   return `<table class="tbm" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-    <tr>${th('Escrevente')}${th('Atos')}${th('Pontos', 'hm')}${th('Tempo total')}${th('Mais demorados', 'hm')}${th('Tempo de trabalho')}${th('Tempo vs. equipe')}${th('Voltou p/ ajuste')}${th('Pendências', 'hm')}</tr>
+    <tr>${th('Escrevente')}${th('Cartões Trello')}${th('Pontos', 'hm')}${th('Tempo total')}${th('Mais demorados', 'hm')}${th('Tempo de trabalho')}${th('Tempo vs. equipe')}${th('Voltou p/ ajuste')}${th('Pendências', 'hm')}</tr>
     ${linhas}
     <tr>
       ${td('<b>Equipe</b>', f)}
@@ -140,12 +140,12 @@ function perfil(e, pesos) {
     <tr><td style="padding:14px 16px">
       <div style="font:600 19px/1.2 ${SERIF};color:${C.petrol}">${esc(e.nome)}</div>
       <div style="font:13px/1.6 ${SANS};color:${C.ink};margin-top:6px">
-        <b>${e.concluidos}</b> ato(s) · <b>${num(e.pontos)}</b> pontos · tempo total ${horas(e.mediana_mesa)} (mais demorados ${horas(e.p75_mesa)}) ·
+        <b>${e.concluidos}</b> cartão(ões) Trello · <b>${num(e.pontos)}</b> pontos · tempo total ${horas(e.mediana_mesa)} (mais demorados ${horas(e.p75_mesa)}) ·
         tempo de trabalho ${horas(e.mediana_ativa)} · tempo vs. equipe <b style="color:${corIndice(e.indice_custo)}">${num(e.indice_custo, 2)}</b> ·
         voltou p/ ajuste ${pct(e.taxa_retorno)}
       </div>
       ${e.leitura ? `<div style="font:italic 13px/1.5 ${SERIF};color:${C.ink2};margin-top:6px">${esc(e.leitura)}</div>` : ''}
-      <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:12px 0 6px">Atos do período</div>
+      <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:12px 0 6px">Cartões por tipo de ato</div>
       <div>${mix}</div>
       <div style="font:600 10px/1.3 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${C.ink2};margin:8px 0 6px">Onde rende mais e menos (90 dias)${tipsAf ? ` · rende mais em ${tipsAf}` : ''}</div>
       <div>${af}</div>
@@ -157,7 +157,7 @@ function perfil(e, pesos) {
 }
 
 function tabelaTipos(rel) {
-  if (!rel.por_tipo.length) return `<div style="font:13px ${SANS};color:${C.ink2}">Nenhum ato concluído no período.</div>`;
+  if (!rel.por_tipo.length) return `<div style="font:13px ${SANS};color:${C.ink2}">Nenhum cartão concluído no Trello no período.</div>`;
   const linhas = rel.por_tipo.map(t => `<tr>
     ${td(`<b>${esc(t.tipo)}</b><div style="font-size:11px;color:${C.ink2}">${esc(t.descricao)}</div>`)}
     ${tdN(String(t.n))}
@@ -167,16 +167,26 @@ function tabelaTipos(rel) {
     ${tdN(`${horas(t.referencia)}<div style="font-size:11px;color:${C.ink2}">${t.fonte_referencia === 'equipe' ? 'pela equipe, 90 dias' : 'pela tabela'}</div>`)}
   </tr>`).join('');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-    <tr>${th('Tipo de ato')}${th('Atos')}${th('Tempo de trabalho')}${th('Mais demorados', 'hm')}${th('Tempo total', 'hm')}${th('Tempo esperado')}</tr>${linhas}
+    <tr>${th('Tipo de ato')}${th('Cartões Trello')}${th('Tempo de trabalho')}${th('Mais demorados', 'hm')}${th('Tempo total', 'hm')}${th('Tempo esperado')}</tr>${linhas}
   </table>`;
 }
 
+function textoOficial(rel) {
+  const a = rel.atos_lavrados;
+  if (!a || a.indisponivel) return 'Escrituras lavradas: fonte Extra Digital ainda não disponível para conferência deste período.';
+  const quantidade = a.cobertura_completa
+    ? `${num(a.total_oficial, 0)} escrituras lavradas na contagem oficial do período.`
+    : `Cobertura parcial ou ausente: ${num(a.total_observado, 0)} registros observados; total oficial do período ainda não fechado.`;
+  return quantidade + ' Extra Digital: somente status 4 Registrado(a), pela data de lavratura. ' +
+    `${num(a.sem_vinculo, 0)} sem vínculo documental confirmado com protocolo do Hub; vínculo não significa autoria. ` +
+    'A contagem oficial não gera ranking individual. Cartões e pesos Trello permanecem métricas de fluxo separadas.';
+}
 function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '08:00-12:00, 13:00-17:00' } = {}) {
   const eq = rel.equipe;
   const nomePer = rel.tipo === 'semanal' ? 'semana' : 'mês';
   const pesos = rel.pesos || {};
   const gerado = new Date(geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Maceio', dateStyle: 'short', timeStyle: 'short' });
-  const preheader = `${eq.concluidos} atos concluídos · tempo total típico ${horas(eq.mediana_mesa)} · voltou p/ ajuste ${pct(eq.taxa_retorno)}`;
+  const preheader = `${eq.concluidos} cartões Trello · tempo total típico ${horas(eq.mediana_mesa)} · voltou p/ ajuste ${pct(eq.taxa_retorno)}`;
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">
@@ -197,15 +207,16 @@ function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '0
     <div style="font:14px/1.5 ${SANS};color:${C.muted};margin-top:6px">${esc(rotuloPeriodo(rel.periodo))} · horas úteis</div>
   </td></tr>
   <tr><td style="height:4px;line-height:4px;font-size:0;background:${C.ruby}">&nbsp;</td></tr>
+  ${secao('Escrituras lavradas · fonte oficial', `<p style="font:14px/1.6 ${SANS};color:${C.ink}">${esc(textoOficial(rel))}</p>`)}
   <tr><td class="px" style="padding:18px 22px 0">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-      ${kpi('Atos concluídos', String(eq.concluidos), `${delta(eq.variacao)} <span style="color:${C.ink2}">vs ${nomePer} anterior (${eq.concluidos_anterior})</span>`)}
-      ${kpi('Pontos', num(eq.pontos), 'soma dos pesos por ato')}
+      ${kpi('Cartões Trello', String(eq.concluidos), `${delta(eq.variacao)} <span style="color:${C.ink2}">vs ${nomePer} anterior (${eq.concluidos_anterior})</span>`)}
+      ${kpi('Pontos Trello', num(eq.pontos), 'um peso por cartão; não multiplica pelos atos vinculados')}
       ${kpi('Tempo total típico', horas(eq.mediana_mesa), `mais demorados: ${horas(eq.p75_mesa)}`)}
-      ${kpi('Voltou p/ ajuste', pct(eq.taxa_retorno), `${eq.com_retorno} de ${eq.concluidos} ato(s)`)}
+      ${kpi('Voltou p/ ajuste', pct(eq.taxa_retorno), `${eq.com_retorno} de ${eq.concluidos} cartão(ões)`)}
     </tr></table>
   </td></tr>
-  ${secao('Equipe', tabelaEquipe(rel), 'Tempo vs. equipe: 1,00 = igual à equipe; 0,80 = 20% mais rápida; 1,20 = 20% mais lenta.')}
+  ${secao('Equipe · fluxo de cartões Trello', tabelaEquipe(rel), 'Tempo vs. equipe: 1,00 = igual à equipe; 0,80 = 20% mais rápida; 1,20 = 20% mais lenta.')}
   ${secao('Perfil de cada escrevente', rel.escreventes.map(e => perfil(e, pesos)).join(''))}
   ${secao('Por tipo de ato', tabelaTipos(rel))}
   <tr><td class="px" style="padding:22px 28px 26px">
@@ -219,7 +230,7 @@ function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '0
       <b>Tempo esperado</b>: o tempo de trabalho normal daquele tipo de ato, pela equipe nos últimos 90 dias ou, sem atos suficientes, pela tabela.
       <b>Pontos</b>: peso de cada tipo de ato.
       ${eq.sem_historico ? `${eq.sem_historico} ato(s) do período entraram na contagem mas não nos tempos: chegaram ao quadro antes de o acompanhamento começar.` : ''}
-      <br><br>Gerado automaticamente pelos Relatórios das Escreventes do CN2O em ${esc(gerado)}. Detalhe por ato no anexo CSV.
+      <br><br>Gerado automaticamente pelos Relatórios das Escreventes do CN2O em ${esc(gerado)}. Detalhe dos cartões no anexo CSV.
     </div>
   </td></tr>
 </table></td></tr></table></body></html>`;
@@ -229,18 +240,19 @@ function texto(rel, homologacao) {
   const eq = rel.equipe;
   const linhas = [
     assunto(rel, homologacao), '',
-    `Equipe: ${eq.concluidos} atos (${eq.concluidos_anterior} no período anterior), ${num(eq.pontos)} pontos,`,
+    textoOficial(rel), '',
+    `Equipe: ${eq.concluidos} cartões Trello (${eq.concluidos_anterior} no período anterior), ${num(eq.pontos)} pontos,`,
     `tempo total típico ${horas(eq.mediana_mesa)} (mais demorados ${horas(eq.p75_mesa)}), voltou p/ ajuste ${pct(eq.taxa_retorno)}.`, ''
   ];
   for (const e of rel.escreventes) {
-    linhas.push(`${e.nome}: ${e.concluidos} atos, ${num(e.pontos)} pts, tempo total ${horas(e.mediana_mesa)}, tempo de trabalho ${horas(e.mediana_ativa)}, tempo vs. equipe ${num(e.indice_custo, 2)}. ${e.leitura}`);
+    linhas.push(`${e.nome}: ${e.concluidos} cartões Trello, ${num(e.pontos)} pts, tempo total ${horas(e.mediana_mesa)}, tempo de trabalho ${horas(e.mediana_ativa)}, tempo vs. equipe ${num(e.indice_custo, 2)}. ${e.leitura}`);
   }
-  linhas.push('', 'Detalhe por ato no anexo CSV.');
+  linhas.push('', 'Detalhe dos cartões no anexo CSV.');
   return linhas.join('\n');
 }
 
 // ------------------------------------------------------------ CSV (Excel pt-BR)
-function csv(conclusoes, pesos, nomes) {
+function csv(conclusoes, pesos, nomes, oficial) {
   const campo = v => {
     const s = v == null ? '' : String(v);
     return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -248,7 +260,7 @@ function csv(conclusoes, pesos, nomes) {
   const dec = v => (v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ','));
   const dt = v => (v ? new Date(v).toLocaleString('pt-BR', { timeZone: 'America/Maceio' }) : '');
   // v1.38.4: cabeçalhos com os nomes do e-mail (horas úteis); a ordem das colunas não mudou
-  const cab = ['Escrevente', 'Protocolo', 'Tipo de ato', 'Descrição do tipo', 'Pontos', 'Chegada ao quadro', 'Concluído em',
+  const cab = ['Escrevente', 'Protocolo', 'Tipo de ato', 'Descrição do tipo', 'Pontos Trello', 'Chegada ao quadro', 'Finalizado no Trello em',
     'Tempo total (h)', 'Tempo de trabalho (h)', 'Conferência (h)', 'Pendência (h)', 'Assinatura (h)', 'Voltou p/ ajuste (vezes)',
     'Reaberturas', 'Tempos completos', 'Cartão'];
   const linhas = conclusoes.map(c => [
@@ -258,7 +270,10 @@ function csv(conclusoes, pesos, nomes) {
     dec(c.horas_pendencia), dec(c.horas_assinatura), c.retornos, c.reaberturas,
     c.historico_completo ? 'sim' : 'não', c.card_short ? `https://trello.com/c/${c.card_short}` : ''
   ].map(campo).join(';'));
-  return '﻿' + [cab.join(';'), ...linhas].join('\r\n') + '\r\n';
+  const extra = oficial ? ['', 'Fonte;Escrituras lavradas - total oficial;Registros observados;Cobertura completa;Sem vínculo com Hub',
+    ['Extra Digital status 4 - escrituras por data de lavratura', oficial.total_oficial, oficial.total_observado, oficial.cobertura_completa ? 'sim' : 'não', oficial.sem_vinculo].map(campo).join(';'),
+    'Os registros acima são cartões Trello. O total oficial não atribui autoria nem duplica pesos.'] : [];
+  return '﻿' + [cab.join(';'), ...linhas, ...extra].join('\r\n') + '\r\n';
 }
 
 // ------------------------------------------------------------ envio

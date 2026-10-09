@@ -279,8 +279,10 @@ test('integração no hub: webhook → rastreio → carga retroativa → relató
     assert.match(html, /Lara/);
     const csvs = fs.readdirSync(saida).filter(f => f.endsWith('.csv'));
     assert.equal(csvs.length, 1);
-    const linhas = fs.readFileSync(path.join(saida, csvs[0]), 'utf8').trim().split('\r\n');
-    assert.equal(linhas.length, 1 + 501);                   // cabeçalho + atos concluídos na semana
+    const csvConteudo = fs.readFileSync(path.join(saida, csvs[0]), 'utf8');
+    const linhas = csvConteudo.split('\r\n\r\n')[0].trim().split('\r\n');
+    assert.equal(linhas.length, 1 + 501);                   // cabeçalho + cartões; resumo oficial é bloco separado
+    assert.match(csvConteudo, /Fonte;Escrituras lavradas - total oficial/);
     assert.equal((await rel.enviarSeDevido('semanal', '2026-09-21')).situacao, 'resolvido');
     const e = await q(`SELECT status, manual, tentativas FROM envios_relatorio`);
     assert.deepEqual(e.rows, [{ status: 'enviado', manual: false, tentativas: 1 }]);
@@ -318,7 +320,9 @@ test('integração no hub: webhook → rastreio → carga retroativa → relató
     assert.match(await previa.text(), /Relatório semanal das escreventes/);
     const csv = await fetch(rota + '/previa?tipo=mensal&ref=2026-10-01&formato=csv', { headers: adm });
     assert.match(csv.headers.get('content-disposition'), /relatorio-mensal-2026-09-01_2026-09-30\.csv/);
-    assert.equal((await csv.text()).trim().split('\r\n').length, 1 + 501);
+    const csvConteudo = await csv.text();
+    assert.equal(csvConteudo.split('\r\n\r\n')[0].trim().split('\r\n').length, 1 + 501);
+    assert.match(csvConteudo, /Fonte;Escrituras lavradas - total oficial/);
     assert.equal((await fetch(rota + '/previa?tipo=anual', { headers: adm })).status, 400);
     const env = await fetch(rota + '/enviar', { method: 'POST', headers: { ...adm, 'Content-Type': 'application/json' },
       body: JSON.stringify({ tipo: 'semanal', ref: '2026-09-21' }) });
