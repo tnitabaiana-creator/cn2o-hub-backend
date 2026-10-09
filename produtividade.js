@@ -22,11 +22,13 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const cal = require('./horas-uteis');
+const receita = require('./receita-liquida');
+const { createHash } = require('node:crypto');
 
 const q = (texto, params) => db.pool.query(texto, params);
 const RE_MES = /^\d{4}-(0[1-9]|1[0-2])$/;
 const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
-const CONFIG_PADRAO = { corte: 200, ferd: 16.6667, ir: 27.5 };
+const CONFIG_PADRAO = { corte: 200, ferd: receita.PERCENTUAL_REPASSES, ir: 27.5 };
 const FAIXAS = ['até R$ 5', 'R$ 5–12', 'R$ 12–50', 'R$ 50–200', 'R$ 200–1 mil', 'R$ 1–5 mil', '+ de R$ 5 mil'];
 const LIM = { pessoas: 80, pgto: 40, dias: 31, texto: 120 };
 
@@ -64,21 +66,23 @@ async function init() {
 
 async function lerConfig() {
   const r = await q(`SELECT valor FROM produtividade_config WHERE chave = 'geral'`);
-  return Object.assign({}, CONFIG_PADRAO, (r.rows[0] && r.rows[0].valor) || {});
+  // O percentual legado salvo não sobrepõe a regra atual definida pelo titular.
+  return Object.assign({}, CONFIG_PADRAO, (r.rows[0] && r.rows[0].valor) || {}, { ferd: receita.PERCENTUAL_REPASSES });
 }
 
 // ---------------------------------------------------------------- validação
 function erro400(msg) { return Object.assign(new Error(msg), { status: 400 }); }
 const txt = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n || LIM.texto);
-function numero(v, rotulo, { min = 0, max = 1e9, inteiro = false, nulo = false } = {}) {
+function numero(v, rotulo, { min = 0, max = 1e9, inteiro = false, nulo = false, casas = 2 } = {}) {
   if (v == null || v === '') { if (nulo) return null; throw erro400(rotulo + ' ausente'); }
   const n = Number(v);
   if (!Number.isFinite(n) || n < min || n > max || (inteiro && !Number.isInteger(n))) throw erro400(rotulo + ' inválido');
-  return inteiro ? n : Math.round(n * 100) / 100;
+  return inteiro ? n : Math.round(n * (10 ** casas)) / (10 ** casas);
 }
 // O que o navegador manda é conferido campo a campo: só números e textos curtos entram.
 function validarDados(d) {
   if (!d || typeof d !== 'object') throw erro400('dados do mês ausentes');
+  if (d.base_receita === 'liquida_apos_repasses' || d.versao_financeira) throw erro400('importe somente os valores brutos originais; uma projeção líquida não pode substituir a fonte');
   const pessoas = (Array.isArray(d.pessoas) ? d.pessoas : []).slice(0, LIM.pessoas + 1);
   if (!pessoas.length) throw erro400('nenhuma pessoa na planilha');
   if (pessoas.length > LIM.pessoas) throw erro400('pessoas demais na planilha');
@@ -153,11 +157,11 @@ const ehSistema = s => /n[ãa]o utilizar|sistema|extradigital/i.test(String(s));
 function perfilDe(p, corte) {
   if (ehSistema(p.id) || ehSistema(p.nome || '')) return 'sistema';
   if (ehTabeliao(p.id)) return 'tabelião';
-  return p.atos && p.total / p.atos >= corte ? 'mesa de escrituras' : 'balcão';
+  return p.atos && (p.total_bruto ?? p.total) / p.atos >= corte ? 'mesa de escrituras' : 'balcão';
 }
 // O pacote que a IA lê: só números somados e o nome de exibição da equipe.
 function resumoParaIA(m, anterior, nomes, cfg) {
-  const d = m.dados, r2 = v => Math.round(v * 100) / 100;
+  const d = receita.projetar(m.dados).dados_liquidos, r2 = v => Math.round(v * 100) / 100;
   const pessoa = p => ({
     id: p.id, nome: nomes[p.id.toLowerCase()] || p.nome || p.id, perfil: perfilDe(p, cfg.corte),
     atos: p.atos, total: r2(p.total), ticket: p.atos ? r2(p.total / p.atos) : 0, mediana: p.mediana, maior_ato: p.max,
@@ -165,7 +169,8 @@ function resumoParaIA(m, anterior, nomes, cfg) {
     dias_com_lancamento: p.dias
   });
   const out = {
-    mes: m.chave, dias_uteis: d.diasUteis, total: d.total, atos: d.atos, mediana: d.mediana,
+    mes: m.chave, base_receita: receita.CRITERIO, versao_financeira: receita.VERSAO,
+    dias_uteis: d.diasUteis, total: d.total, atos: d.atos, mediana: d.mediana,
     corte_mesa_ticket: cfg.corte, pessoas: d.pessoas.map(pessoa),
     formas_de_pagamento: d.pgto, faixas_de_valor: d.faixas,
     nota: 'forma de pagamento vazia não significa necessariamente pendência: escrituras costumam ser pagas por guia, depósito ou baixa posterior'
@@ -180,16 +185,19 @@ function resumoParaIA(m, anterior, nomes, cfg) {
     });
   }
   if (anterior) {
+    const ant = receita.projetar(anterior.dados).dados_liquidos;
     out.mes_anterior = {
-      mes: anterior.chave, total: anterior.dados.total, atos: anterior.dados.atos, dias_uteis: anterior.dados.diasUteis,
-      pessoas: anterior.dados.pessoas.map(p => ({ id: p.id, atos: p.atos, total: p.total }))
+      mes: anterior.chave, total: ant.total, atos: ant.atos, dias_uteis: ant.diasUteis,
+      pessoas: ant.pessoas.map(p => ({ id: p.id, atos: p.atos, total: p.total }))
     };
   }
   return out;
 }
 const PROMPT_IA = [
   'Você é o analista de gestão do Cartório de Notas do 2º Ofício de Itabaiana/SE (CN2O) e escreve para o Tabelião.',
-  'Recebe os números de produtividade de UM mês (valores em reais, já somados por escrevente) e, quando houver, os do mês anterior.',
+  'Recebe a receita líquida após 29,5694% de FERD e repasses de UM mês (valores em reais, já somados por usuário financeiro) e, quando houver, os do mês anterior.',
+  'Os valores já estão líquidos dos repasses: nunca desconte novamente, nem aplique despesas ou IR nesta análise. Use o termo receita líquida do cartório.',
+  'As quantidades são lançamentos financeiros. O usuário financeiro não comprova autoria da lavratura; não o trate como responsável por escrituras únicas.',
   'Perfis: "mesa de escrituras" (poucos atos de alto valor), "balcão" (muitos atos de valor baixo, reconhecimentos e autenticações), "tabelião" e "sistema" (lançamento técnico, sem pessoa).',
   'Regras:',
   '- Use só os números recebidos. Não invente causas: quando sugerir um motivo, diga que é hipótese a conferir.',
@@ -239,6 +247,8 @@ async function analisar(m, anterior, login) {
   a.modelo = r.uso && r.uso.modelo || modelo;
   a.custo_usd = r.uso && r.uso.custo_usd || 0;
   a.comparado_com = anterior ? anterior.chave : null;
+  a.base_receita = 'liquida_apos_repasses'; a.versao_financeira = receita.VERSAO;
+  a.dados_sha256 = hashDados(m.dados);
   return a;
 }
 
@@ -249,11 +259,16 @@ async function nomesDaEquipe() {
   r.rows.forEach(x => { m[String(x.login).toLowerCase()] = x.nome; });
   return m;
 }
+const hashDados = d => createHash('sha256').update(JSON.stringify(d)).digest('hex');
 function linhaMes(x) {
+  const atual = x.analise?.versao_financeira === receita.VERSAO && x.analise?.base_receita === 'liquida_apos_repasses' && x.analise?.dados_sha256 === hashDados(x.dados);
   return {
     ano: x.ano, mes: x.mes, chave: x.ano + '-' + String(x.mes).padStart(2, '0'),
     dados: x.dados, fonte: x.fonte, importado_por: x.importado_por, importado_em: x.importado_em,
-    analise: x.analise, analise_em: x.analise_em
+    ...receita.projetar(x.dados),
+    analise: atual ? x.analise : null, analise_em: atual ? x.analise_em : null,
+    analise_status: atual ? 'atual' : x.analise ? 'anterior_base_obsoleta' : 'ausente',
+    analise_historica: !atual && x.analise ? { analise: x.analise, analise_em: x.analise_em, motivo: 'Análise anterior à base líquida atual; preservada somente como histórico.' } : null
   };
 }
 async function lerMeses() {
@@ -313,10 +328,12 @@ router.post('/apagar', json, async (req, res) => {
 router.post('/config', json, async (req, res) => {
   try {
     const b = req.body || {};
+    const anterior = await lerConfig();
+    if (b.ferd != null) numero(b.ferd, 'percentual dos repasses', { min: 0, max: 100, casas: 4 });
     const cfg = {
       corte: numero(b.corte, 'corte da mesa', { min: 1, max: 100000 }),
-      ferd: numero(b.ferd, 'percentual do FERD', { min: 0, max: 100 }),
-      ir: numero(b.ir, 'percentual do IR', { min: 0, max: 100 })
+      ferd: receita.PERCENTUAL_REPASSES,
+      ir: b.ir == null ? anterior.ir : numero(b.ir, 'percentual do IR legado', { min: 0, max: 100, casas: 4 })
     };
     await q(`INSERT INTO produtividade_config (chave, valor) VALUES ('geral', $1)
              ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor`, [JSON.stringify(cfg)]);
@@ -348,4 +365,4 @@ router.post('/analisar', json, async (req, res) => {
   }
 });
 
-module.exports = { router, init, validarDados, diasUteisDoMes, resumoParaIA, limparAnalise, perfilDe, CONFIG_PADRAO, FAIXAS };
+module.exports = { router, init, validarDados, diasUteisDoMes, resumoParaIA, limparAnalise, perfilDe, linhaMes, CONFIG_PADRAO, FAIXAS };

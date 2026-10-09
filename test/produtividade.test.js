@@ -106,6 +106,9 @@ test('lista, dias úteis, gravação, configuração e exclusão', async () => {
   assert.equal(l.corpo.nomes['lara.silva'], 'Lara');
   assert.ok(l.corpo.tabeliaes.includes('cesar.bravo'));
   assert.deepEqual(l.corpo.config, P.CONFIG_PADRAO);
+  assert.deepEqual(l.corpo.meses[0].dados, P.validarDados(INICIAL[0].dados));
+  assert.equal(l.corpo.meses[0].financeiro.percentual_repasses, 29.5694);
+  assert.equal(l.corpo.meses[0].dados_liquidos.atos, l.corpo.meses[0].dados.atos);
   assert.equal((await pedir('/dias-uteis?mes=2026-09', 'tok-cesar')).corpo.dias_uteis, 21);
   assert.equal((await pedir('/dias-uteis?mes=setembro', 'tok-cesar')).status, 400);
 
@@ -119,7 +122,12 @@ test('lista, dias úteis, gravação, configuração e exclusão', async () => {
   assert.equal(ruim.status, 400);
   assert.match(ruim.corpo.erro, /total do mês inválido/);
 
-  assert.equal((await pedir('/config', 'tok-cesar', { corte: 300, ferd: 16.6667, ir: 27.5 })).corpo.config.corte, 300);
+  banco.config = { corte: 250, ferd: 16.67, ir: 27.5 };
+  assert.equal((await pedir('', 'tok-cesar')).corpo.config.ferd, 29.5694);
+  const cfg = (await pedir('/config', 'tok-cesar', { corte: 300, ferd: 29.5694, ir: 27.5 })).corpo.config;
+  assert.equal(cfg.corte, 300); assert.equal(cfg.ferd, 29.5694); assert.equal(banco.config.ferd, 29.5694);
+  const corte = (await pedir('/config', 'tok-cesar', { corte: 200 })).corpo.config;
+  assert.equal(corte.ferd, 29.5694); assert.equal(corte.ir, 27.5);
   assert.equal((await pedir('/config', 'tok-cesar', { corte: 0, ferd: 10, ir: 10 })).status, 400);
 
   assert.equal((await pedir('/apagar', 'tok-cesar', { ano: 2026, mes: 9 })).status, 200);
@@ -142,9 +150,13 @@ test('análise da IA: dados só somados no prompt, resposta guardada no mês', a
     assert.equal(r.corpo.analise.resumo, 'Agosto fechou estável.');
     assert.equal(r.corpo.analise.comparado_com, '2026-07');
     assert.equal(banco.meses.get('2026-8').analise.alertas[0].nivel, 'atencao');
+    assert.equal(r.corpo.analise.base_receita, 'liquida_apos_repasses');
+    const listado = (await pedir('', 'tok-cesar')).corpo.meses.find(m => m.chave === '2026-08');
+    assert.equal(listado.analise_status, 'atual'); assert.equal(listado.analise.resumo, resposta.resumo);
     assert.match(prompt, /NÚMEROS DO MÊS \[[0-9A-F]{8}\]/);   // bloco de dados com código (ia-defesa)
     assert.match(prompt, /REGRA DE SEGURANÇA DO SERVIDOR/);
     assert.match(prompt, /mesa de escrituras/);
+    assert.match(prompt, /nunca desconte novamente/); assert.match(prompt, /lançamentos financeiros/);
     assert.equal((await pedir('/analisar', 'tok-cesar', { ano: 2025, mes: 1 })).status, 404);
   } finally {
     global.fetch = antes.fetch;
