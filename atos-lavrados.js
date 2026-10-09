@@ -17,7 +17,7 @@ function createRouter({ pool = db.pool, session = db.sessaoValida, ehAdmin = () 
   const executar = f => async (req, res) => {
     try { res.json(await f(req)); }
     catch (e) {
-      if ([400, 404, 409, 413].includes(e.status)) return res.status(e.status).json({ erro: e.message, codigo: e.codigo });
+      if ([400, 404, 409, 413, 422].includes(e.status)) return res.status(e.status).json({ erro: e.message, codigo: e.codigo, ...(e.codigo === 'PENDENTE_SEM_ATRIBUICAO' ? { pendencias: e.pendencias } : {}) });
       console.error('atos lavrados: operação indisponível');
       res.status(503).json({ erro: 'não foi possível concluir a operação; nenhum novo salvamento foi confirmado', codigo: 'FONTE_INDISPONIVEL' });
     }
