@@ -17,6 +17,7 @@ function proporcao(n, num = NUM, den = DEN) {
 }
 const reais = n => n / 100;
 const converter = v => v == null ? null : reais(proporcao(centavos(v)));
+const receitaPorAutor = () => ({ status: 'pendente_vinculo_financeiro_por_ato', colaboradores: [], total_atribuido: null });
 const soma = vs => vs.reduce((a, b) => a + b, 0);
 // Maiores restos, com piso matemático também para estornos negativos.
 // Só reconcilia um grupo quando a própria fonte comprova sua soma.
@@ -36,6 +37,7 @@ function financeiro(bruto) {
   const b = centavos(bruto), liquido = proporcao(b), repasses = b - liquido;
   return { bruto: reais(b), repasses: reais(repasses), receita_liquida: reais(liquido),
     percentual_repasses: PERCENTUAL_REPASSES, criterio: CRITERIO, versao: VERSAO,
+    base_individual: 'usuario_financeiro', receita_por_autor: receitaPorAutor(),
     centavos: { bruto: b, repasses, receita_liquida: liquido } };
 }
 function projetar(dados) {
@@ -74,4 +76,4 @@ function projetar(dados) {
   d.base_receita = 'liquida_apos_repasses'; d.versao_financeira = VERSAO;
   return { dados_liquidos: d, financeiro: { ...f, notas, arredondamento: 'Centavos inteiros; maiores restos nos grupos completos e séries reconciliadas por pessoa.' } };
 }
-module.exports = { VERSAO, PERCENTUAL_REPASSES, CRITERIO, centavos, reais, proporcao, distribuir, financeiro, projetar };
+module.exports = { VERSAO, PERCENTUAL_REPASSES, CRITERIO, centavos, reais, proporcao, distribuir, financeiro, projetar, receitaPorAutor };

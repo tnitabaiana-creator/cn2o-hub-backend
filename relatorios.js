@@ -107,6 +107,8 @@ async function gerar(tipo, dataRef, opcoes = {}) {
   const per = periodo(tipo, dataRef);
   const d = await coletar(tipo, per, opcoes);
   const rel = reports.calcular({ tipo, periodo: per, ...d });
+  // Receita da competência inteira: uma semana nunca é estimada por rateio mensal.
+  rel.receita_mensal = await require('./receita-relatorios').consultar(db.pool, per.inicioISO, per.fimISO);
   // Contagens oficiais não substituem os cartões que sustentam tempos e pesos.
   // A fonte não atribui U.criador a uma escrevente.
   try { rel.atos_lavrados = await require('./atos-lavrados-db').resumo(db.pool, per.inicioISO, per.fimISO); }
@@ -123,7 +125,7 @@ async function gerar(tipo, dataRef, opcoes = {}) {
     assunto: email.assunto(rel, homologacao),
     html: email.html(rel, { homologacao, expediente }),
     texto: email.texto(rel, homologacao),
-    csv: email.csv(d.conclusoes, d.pesos, nomes, rel.atos_lavrados),
+    csv: email.csv(d.conclusoes, d.pesos, nomes, rel.atos_lavrados, rel.receita_mensal),
     nomeCsv: `relatorio-${tipo}-${per.inicioISO}_${per.fimISO}.csv`
   };
 }
@@ -132,6 +134,7 @@ function resumo(rel) {
   return {
     concluidos: rel.equipe.concluidos, pontos: rel.equipe.pontos, mediana_mesa: rel.equipe.mediana_mesa,
     atos_lavrados: rel.atos_lavrados, criterio_cartoes: rel.criterio_cartoes,
+    receita_mensal: rel.receita_mensal,
     taxa_retorno: rel.equipe.taxa_retorno,
     escreventes: rel.escreventes.map(e => ({ login: e.login, concluidos: e.concluidos, indice_custo: e.indice_custo }))
   };
@@ -250,6 +253,16 @@ function lerPedido(origem) {
   if (!RE_DATA.test(ref)) throw Object.assign(new Error('ref deve ser AAAA-MM-DD'), { status: 400 });
   return { tipo, ref };
 }
+
+router.get('/receita-mensal', async (req, res) => {
+  res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
+  try {
+    const { tipo, ref } = lerPedido(req.query), fonte = require('./receita-relatorios');
+    fonte.competencias(ref, ref); // não aceita datas civis impossíveis como referência
+    const per = periodo(tipo, ref);
+    res.json({ receita_mensal: await fonte.consultar(db.pool, per.inicioISO, per.fimISO) });
+  } catch { res.status(400).json({ erro: 'tipo ou referência inválidos; use semanal ou mensal e data AAAA-MM-DD' }); }
+});
 
 router.get('/status', async (req, res) => {
   try {

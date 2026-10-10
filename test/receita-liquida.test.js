@@ -14,6 +14,9 @@ test('regra exata em centavos preserva bruto e subtrai repasses uma única vez',
   assert.equal(R.financeiro(-1000).receita_liquida, -704.31);
   const d = original(), antes = JSON.stringify(d), x = R.projetar(d);
   assert.equal(JSON.stringify(d), antes); assert.equal(x.financeiro.percentual_repasses, 29.5694);
+  assert.equal(x.financeiro.base_individual, 'usuario_financeiro');
+  assert.equal(x.financeiro.receita_por_autor.status, 'pendente_vinculo_financeiro_por_ato');
+  assert.equal(x.financeiro.receita_por_autor.total_atribuido, null);
   assert.equal(x.dados_liquidos.atos, 10); assert.equal(x.dados_liquidos.diasUteis, 20);
   assert.equal(x.dados_liquidos.pessoas[0].total_bruto, 600);
   assert.throws(() => R.projetar(x.dados_liquidos), /brutos originais/);

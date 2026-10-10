@@ -10,11 +10,24 @@ Regra gerencial solicitada pelo titular em 09/10/2026: receita líquida = bruto 
 
 - `dados_liquidos`: mesma estrutura, valores monetários líquidos em reais, quantidades intactas; `pessoas[].total_bruto` mantém o critério original de perfil mesa/balcão. Marcadores `base_receita: "liquida_apos_repasses"` e `versao_financeira` impedem reimportar esta projeção como fonte bruta.
 - `financeiro`: `bruto`, `repasses`, `receita_liquida` em reais; `centavos` com os mesmos nomes em inteiros; `percentual_repasses: 29.5694`, `criterio`, `versao`, `notas`, `arredondamento`.
+- `financeiro.base_individual: "usuario_financeiro"` e `financeiro.receita_por_autor: {status:"pendente_vinculo_financeiro_por_ato",colaboradores:[],total_atribuido:null}` deixam explícita a lacuna: o usuário da Pesquisa de Produtividade não comprova autoria da escritura. Igualdade de nome, quantidade, perfil ou cartão não transfere receita a um autor; é preciso vínculo documental de cada lançamento ao ato e ao responsável confirmado.
 - `analise_status`: `atual`, `ausente` ou `anterior_base_obsoleta`. Análises antigas continuam no banco e em `analise_historica`, mas `analise` fica nula até gerar análise com a base atual. A análise nova recebe somente indicadores líquidos e identificação de usuário financeiro, sem presumir autoria da lavratura.
 
 O módulo `receita-liquida.js` é a regra comum. Calcula centavos inteiros com razão exata 704306/1000000, arredondamento para o centavo mais próximo e maiores restos para reconciliar grupos completos. Fonte incompleta não ganha valores inventados: o retorno informa `notas`. Séries completas por pessoa são reconciliadas com seus totais; os dias usam a soma dessas parcelas. Despesas e IR não compõem os indicadores de produtividade.
 
 `GET` reflete sempre 29,5694%, inclusive com configuração legada de 16,67%. `POST /config` aceita só `{corte}`; preserva `ir` legado para compatibilidade e usa o percentual atual. `ferd`/`ir` enviados por clientes antigos são validados com até quatro casas, mas o percentual aplicado continua fixado pela regra atual. Não existe alteração automática do JSON bruto ou dos estados V3.
+
+## Receita no relatório das escreventes
+
+`relatorios.gerar()` incorpora `rel.receita_mensal` usando o total bruto mensal integral de `produtividade_mes`, sem filtro da família Escritura ou da contagem de registrados. O primeiro cartão do HTML e a abertura do texto mostram somente a receita líquida e a competência. O CSV acrescenta uma seção mensal separada, conservando as colunas de cartões. Nenhum envio ou agendamento é disparado por essa leitura; relatórios já enviados permanecem históricos.
+
+Contrato: `{escopo:"competencias_mensais",base_individual:"usuario_financeiro",criterio,periodo_relatorio:{inicio,fim},competencias:[{mes,status,receita_liquida,receita_liquida_centavos,lancamentos,dias_uteis,media_dia_util,fonte,importado_em}],receita_por_autor:{status:"pendente_vinculo_financeiro_por_ato",colaboradores:[],total_atribuido:null}}`.
+
+A página pode consultar diretamente `GET /hub/relatorios/receita-mensal?tipo=mensal&ref=2026-10-01`, que retorna `{receita_mensal}` e só lê a fonte financeira, sem acessar Trello ou gerar/enviar um relatório inteiro. Exige a mesma sessão de administrador dos relatórios, retorna `private, no-store`, e conserva a semântica das prévias: mensal consulta o mês anterior à referência; semanal consulta a semana civil anterior à semana da referência. Assim, `tipo=semanal&ref=2026-10-05` cobre 28/09–04/10 e traz setembro/outubro separadamente. Datas impossíveis são rejeitadas com 400.
+
+Uma semana entre meses traz as competências separadamente, com seus valores mensais; não soma os meses como receita semanal nem rateia valores por dias/cartões. `status` distingue `disponivel`, `ausente` e `indisponivel`; falta de receita não vira zero. Média por dia útil usa o líquido mensal e os dias úteis declarados na fonte, ambos identificados como mensais. Não existem despesas, IR ou receita individual por lavratura nesse bloco.
+
+A projeção usa integralmente o total declarado pela fonte, mas agregados históricos sem metadados de extração não comprovam por si sós que todos os atos e dias foram exportados. A rotina operacional deve conferir filtros, completude, corte e original antes de substituir uma competência. O JSON financeiro atual conserva agregados por usuário, sem a identificação monetária de cada ato: extrair somente a auditoria de lavratura não resolve essa segunda lacuna.
 
 ## Livro-caixa privado
 

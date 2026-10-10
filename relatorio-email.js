@@ -181,6 +181,21 @@ function textoOficial(rel) {
     `${num(a.sem_vinculo, 0)} sem vínculo documental confirmado com protocolo do Hub; vínculo não significa autoria. ` +
     'A contagem oficial não gera ranking individual. Cartões e pesos Trello permanecem métricas de fluxo separadas.';
 }
+const moeda = v => v == null ? '—' : 'R$ ' + num(v, 2);
+const mesFinanceiro = m => /^\d{4}-\d{2}$/.test(m) ? m.slice(5) + '/' + m.slice(0, 4) : String(m || '');
+function textoReceita(rel) {
+  const ms = rel.receita_mensal?.competencias;
+  if (!ms?.length) return 'Receita líquida do cartório: fonte financeira mensal ainda não disponível.';
+  return ms.map(m => `Receita líquida do cartório · competência ${mesFinanceiro(m.mes)}: ${m.status === 'disponivel' ? moeda(m.receita_liquida) : 'fonte financeira ' + (m.status === 'ausente' ? 'ausente' : 'indisponível')}.`).join('\n') +
+    '\nValores mensais de todos os atos da fonte financeira, sem rateio para a semana. Receita por autor pendente de vínculo financeiro por ato.';
+}
+function blocoReceita(rel) {
+  const ms = rel.receita_mensal?.competencias;
+  const cards = ms?.length ? ms.map(m => kpi('Receita líquida do cartório', moeda(m.status === 'disponivel' ? m.receita_liquida : null),
+    `Competência ${esc(mesFinanceiro(m.mes))} · base mensal importada${m.status === 'disponivel' ? '' : ' · fonte ' + (m.status === 'ausente' ? 'ausente' : 'indisponível')}`)).join('') : kpi('Receita líquida do cartório', '—', 'Fonte financeira mensal ainda não disponível');
+  return `<tr><td class="px" style="padding:18px 22px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${cards}</tr></table>
+    <div style="padding:8px 6px;font:12px/1.5 ${SANS};color:${C.ink2}">Todos os atos da fonte financeira mensal. Cada competência permanece separada; não é receita da semana. Receita por autor pendente de vínculo financeiro por ato.</div></td></tr>`;
+}
 function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '08:00-12:00, 13:00-17:00' } = {}) {
   const eq = rel.equipe;
   const nomePer = rel.tipo === 'semanal' ? 'semana' : 'mês';
@@ -207,6 +222,7 @@ function html(rel, { homologacao = false, geradoEm = new Date(), expediente = '0
     <div style="font:14px/1.5 ${SANS};color:${C.muted};margin-top:6px">${esc(rotuloPeriodo(rel.periodo))} · horas úteis</div>
   </td></tr>
   <tr><td style="height:4px;line-height:4px;font-size:0;background:${C.ruby}">&nbsp;</td></tr>
+  ${blocoReceita(rel)}
   ${secao('Escrituras lavradas · fonte oficial', `<p style="font:14px/1.6 ${SANS};color:${C.ink}">${esc(textoOficial(rel))}</p>`)}
   <tr><td class="px" style="padding:18px 22px 0">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
@@ -240,6 +256,7 @@ function texto(rel, homologacao) {
   const eq = rel.equipe;
   const linhas = [
     assunto(rel, homologacao), '',
+    textoReceita(rel), '',
     textoOficial(rel), '',
     `Equipe: ${eq.concluidos} cartões Trello (${eq.concluidos_anterior} no período anterior), ${num(eq.pontos)} pontos,`,
     `tempo total típico ${horas(eq.mediana_mesa)} (mais demorados ${horas(eq.p75_mesa)}), voltou p/ ajuste ${pct(eq.taxa_retorno)}.`, ''
@@ -252,7 +269,7 @@ function texto(rel, homologacao) {
 }
 
 // ------------------------------------------------------------ CSV (Excel pt-BR)
-function csv(conclusoes, pesos, nomes, oficial) {
+function csv(conclusoes, pesos, nomes, oficial, receitaMensal) {
   const campo = v => {
     const s = v == null ? '' : String(v);
     return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -273,7 +290,10 @@ function csv(conclusoes, pesos, nomes, oficial) {
   const extra = oficial ? ['', 'Fonte;Escrituras lavradas - total oficial;Registros observados;Cobertura completa;Sem vínculo com Hub',
     ['Extra Digital status 4 - escrituras por data de lavratura', oficial.total_oficial, oficial.total_observado, oficial.cobertura_completa ? 'sim' : 'não', oficial.sem_vinculo].map(campo).join(';'),
     'Os registros acima são cartões Trello. O total oficial não atribui autoria nem duplica pesos.'] : [];
-  return '﻿' + [cab.join(';'), ...linhas, ...extra].join('\r\n') + '\r\n';
+  const financeiro = receitaMensal?.competencias?.length ? ['', 'Competência financeira mensal;Receita líquida do cartório;Lançamentos financeiros;Média por dia útil;Situação',
+    ...receitaMensal.competencias.map(m => [m.mes, dec(m.receita_liquida), m.lancamentos, dec(m.media_dia_util), m.status].map(campo).join(';')),
+    'Valores mensais de todos os atos da fonte financeira. Não são receita semanal. Receita por autor pendente de vínculo financeiro por ato.'] : [];
+  return '﻿' + [cab.join(';'), ...linhas, ...extra, ...financeiro].join('\r\n') + '\r\n';
 }
 
 // ------------------------------------------------------------ envio
