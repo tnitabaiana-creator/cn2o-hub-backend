@@ -111,6 +111,20 @@ test('primeira constatação de arquivo preserva janela desconhecida e não cred
   pendente(() => decidir(p), 'ENTRADA_POSTERIOR_NAO_DETERMINADA');
 });
 
+test('ingresso potencial posterior sem quadro e transferência incerta empatada não conservam crédito antigo', () => {
+  const p = pedido();
+  p.evidencia.trello.movimentacoes.push(movimento(110, ator(1), '2026-09-07T10:00:00-03:00', A.LISTAS[1], id(901)));
+  const potencial = movimento(111, ator(2), '2026-09-08T10:00:00-03:00', id(901), A.LISTAS[0]);
+  potencial.quadro_id = null; p.evidencia.trello.movimentacoes.push(potencial);
+  pendente(() => decidir(p), 'ENTRADA_POSTERIOR_NAO_DETERMINADA');
+  potencial.quadro_id = A.QUADRO;
+  assert.equal(decidir(p).colaborador.id, 'pessoa.2');
+  const empatado = pedido();
+  empatado.evidencia.trello.movimentacoes.push({ ...movimento(112, ator(2), empatado.evidencia.trello.movimentacoes[0].date),
+    type: 'moveCardToBoard', quadro_id: null, listBefore: null, listAfter: null });
+  pendente(() => decidir(empatado), 'ORDEM_MOVIMENTACOES_AMBIGUA');
+});
+
 test('somente fontes íntegras, vínculos únicos e pessoas inequívocas permitem crédito', () => {
   const cenarios = [
     [p => p.evidencia.trello.historico_completo_ate_corte = false, 'HISTORICO_TRELLO_INCOMPLETO'],

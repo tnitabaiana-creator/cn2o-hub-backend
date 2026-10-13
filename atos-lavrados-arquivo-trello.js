@@ -101,6 +101,7 @@ function decidir(p, registro, cadastro, V) {
     && (x.quadro_id === null || (x.quadro_id === QUADRO && x.listAfter === null)))
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   const transferencia = transferenciasIncertas[0];
+  if (transferencia && ultimo && Date.parse(transferencia.date) === Date.parse(ultimo.date)) pendencias.add('ORDEM_MOVIMENTACOES_AMBIGUA');
   if (transferencia && (!ultimo || Date.parse(transferencia.date) > Date.parse(ultimo.date))) {
     const provas = e.trello.movimentacoes.filter(x => x.type === 'updateCard' && x.quadro_id === QUADRO
       && LISTAS.includes(x.listBefore.id) && LISTAS.includes(x.listAfter.id) && Date.parse(x.date) > Date.parse(transferencia.date))
@@ -110,6 +111,11 @@ function decidir(p, registro, cadastro, V) {
       ultimos = provas.filter(x => Date.parse(x.date) === Date.parse(ultimo.date));
     } else pendencias.add('ENTRADA_POSTERIOR_NAO_DETERMINADA');
   }
+  // Um ID de arquivo sem quadro comprovado não confirma novo ingresso, mas
+  // tampouco permite conservar silenciosamente o crédito de um ingresso antigo.
+  if (ultimo && e.trello.movimentacoes.some(x => x.type === 'updateCard' && x.quadro_id === null
+    && LISTAS.includes(x.listAfter.id) && !LISTAS.includes(x.listBefore.id)
+    && Date.parse(x.date) >= Date.parse(ultimo.date))) pendencias.add('ENTRADA_POSTERIOR_NAO_DETERMINADA');
   if (!ultimo) pendencias.add('SEM_ENTRADA_COMPROVADA_NO_ARQUIVO');
   if (new Set(ultimos.map(x => x.criador.id)).size > 1) pendencias.add('ULTIMA_MOVIMENTACAO_AMBIGUA');
   const normal = cadastro.map(c => ({ id: normalizar(c.login), nome: c.nome, escrevente: c.escrevente,
