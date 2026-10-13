@@ -1,5 +1,7 @@
 # Consulta semanal, tipos e autoria das escrituras
 
+> Atualização de 13/10/2026: [critério gerencial pelas movimentações do arquivo Trello](atos-lavrados-arquivo-trello.md). O contrato abaixo permanece para compatibilidade e histórico; a rotina anterior não substitui atribuição vigente pelo novo critério.
+
 ## Critério e período
 
 Mantém-se a família Escritura da exportação do Extra Digital, situação 4 Registrado(a), com competência pela data de lavratura. Este módulo não expande a extração para procurações ou testamentos, não altera dados financeiros, pesos Trello, cron de e-mails ou mensagens já enviadas.
