@@ -129,7 +129,7 @@ test('PostgreSQL: prioridade direta, revisão, pendência sem mutação, método
     const p = pedido(2, keys[2]); p.evidencia.trello.responsaveis = [{ valor_original: 'pessoa.1', colaborador: pessoa(1) }];
     assert.equal((await post(p)).status, 200);
     const r = await S.semana(pool, '2026-10-09');
-    assert.deepEqual(r.autoria.metodos, { direta: 1, auditoria_concordante: 1, trello_divergencia: 1, movimentacao_arquivo_trello: 0, ultimo_escrevente_antes_arquivo_trello: 0 });
+    assert.deepEqual(r.autoria.metodos, { direta: 1, auditoria_concordante: 1, trello_divergencia: 1, movimentacao_arquivo_trello: 0, ultimo_escrevente_antes_arquivo_trello: 0, criado_por_extra: 0 });
     assert.equal(r.autoria.sem_autoria_confirmada, 2); assert.equal(r.autoria.com_autoria_confirmada, 3);
     assert.equal(r.colaboradores.length, 2); assert.equal(r.colaboradores.find(x => x.id === 'pessoa.1').total_observado, 2);
     for (const c of r.colaboradores) assert.equal(Object.values(c.metodos).reduce((n, x) => n + x, 0), c.total_observado);
@@ -172,7 +172,7 @@ test('PostgreSQL: prioridade direta, revisão, pendência sem mutação, método
     await assert.rejects(pool.query("UPDATE atos_lavrados_autorias SET marco='registro' WHERE minuta='2'"), e => e.code === '23514');
     assert.equal((await post({ chave: keys[2], revisao_base: 1, revogar: true, motivo: 'Conferência humana revogou a associação de teste' })).status, 200);
     const h = await S.historicoAutoria(pool, keys[2]); assert.equal(h.length, 2); assert.equal(h[0].situacao, 'revogada');
-    const r = await S.semana(pool, '2026-10-09'); assert.deepEqual(r.autoria.metodos, { direta: 2, auditoria_concordante: 0, trello_divergencia: 0, movimentacao_arquivo_trello: 0, ultimo_escrevente_antes_arquivo_trello: 0 });
+    const r = await S.semana(pool, '2026-10-09'); assert.deepEqual(r.autoria.metodos, { direta: 2, auditoria_concordante: 0, trello_divergencia: 0, movimentacao_arquivo_trello: 0, ultimo_escrevente_antes_arquivo_trello: 0, criado_por_extra: 0 });
     assert.equal(r.autoria.sem_autoria_confirmada, 3); assert.equal(r.total_oficial, 5);
   });
 });

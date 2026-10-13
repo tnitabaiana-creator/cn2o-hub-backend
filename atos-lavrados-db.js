@@ -4,6 +4,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const autoriaGerencial = require('./atos-lavrados-autoria');
 const autoriaArquivo = require('./atos-lavrados-arquivo-trello');
+const autoriaCriador = require('./atos-lavrados-criado-por');
 const MAX_BYTES = 20 * 1024 * 1024;
 const CRITERIO = 'Extra Digital · Registrado(a) · data de lavratura';
 const cache = new WeakMap();
@@ -87,7 +88,7 @@ function validarLote(p) {
     const dia = data(r.data_lavratura), m = mapa.get(dia.slice(0, 7));
     if (!m || dia > m.ate) throw invalido('há ato fora dos meses ou do corte explicitamente cobertos');
     if (!r.originais || typeof r.originais !== 'object' || Array.isArray(r.originais) || !Object.keys(r.originais).length) throw invalido('preserve os campos originais de cada ato');
-    // U.criador permanece somente nos originais: não é convertido em responsável.
+    // A importação preserva U.criador; atribuição gerencial é confirmação separada e versionada.
     return { chave, mes: m.mes, data_lavratura: dia, registro: { ...r, ...Object.fromEntries(['minuta', 'protocolo', 'livro', 'folha', 'documento'].map((k, i) => [k, campos[i]])) } };
   }).sort((a, b) => a.chave.localeCompare(b.chave));
   const conteudo = JSON.parse(JSON.stringify(p));
@@ -104,7 +105,7 @@ async function init(pool) {
       await c.query(await fs.readFile(path.join(__dirname, 'migrations', '20261009-atos-lavrados-autoria.sql'), 'utf8'));
       // A versão mais recente inclui as anteriores; não reinstala um CHECK antigo
       // que recusaria evidências novas já persistidas numa inicialização posterior.
-      await c.query(await fs.readFile(path.join(__dirname, 'migrations', '20261013-atos-lavrados-arquivo-trello.sql'), 'utf8'));
+      await c.query(await fs.readFile(path.join(__dirname, 'migrations', '20261013-atos-lavrados-criado-por.sql'), 'utf8'));
       await c.query('COMMIT');
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   })().catch(e => { cache.delete(pool); throw e; }));
@@ -194,6 +195,7 @@ async function resumoNoCliente(c, inicio, fim, detalhar) {
         count(*) FILTER(WHERE a.evidencia->>'metodo'='trello_divergencia' AND a.evidencia->>'tipo'='auditoria_trello_criterio_titular')::int AS trello_divergencia,
         count(*) FILTER(WHERE a.evidencia->>'metodo'='movimentacao_arquivo_trello' AND a.evidencia->>'tipo'='trello_movimentacao_arquivo_criterio_titular')::int AS movimentacao_arquivo_trello,
         count(*) FILTER(WHERE a.evidencia->>'metodo'='ultimo_escrevente_antes_arquivo_trello' AND a.evidencia->>'tipo'='trello_movimentacao_arquivo_criterio_titular')::int AS ultimo_escrevente_antes_arquivo_trello,
+        count(*) FILTER(WHERE a.evidencia->>'metodo'='criado_por_extra' AND a.evidencia->>'tipo'='criado_por_extra_criterio_titular')::int AS criado_por_extra,
         count(*) FILTER(WHERE a.evidencia->>'tipo' IN ('auditoria_trello_criterio_titular','trello_movimentacao_arquivo_criterio_titular') AND a.evidencia->'trello'->>'cartao_id' ~ '^[a-f0-9]{24}$')::int AS com_cartao_trello
         FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao)
         JOIN atos_lavrados_autorias a ON a.documento=i.registro->>'documento' AND a.minuta=i.registro->>'minuta'
@@ -202,16 +204,16 @@ async function resumoNoCliente(c, inicio, fim, detalhar) {
       const comAutoria = atribuicoes.reduce((n, a) => n + a.total_observado, 0), semAutoria = r.total_observado - comAutoria;
       const coberturaAutoria = completo && semAutoria === 0;
       Object.assign(resultado, require('./atos-lavrados-tipos').distribuir(grupos, completo), {
-        colaboradores: atribuicoes.map(({ direta, auditoria_concordante, trello_divergencia, movimentacao_arquivo_trello, ultimo_escrevente_antes_arquivo_trello, ...a }) => ({ ...a,
-          metodos: { direta, auditoria_concordante, trello_divergencia, movimentacao_arquivo_trello, ultimo_escrevente_antes_arquivo_trello },
+        colaboradores: atribuicoes.map(({ direta, auditoria_concordante, trello_divergencia, movimentacao_arquivo_trello, ultimo_escrevente_antes_arquivo_trello, criado_por_extra, ...a }) => ({ ...a,
+          metodos: { direta, auditoria_concordante, trello_divergencia, movimentacao_arquivo_trello, ultimo_escrevente_antes_arquivo_trello, criado_por_extra },
           fonte: auditoria_concordante + trello_divergencia + movimentacao_arquivo_trello + ultimo_escrevente_antes_arquivo_trello ? 'Extra Digital + Trello' : 'Extra Digital', total_oficial: coberturaAutoria ? a.total_observado : null })),
         autoria: {
           status: !comAutoria ? 'pendente' : semAutoria ? 'parcial' : 'confirmada',
           sem_autoria_confirmada: semAutoria, com_autoria_confirmada: comAutoria, cobertura_completa: coberturaAutoria,
-          metodos: Object.fromEntries(['direta', 'auditoria_concordante', 'trello_divergencia', 'movimentacao_arquivo_trello', 'ultimo_escrevente_antes_arquivo_trello'].map(k => [k, atribuicoes.reduce((n, a) => n + a[k], 0)])),
+          metodos: Object.fromEntries(['direta', 'auditoria_concordante', 'trello_divergencia', 'movimentacao_arquivo_trello', 'ultimo_escrevente_antes_arquivo_trello', 'criado_por_extra'].map(k => [k, atribuicoes.reduce((n, a) => n + a[k], 0)])),
           com_cartao_trello: atribuicoes.reduce((n, a) => n + a.com_cartao_trello, 0),
-          criterio: autoriaArquivo.criterio,
-          criterios_anteriores: { auditoria_trello_criterio_titular: autoriaGerencial.criterio }
+          criterio: autoriaCriador.criterio,
+          criterios_anteriores: { auditoria_trello_criterio_titular: autoriaGerencial.criterio, trello_movimentacao_arquivo_criterio_titular: autoriaArquivo.criterio }
         }
       });
     }
@@ -293,6 +295,7 @@ function validarAutoria(p) {
   if (p.revogar !== undefined && p.revogar !== false) throw invalido('revogar deve ser booleano');
   if (p.evidencia?.tipo === autoriaGerencial.TIPO) return autoriaGerencial.validar(p, { texto, corte, invalido });
   if (p.evidencia?.tipo === autoriaArquivo.TIPO) return autoriaArquivo.validar(p, { texto, corte, invalido });
+  if (p.evidencia?.tipo === autoriaCriador.TIPO) return autoriaCriador.validar(p, { texto, corte, invalido });
   if (p.evidencia?.tipo !== 'registro_lavratura_extra' || !['lavratura', 'registro'].includes(p.evidencia?.marco)) throw invalido('exige evidência explícita de lavratura ou registro no Extra Digital');
   const campo = texto(p.evidencia.campo_ou_evento, 200);
   const normalizado = campo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
@@ -309,13 +312,20 @@ function preverAutoriaArquivo(entrada, registro, cadastro) {
   if (p.evidencia.tipo !== autoriaArquivo.TIPO) throw invalido('prévia exige evidência de movimentação de arquivo');
   return autoriaArquivo.decidir(p, registro, cadastro, { erro, hash, canonico });
 }
+function preverAutoriaCriadoPor(entrada, registro, cadastro, fonteImportada) {
+  const p = validarAutoria(entrada);
+  if (p.evidencia.tipo !== autoriaCriador.TIPO) throw invalido('prévia exige evidência Criado Por do Extra Digital');
+  return autoriaCriador.decidir(p, registro, cadastro, fonteImportada, { erro, hash, canonico });
+}
 async function atribuirAutoria(pool, entrada, autor, expectativa) {
   let p = validarAutoria(entrada); autor = texto(autor, 160);
   if (expectativa !== undefined) {
-    if (p.evidencia.tipo !== autoriaArquivo.TIPO || !expectativa || typeof expectativa !== 'object'
+    const permitidos = p.evidencia.tipo === autoriaArquivo.TIPO ? [autoriaArquivo.METODO, autoriaArquivo.METODO_ANTERIOR]
+      : p.evidencia.tipo === autoriaCriador.TIPO ? [autoriaCriador.METODO] : [];
+    if (!permitidos.length || !expectativa || typeof expectativa !== 'object'
       || !/^[a-f0-9]{64}$/.test(expectativa.sha256_calculado || '')
       || !/^[a-z0-9][a-z0-9._-]*$/.test(expectativa.colaborador_id || '')
-      || ![autoriaArquivo.METODO, autoriaArquivo.METODO_ANTERIOR].includes(expectativa.metodo)) throw invalido('expectativa exige hash, colaborador e método da prévia de arquivo');
+      || !permitidos.includes(expectativa.metodo)) throw invalido('expectativa exige hash, colaborador e método da prévia correspondente');
     expectativa = { sha256_calculado: expectativa.sha256_calculado, colaborador_id: expectativa.colaborador_id, metodo: expectativa.metodo };
   }
   await init(pool);
@@ -325,30 +335,37 @@ async function atribuirAutoria(pool, entrada, autor, expectativa) {
     const { documento, minuta } = ato.registro;
     const atual = (await c.query('SELECT revisao,situacao,evidencia,colaborador_id,colaborador_nome FROM atos_lavrados_autorias WHERE documento=$1 AND minuta=$2', [documento, minuta])).rows[0];
     const porArquivo = p.evidencia.tipo === autoriaArquivo.TIPO;
-    if (!porArquivo && (atual?.revisao || 0) !== p.revisao_base) throw erro(409, 'REVISAO_DESATUALIZADA', 'a atribuição mudou; confira seu histórico antes de confirmar');
+    const porCriador = p.evidencia.tipo === autoriaCriador.TIPO, idempotente = porArquivo || porCriador;
+    if (!idempotente && (atual?.revisao || 0) !== p.revisao_base) throw erro(409, 'REVISAO_DESATUALIZADA', 'a atribuição mudou; confira seu histórico antes de confirmar');
     if (p.situacao === 'revogada' && !atual) throw erro(404, 'NAO_ENCONTRADO', 'não há atribuição para revogar');
-    if (p.evidencia.tipo === autoriaGerencial.TIPO || porArquivo) {
-      if (atual?.situacao === 'confirmada' && atual.evidencia.tipo === 'registro_lavratura_extra') throw erro(409, 'AUTORIA_DIRETA_PRIORITARIA', 'evidência direta vigente não pode ser substituída pelo complemento gerencial');
-      if (!porArquivo && atual?.situacao === 'confirmada' && atual.evidencia.tipo === autoriaArquivo.TIPO) throw erro(409, 'CRITERIO_GERENCIAL_SUPERADO', 'o critério antigo não substitui atribuição vigente pelo arquivo; eventual correção exige revogação explícita');
-      if (atual?.situacao === 'confirmada' && [autoriaGerencial.TIPO, autoriaArquivo.TIPO].includes(atual.evidencia.tipo) && Date.parse(p.evidencia.corte_em) < Date.parse(atual.evidencia.corte_em)) throw erro(409, 'EVIDENCIA_ANTIGA', 'o corte da nova evidência é anterior à atribuição gerencial vigente; nenhuma atribuição foi alterada');
-      const cadastro = (await c.query(`SELECT e.login,e.nome,true AS escrevente,ARRAY[u.nome]::text[] AS aliases
+    if (p.situacao === 'confirmada' && !porCriador && atual?.situacao === 'confirmada' && atual.evidencia.tipo === autoriaCriador.TIPO) throw erro(409, 'CRITERIO_GERENCIAL_SUPERADO', 'o critério anterior não substitui atribuição por Criado Por; eventual correção exige revogação explícita');
+    if (p.evidencia.tipo === autoriaGerencial.TIPO || idempotente) {
+      if (!porCriador && atual?.situacao === 'confirmada' && atual.evidencia.tipo === 'registro_lavratura_extra') throw erro(409, 'AUTORIA_DIRETA_PRIORITARIA', 'evidência direta vigente não pode ser substituída pelo complemento gerencial anterior');
+      if (!idempotente && atual?.situacao === 'confirmada' && atual.evidencia.tipo === autoriaArquivo.TIPO) throw erro(409, 'CRITERIO_GERENCIAL_SUPERADO', 'o critério antigo não substitui atribuição vigente pelo arquivo; eventual correção exige revogação explícita');
+      if (!porCriador && atual?.situacao === 'confirmada' && [autoriaGerencial.TIPO, autoriaArquivo.TIPO].includes(atual.evidencia.tipo) && Date.parse(p.evidencia.corte_em) < Date.parse(atual.evidencia.corte_em)) throw erro(409, 'EVIDENCIA_ANTIGA', 'o corte da nova evidência é anterior à atribuição gerencial vigente; nenhuma atribuição foi alterada');
+      const cadastro = (await c.query(`SELECT e.login,e.nome,true AS escrevente,ARRAY[u.nome]::text[] AS aliases,u.cargo
         FROM escreventes e LEFT JOIN usuarios u ON u.login=e.login
-        UNION ALL SELECT u.login,u.nome,lower(trim(u.cargo))='escrevente' AS escrevente,ARRAY[]::text[] AS aliases
+        UNION ALL SELECT u.login,u.nome,lower(trim(u.cargo))='escrevente' AS escrevente,ARRAY[]::text[] AS aliases,u.cargo
         FROM usuarios u WHERE NOT EXISTS(SELECT 1 FROM escreventes e WHERE e.login=u.login)`)).rows;
-      p = (porArquivo ? autoriaArquivo : autoriaGerencial).decidir(p, ato.registro, cadastro, { erro, hash, canonico });
+      if (porCriador) {
+        const fonte = (await c.query(`SELECT l.id AS lote_id,l.fonte FROM atos_lavrados_itens i
+          JOIN atos_lavrados_meses m USING(mes,revisao) JOIN atos_lavrados_versoes v USING(mes,revisao)
+          JOIN atos_lavrados_lotes l ON l.id=v.lote_id WHERE i.chave=$1`, [p.chave])).rows[0];
+        p = autoriaCriador.decidir(p, ato.registro, cadastro, fonte, { erro, hash, canonico });
+      } else p = (porArquivo ? autoriaArquivo : autoriaGerencial).decidir(p, ato.registro, cadastro, { erro, hash, canonico });
       // A decisão congelada é confrontada dentro da transação, antes de qualquer
       // INSERT. Mudança de cadastro entre a prévia e a confirmação exige revisão.
       if (expectativa && (p.evidencia.sha256_calculado !== expectativa.sha256_calculado
         || p.colaborador.id !== expectativa.colaborador_id || p.evidencia.metodo !== expectativa.metodo)) throw erro(409, 'DECISAO_DIVERGENTE_DA_PREVIA', 'a decisão atual diverge da prévia aprovada; nenhuma atribuição foi alterada');
       // Repetir exatamente a mesma evidência confirmada não cria revisão/histórico.
       // Evidência diferente continua exigindo a revisão atual, inclusive sob concorrência.
-      if (porArquivo && atual?.situacao === 'confirmada' && atual.evidencia.tipo === autoriaArquivo.TIPO
+      if (idempotente && atual?.situacao === 'confirmada' && atual.evidencia.tipo === p.evidencia.tipo
         && atual.evidencia.sha256_calculado === p.evidencia.sha256_calculado) return {
           chave: p.chave, documento, minuta, revisao: atual.revisao, situacao: 'confirmada',
           metodo: p.evidencia.metodo, colaborador: p.colaborador, repetida: true
         };
     }
-    if (porArquivo && (atual?.revisao || 0) !== p.revisao_base) throw erro(409, 'REVISAO_DESATUALIZADA', 'a atribuição mudou; confira seu histórico antes de confirmar');
+    if (idempotente && (atual?.revisao || 0) !== p.revisao_base) throw erro(409, 'REVISAO_DESATUALIZADA', 'a atribuição mudou; confira seu histórico antes de confirmar');
     const valores = [documento, minuta, p.revisao_base + 1, p.situacao, p.colaborador?.id || null, p.colaborador?.nome || null, p.marco, JSON.stringify(p.evidencia), autor];
     await c.query(`INSERT INTO atos_lavrados_autorias(documento,minuta,revisao,situacao,colaborador_id,colaborador_nome,marco,evidencia,confirmado_por)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT(documento,minuta) DO UPDATE SET
@@ -367,4 +384,4 @@ async function historicoAutoria(pool, chave) {
   if (!ato) throw erro(404, 'NAO_ENCONTRADO', 'ato não encontrado');
   return (await pool.query('SELECT * FROM atos_lavrados_autoria_historico WHERE documento=$1 AND minuta=$2 ORDER BY revisao DESC', [ato.registro.documento, ato.registro.minuta])).rows;
 }
-module.exports = { MAX_BYTES, CRITERIO, erro, init, validarLote, periodo, periodoSemanal, importar, meses, resumo, semana, atos, versoes, backup, vincular, validarAutoria, preverAutoriaArquivo, atribuirAutoria, historicoAutoria };
+module.exports = { MAX_BYTES, CRITERIO, erro, init, validarLote, periodo, periodoSemanal, importar, meses, resumo, semana, atos, versoes, backup, vincular, validarAutoria, preverAutoriaArquivo, preverAutoriaCriadoPor, atribuirAutoria, historicoAutoria };
