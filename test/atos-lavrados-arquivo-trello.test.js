@@ -242,4 +242,22 @@ test('PostgreSQL: novo critério conserva atos/financeiro, CAS, idempotência, h
     antigo.revisao_base = 3; assert.equal((await post(antigo)).status, 200);
     assert.equal((await S.historicoAutoria(pool, keys[5])).length, 4);
   });
+  await t.test('decisão congelada impede mudança de cadastro entre prévia e commit, sem criar histórico', async () => {
+    const p = pedido(1, keys[1], 1);
+    delete p.evidencia.trello.movimentacoes[0].criador.colaborador_hub;
+    const calculado = S.preverAutoriaArquivo(p, registro(1), cadastro);
+    const expectativa = { sha256_calculado: calculado.evidencia.sha256_calculado, colaborador_id: calculado.colaborador.id, metodo: calculado.evidencia.metodo };
+    const antes = await S.historicoAutoria(pool, keys[1]);
+    await pool.query("UPDATE escreventes SET nome='Nome canônico alterado após prévia' WHERE login='pessoa.1'");
+    await assert.rejects(S.atribuirAutoria(pool, p, 'admin.fixture', expectativa), e => e.status === 409 && e.codigo === 'DECISAO_DIVERGENTE_DA_PREVIA');
+    assert.deepEqual(await S.historicoAutoria(pool, keys[1]), antes);
+    await pool.query("UPDATE escreventes SET nome='Escrevente 1' WHERE login='pessoa.1'");
+    const salvo = await S.atribuirAutoria(pool, p, 'admin.fixture', expectativa);
+    assert.equal(salvo.revisao, 2);
+    assert.equal((await S.atribuirAutoria(pool, p, 'admin.fixture', expectativa)).repetida, true);
+    await assert.rejects(S.atribuirAutoria(pool, p, 'admin.fixture', { ...expectativa, colaborador_id: 'pessoa.2' }), e => e.codigo === 'DECISAO_DIVERGENTE_DA_PREVIA');
+    assert.equal((await S.historicoAutoria(pool, keys[1])).length, 2);
+    assert.deepEqual((await pool.query('SELECT row_to_json(t)::text AS linha FROM atos_lavrados_itens t ORDER BY chave')).rows, originals);
+    assert.deepEqual((await pool.query('SELECT dados FROM produtividade_mes')).rows, financeiro);
+  });
 });

@@ -91,6 +91,8 @@ Não enviar `colaborador` no topo nem `metodo`, `decisao` ou `sha256_calculado`:
 
 Idempotência por evidência canônica: repetição exata da evidência vigente retorna revisão existente e `repetida:true`, sem novo histórico. Conteúdo diferente exige revisão atual. Confirmações concorrentes são serializadas. Revogação continua explícita; evidência insuficiente retorna `422 PENDENTE_SEM_ATRIBUICAO` sem apagar a anterior. Corte que retrocede retorna 409. Evidência direta permanece prioritária; novo complemento não a sobrescreve.
 
+Aplicadores de lote podem chamar `atribuirAutoria(pool, entrada, autor, expectativa)` com `{sha256_calculado,colaborador_id,metodo}` da prévia congelada. O serviço recalcula a decisão com o cadastro atual e compara os três campos **dentro da transação, antes do INSERT**. Divergência retorna `409 DECISAO_DIVERGENTE_DA_PREVIA`, sem confirmar nem gerar histórico. A expectativa é um guard adicional do aplicador, não um autor escolhido pelo cliente; a API administrativa de três argumentos mantém seu contrato.
+
 Uma rotina antiga de auditoria CTN/Trello não pode substituir o novo critério de arquivo já vigente, mesmo com corte posterior e revisão atual: retorna `409 CRITERIO_GERENCIAL_SUPERADO`. Eventual correção para critério anterior exige revogação explícita e nova conferência; não é executada automaticamente pela rotina semanal.
 
 A migração cumulativa de 13/10 substitui o CHECK de 10/10, admitindo métodos anteriores e os dois novos. O init não reinstala a restrição antiga em reinicializações. Não insere autores, atos, valores ou despesas.

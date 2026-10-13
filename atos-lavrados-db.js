@@ -309,8 +309,16 @@ function preverAutoriaArquivo(entrada, registro, cadastro) {
   if (p.evidencia.tipo !== autoriaArquivo.TIPO) throw invalido('prévia exige evidência de movimentação de arquivo');
   return autoriaArquivo.decidir(p, registro, cadastro, { erro, hash, canonico });
 }
-async function atribuirAutoria(pool, entrada, autor) {
-  let p = validarAutoria(entrada); autor = texto(autor, 160); await init(pool);
+async function atribuirAutoria(pool, entrada, autor, expectativa) {
+  let p = validarAutoria(entrada); autor = texto(autor, 160);
+  if (expectativa !== undefined) {
+    if (p.evidencia.tipo !== autoriaArquivo.TIPO || !expectativa || typeof expectativa !== 'object'
+      || !/^[a-f0-9]{64}$/.test(expectativa.sha256_calculado || '')
+      || !/^[a-z0-9][a-z0-9._-]*$/.test(expectativa.colaborador_id || '')
+      || ![autoriaArquivo.METODO, autoriaArquivo.METODO_ANTERIOR].includes(expectativa.metodo)) throw invalido('expectativa exige hash, colaborador e método da prévia de arquivo');
+    expectativa = { sha256_calculado: expectativa.sha256_calculado, colaborador_id: expectativa.colaborador_id, metodo: expectativa.metodo };
+  }
+  await init(pool);
   return transacao(pool, false, async c => {
     const ato = (await c.query('SELECT i.registro FROM atos_lavrados_itens i JOIN atos_lavrados_meses m USING(mes,revisao) WHERE i.chave=$1', [p.chave])).rows[0];
     if (!ato) throw erro(404, 'NAO_ENCONTRADO', 'ato ativo não encontrado');
@@ -328,6 +336,10 @@ async function atribuirAutoria(pool, entrada, autor) {
         UNION ALL SELECT u.login,u.nome,lower(trim(u.cargo))='escrevente' AS escrevente,ARRAY[]::text[] AS aliases
         FROM usuarios u WHERE NOT EXISTS(SELECT 1 FROM escreventes e WHERE e.login=u.login)`)).rows;
       p = (porArquivo ? autoriaArquivo : autoriaGerencial).decidir(p, ato.registro, cadastro, { erro, hash, canonico });
+      // A decisão congelada é confrontada dentro da transação, antes de qualquer
+      // INSERT. Mudança de cadastro entre a prévia e a confirmação exige revisão.
+      if (expectativa && (p.evidencia.sha256_calculado !== expectativa.sha256_calculado
+        || p.colaborador.id !== expectativa.colaborador_id || p.evidencia.metodo !== expectativa.metodo)) throw erro(409, 'DECISAO_DIVERGENTE_DA_PREVIA', 'a decisão atual diverge da prévia aprovada; nenhuma atribuição foi alterada');
       // Repetir exatamente a mesma evidência confirmada não cria revisão/histórico.
       // Evidência diferente continua exigindo a revisão atual, inclusive sob concorrência.
       if (porArquivo && atual?.situacao === 'confirmada' && atual.evidencia.tipo === autoriaArquivo.TIPO
