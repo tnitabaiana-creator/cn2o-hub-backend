@@ -74,11 +74,18 @@ async function registrarProtocolo(dados, usuario) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const controle = require('./alertas-sucessorios').createService(pool);
+    try { await controle.validar(client, dados, usuario); }
+    catch (e) {
+      if (!e.status) throw require('./alertas-sucessorios').erro(503,'CONTROLE_INDISPONIVEL','Controle sucessório indisponível. Aguarde a regularização antes de protocolar.');
+      throw e;
+    }
     const numero = await proximoNumero(client);
     await client.query(
       `INSERT INTO protocolos (numero, dados, usuario) VALUES ($1, $2, $3)`,
       [numero, dados, usuario || null]
     );
+    await controle.consumir(client, dados, numero, usuario);
     await client.query('COMMIT');
     return numero;
   } catch (e) {

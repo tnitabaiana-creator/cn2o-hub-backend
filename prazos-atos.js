@@ -149,7 +149,17 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     let acoes = [];
     if (!estado) {
       acoes = await historico(id, 'createCard,copyCard,emailCard,convertToCardFromCheckItem,updateCard:idList,moveCardToBoard,addLabelToCard');
-      const inicio = M.primeiroInicio(acoes,reg.dados,reg.criado_em);
+      // Após transferência, a API do cartão pode omitir movimentos do quadro anterior.
+      // O rastreio preserva esses eventos originais, inclusive sua evidência de entrada.
+      const registrados = (await client.query(`SELECT action_id,tipo,card_id,ocorrido_em,dados FROM eventos_trello
+        WHERE card_id=$1 ORDER BY ocorrido_em,action_id LIMIT 20001`,[id])).rows;
+      if (registrados.length > 20000) throw Error('historico_acima_limite');
+      const preservados = registrados.map(e => {
+        if (!validarId(e.action_id) || e.card_id !== id || e.dados?.card?.id !== id || !Number.isFinite(Date.parse(e.ocorrido_em)))
+          throw Error('historico_divergente');
+        return { id:e.action_id,type:e.tipo,date:new Date(e.ocorrido_em).toISOString(),data:e.dados };
+      });
+      const inicio = M.primeiroInicio([...preservados,...acoes],reg.dados,reg.criado_em);
       if (!inicio) return 'aguarda_cadastro';
       const r = M.regra(reg.dados, card.labels);
       estado = { inicio: inicio.em, evidencia: inicio.evidencia, regra: r, vencimento: M.vencimento(inicio.em,r),
@@ -161,6 +171,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     estado.inicio = new Date(estado.inicio).toISOString();
     estado.vencimento = new Date(estado.vencimento).toISOString();
     if (estado.urgente_em) estado.urgente_em = new Date(estado.urgente_em).toISOString();
+    if (fase !== 'concluido') estado = M.aplicarExcecaoSantaMonica(estado,reg.dados,card.labels);
     if (card.labels?.some(l => M.normalizar(l.name) === 'urgente') && !estado.urgente_em && !acoes.length)
       acoes = await historico(id,'addLabelToCard');
     estado = M.limitarUrgencia(estado,card,acoes,agora());
@@ -172,8 +183,8 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     const responsavel = require('./prazos-atos-painel').resolverResponsavel(card.idBoard,lista.name,cache.usuarios,cache.escreventes,estado.responsavel_login);
     const url = /^https:\/\/trello\.com\/c\/[a-zA-Z0-9]+(?:\/[^\s]*)?$/.test(card.shortUrl || '') ? card.shortUrl : null;
     await client.query(`UPDATE prazos_atos SET vencimento=$2,urgente_em=$3,board_id=$4,list_id=$5,estado=$6,
-      responsavel_login=$7,card_url=COALESCE($8,card_url),atualizado_em=now() WHERE card_id=$1`,
-      [id,estado.vencimento,estado.urgente_em,card.idBoard,card.idList,fase,responsavel,url]);
+      responsavel_login=$7,card_url=COALESCE($8,card_url),regra=$9::jsonb,atualizado_em=now() WHERE card_id=$1`,
+      [id,estado.vencimento,estado.urgente_em,card.idBoard,card.idList,fase,responsavel,url,JSON.stringify(estado.regra)]);
     const s = M.situacao(estado,agora());
     if (fase === 'concluido') {
       if (!await registrarConclusao(client,card,estado,reg,responsavel,card.idList)) throw Error('conclusao_sem_evidencia');

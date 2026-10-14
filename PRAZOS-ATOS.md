@@ -1,4 +1,4 @@
-# Controle contínuo de prazos — versão 2026-10-14.3
+# Controle contínuo de prazos — versão 2026-10-14.4
 
 O prazo geral começa na **primeira entrada comprovada em Cadastro Extradigital**
 (`693aafe273e4860efe413736`, quadro 00). Protocolo/Entrada e Em Digitalização não
@@ -8,7 +8,8 @@ iniciam essa contagem. O relógio setorial de 8 horas permanece independente.
 
 | Ato | Condição | Dias |
 | --- | --- | --- |
-| CV urbana e rural | vendedor corporativo / demais | 5 / 10 úteis |
+| CV urbana e rural | Santa Mônica (etiqueta específica ou bandeira rosa) | 3 corridos |
+| CV urbana e rural | demais construtoras/loteadoras / sem bandeira | 5 / 10 úteis |
 | Doação e permuta | vendedor corporativo / demais | 5 / 8 úteis |
 | Inventário | todos | 4 úteis |
 | Cessão de direitos hereditários | advogado / demais | 4 / 7 úteis |
@@ -29,7 +30,10 @@ configuração; a implantação não presume ter validado o calendário municipa
 Urgência presente desde o protocolo conta da entrada no Cadastro; urgência
 posterior usa o evento de inclusão da etiqueta, nunca alonga o prazo existente.
 Na ausência desse evento, registra o instante de observação. Retirar a etiqueta
-não estende o vencimento. A regra inicial e a versão ficam congeladas no banco.
+não estende o vencimento. A regra inicial e a versão ficam registradas no banco. A retificação Santa Mônica
+é aplicada aos relógios ativos desde a entrada original em Cadastro Extradigital,
+sem reinício ou extensão de prazo menor já vigente. Atos concluídos não são recalculados.
+A identificação Santa Mônica é apenas uma regra de prazo.
 Pendências não suspendem automaticamente o prazo.
 
 ## Arquitetura e funcionamento

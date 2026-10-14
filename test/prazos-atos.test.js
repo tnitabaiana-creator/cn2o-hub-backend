@@ -11,7 +11,7 @@ const action = (id,date,lista,board=M.PROTOCOLO) => ({ id: String(id).padStart(2
 test('matriz aprovada, sem alterar doação e permuta legadas',()=>{
   for(const ato of ['CV-Urbano','CV-Rural']) {
     assert.equal(M.regra({ato}).dias,10);
-    for(const b of ['verde','amarelo','rosa']) assert.equal(M.regra({ato,bandeiras:[b]}).dias,5);
+    for(const b of ['verde','amarelo']) assert.equal(M.regra({ato,bandeiras:[b]}).dias,5);
   }
   for(const ato of ['TEST','CERT']) assert.equal(M.regra({ato}).dias,5);
   for(const ato of ['DOA','PER']) assert.equal(M.regra({ato}).dias,8);
@@ -19,6 +19,31 @@ test('matriz aprovada, sem alterar doação e permuta legadas',()=>{
   assert.equal(M.regra({ato:'CDH'}).dias,7);
   assert.equal(M.regra({ato:'CDH',bandeiras:['roxo']}).dias,4);
   assert.equal(M.regra({ato:'CDP'}).uteis,false);
+});
+test('Santa Mônica: somente compra e venda tem três dias corridos, inclusive feriado e domingo',()=>{
+  for (const ato of ['CV-Urbano','CV-Rural']) {
+    for (const [dados,labels] of [[{ato,bandeiras:['rosa']},[]],[{ato},[{name:'Santa Mônica'}]]]) {
+      const r=M.regra(dados,labels);
+      assert.equal(r.dias,3); assert.equal(r.uteis,false);
+      assert.equal(M.vencimento('2026-10-15T12:00:00Z',r,calendario),'2026-10-19T02:59:59.000Z');
+    }
+    for (const name of ['Construtor','Loteador/Incorporador']) {
+      const r=M.regra({ato},[{name}]); assert.equal(r.dias,5); assert.equal(r.uteis,true);
+    }
+  }
+  for (const ato of ['DOA','PER','TEST','CERT']) {
+    const r=M.regra({ato},[{name:'Santa Mônica'}]); assert.equal(r.dias,5); assert.equal(r.uteis,true);
+  }
+});
+test('retificação alcança relógio ativo sem reiniciar a entrada ou prorrogar urgência',()=>{
+  const estado={inicio:'2026-10-15T12:00:00Z',vencimento:'2026-10-23T02:59:59.000Z',regra:M.regra({ato:'CV-Urbano',bandeiras:['verde']})};
+  const dados={ato:'CV-Urbano'}, labels=[{name:'Santa Mônica'}];
+  const novo=M.aplicarExcecaoSantaMonica(estado,dados,labels,calendario);
+  assert.equal(novo.inicio,estado.inicio); assert.equal(novo.vencimento,'2026-10-19T02:59:59.000Z');
+  assert.equal(novo.regra.uteis,false);
+  const urgente={...estado,vencimento:'2026-10-17T02:59:59.000Z'};
+  assert.equal(M.aplicarExcecaoSantaMonica(urgente,dados,labels,calendario).vencimento,urgente.vencimento);
+  assert.equal(M.aplicarExcecaoSantaMonica(estado,dados,[],calendario),estado);
 });
 test('dias úteis excluem o dia inicial, finais de semana e feriado; limite às 23:59:59 local',()=>{
   assert.equal(M.vencimento(NOW.toISOString(),{dias:2,uteis:true},calendario),'2026-10-20T02:59:59.000Z');
@@ -66,7 +91,7 @@ test('assinatura e pendências continuam correndo; somente conclusão ou arquivo
 });
 
 const { criarServico, CAMPOS } = require('../prazos-atos');
-function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false}={}) {
+function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false,eventos=[]}={}) {
   const gravacoes=[],alertas=new Map();
   let agora=new Date('2026-10-15T12:00:00Z');
   const estado={card_id:cardId,inicio:NOW.toISOString(),evidencia:'entrada',vencimento:'2026-10-17T02:59:59.000Z',regra:{dias:2,uteis:true,ato:'TEST'},urgente_em:null};
@@ -77,6 +102,7 @@ function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false}={
     gravacoes.push([sql,args]);
     if(sql.includes('pg_try_advisory'))return {rows:[{ok:true}]};
     if(sql.includes('FROM protocolos'))return {rows:[{numero:1500,dados:{ato:'TEST'},criado_em:NOW}]};
+    if(sql.includes('FROM eventos_trello'))return {rows:eventos};
     if(sql.startsWith('SELECT * FROM prazos_atos'))return {rows:comEstado?[structuredClone(estado)]:[]};
     if(sql.startsWith('INSERT INTO prazos_atos_alertas')) { if(!alertas.has(args[0])) alertas.set(args[0],{estado:'pendente'}); }
     if(sql.startsWith('SELECT estado FROM prazos_atos_alertas'))return {rows:[alertas.get(args[0])]};
@@ -123,6 +149,21 @@ test('sem passagem comprovada por Cadastro não altera cartão nem inicia prazo'
   const h=ambiente({comEstado:false});
   const r=await h.s.executar({cardIds:[cardId]});
   assert.equal(r.estados.aguarda_cadastro,1);assert.equal(h.card.due,null);assert.equal(h.comentarios.length,0);
+});
+test('transferência de quadro conserva entrada comprovada no histórico do Hub',async()=>{
+  const a=action(1,NOW.toISOString(),M.CADASTRO);
+  const h=ambiente({comEstado:false,eventos:[{action_id:a.id,tipo:a.type,card_id:cardId,ocorrido_em:a.date,dados:a.data}]});
+  const r=await h.s.executar({cardIds:[cardId]});
+  assert.equal(r.erros,0);assert.equal(r.estados.ativo,1);
+  const insercao=h.gravacoes.find(([sql])=>sql.startsWith('INSERT INTO prazos_atos(card_id'));
+  assert.equal(insercao[1][2],NOW.toISOString());assert.equal(insercao[1][3],a.id);
+  assert.equal(h.card.due,M.vencimento(NOW.toISOString(),M.regra({ato:'TEST'})));
+});
+test('histórico preservado divergente não inicia relógio',async()=>{
+  const a=action(1,NOW.toISOString(),M.CADASTRO);
+  const h=ambiente({comEstado:false,eventos:[{action_id:a.id,tipo:a.type,card_id:'outro',ocorrido_em:a.date,dados:a.data}]});
+  const r=await h.s.executar({cardIds:[cardId]});
+  assert.equal(r.erros,1);assert.equal(r.ultimo_erro,'historico_divergente');assert.equal(h.card.due,null);
 });
 test('data da agenda fica preservada na assinatura e relógio canônico continua',async()=>{
   const h=ambiente({lista:'Aguardando Assinatura'});h.card.due='2026-12-01T12:00:00Z';
