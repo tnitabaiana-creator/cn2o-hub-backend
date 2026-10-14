@@ -91,7 +91,7 @@ test('assinatura e pendências continuam correndo; somente conclusão ou arquivo
 });
 
 const { criarServico, CAMPOS } = require('../prazos-atos');
-function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false}={}) {
+function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false,eventos=[]}={}) {
   const gravacoes=[],alertas=new Map();
   let agora=new Date('2026-10-15T12:00:00Z');
   const estado={card_id:cardId,inicio:NOW.toISOString(),evidencia:'entrada',vencimento:'2026-10-17T02:59:59.000Z',regra:{dias:2,uteis:true,ato:'TEST'},urgente_em:null};
@@ -102,6 +102,7 @@ function ambiente({comEstado=true,lista='Gerar Minuta',falharComentario=false}={
     gravacoes.push([sql,args]);
     if(sql.includes('pg_try_advisory'))return {rows:[{ok:true}]};
     if(sql.includes('FROM protocolos'))return {rows:[{numero:1500,dados:{ato:'TEST'},criado_em:NOW}]};
+    if(sql.includes('FROM eventos_trello'))return {rows:eventos};
     if(sql.startsWith('SELECT * FROM prazos_atos'))return {rows:comEstado?[structuredClone(estado)]:[]};
     if(sql.startsWith('INSERT INTO prazos_atos_alertas')) { if(!alertas.has(args[0])) alertas.set(args[0],{estado:'pendente'}); }
     if(sql.startsWith('SELECT estado FROM prazos_atos_alertas'))return {rows:[alertas.get(args[0])]};
@@ -148,6 +149,21 @@ test('sem passagem comprovada por Cadastro não altera cartão nem inicia prazo'
   const h=ambiente({comEstado:false});
   const r=await h.s.executar({cardIds:[cardId]});
   assert.equal(r.estados.aguarda_cadastro,1);assert.equal(h.card.due,null);assert.equal(h.comentarios.length,0);
+});
+test('transferência de quadro conserva entrada comprovada no histórico do Hub',async()=>{
+  const a=action(1,NOW.toISOString(),M.CADASTRO);
+  const h=ambiente({comEstado:false,eventos:[{action_id:a.id,tipo:a.type,card_id:cardId,ocorrido_em:a.date,dados:a.data}]});
+  const r=await h.s.executar({cardIds:[cardId]});
+  assert.equal(r.erros,0);assert.equal(r.estados.ativo,1);
+  const insercao=h.gravacoes.find(([sql])=>sql.startsWith('INSERT INTO prazos_atos(card_id'));
+  assert.equal(insercao[1][2],NOW.toISOString());assert.equal(insercao[1][3],a.id);
+  assert.equal(h.card.due,M.vencimento(NOW.toISOString(),M.regra({ato:'TEST'})));
+});
+test('histórico preservado divergente não inicia relógio',async()=>{
+  const a=action(1,NOW.toISOString(),M.CADASTRO);
+  const h=ambiente({comEstado:false,eventos:[{action_id:a.id,tipo:a.type,card_id:'outro',ocorrido_em:a.date,dados:a.data}]});
+  const r=await h.s.executar({cardIds:[cardId]});
+  assert.equal(r.erros,1);assert.equal(r.ultimo_erro,'historico_divergente');assert.equal(h.card.due,null);
 });
 test('data da agenda fica preservada na assinatura e relógio canônico continua',async()=>{
   const h=ambiente({lista:'Aguardando Assinatura'});h.card.due='2026-12-01T12:00:00Z';

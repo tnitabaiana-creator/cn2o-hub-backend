@@ -149,7 +149,17 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     let acoes = [];
     if (!estado) {
       acoes = await historico(id, 'createCard,copyCard,emailCard,convertToCardFromCheckItem,updateCard:idList,moveCardToBoard,addLabelToCard');
-      const inicio = M.primeiroInicio(acoes,reg.dados,reg.criado_em);
+      // Após transferência, a API do cartão pode omitir movimentos do quadro anterior.
+      // O rastreio preserva esses eventos originais, inclusive sua evidência de entrada.
+      const registrados = (await client.query(`SELECT action_id,tipo,card_id,ocorrido_em,dados FROM eventos_trello
+        WHERE card_id=$1 ORDER BY ocorrido_em,action_id LIMIT 20001`,[id])).rows;
+      if (registrados.length > 20000) throw Error('historico_acima_limite');
+      const preservados = registrados.map(e => {
+        if (!validarId(e.action_id) || e.card_id !== id || e.dados?.card?.id !== id || !Number.isFinite(Date.parse(e.ocorrido_em)))
+          throw Error('historico_divergente');
+        return { id:e.action_id,type:e.tipo,date:new Date(e.ocorrido_em).toISOString(),data:e.dados };
+      });
+      const inicio = M.primeiroInicio([...preservados,...acoes],reg.dados,reg.criado_em);
       if (!inicio) return 'aguarda_cadastro';
       const r = M.regra(reg.dados, card.labels);
       estado = { inicio: inicio.em, evidencia: inicio.evidencia, regra: r, vencimento: M.vencimento(inicio.em,r),

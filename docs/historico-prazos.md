@@ -5,6 +5,7 @@
 - Compra e venda urbana/rural com etiqueta Santa Mônica ou bandeira rosa: 3 dias corridos.
 - Demais construtoras e loteadoras permanecem com 5 dias úteis; sem bandeira, 10 dias úteis.
 - Retificação dos relógios ativos conserva a entrada original e qualquer prazo menor já vigente.
+- Início do ato considera também os eventos originais preservados no Hub após transferência de quadro.
 
 ## 2026-10-14.3
 
