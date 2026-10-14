@@ -24,17 +24,17 @@ test('relógio usa 8h úteis e prazo próprio; retorno interno não reinicia', (
     listBefore: { id: P.LISTAS.cadastro }, listAfter: { id: P.LISTAS.digitalizacao } })];
   const p = R.projetar(eventos, card0(), agora);
   assert.equal(p.prazo, H('2026-09-22T09:00').toISOString());
-  assert.match(p.texto, /Restam 06h00/); assert.equal(p.ativo, true);
+  assert.match(p.texto, /06h00 restantes/); assert.equal(p.ativo, true);
   assert.equal(p.detalhes.ciclo.retornos, 1);
   const almoco = R.projetar(eventos, card0(), H('2026-09-21T12:50'));
-  assert.match(almoco.texto, /Restam 05h00/);
+  assert.match(almoco.texto, /05h00 restantes/);
 });
 
 test('conclusão congela em Gerar, sem Cadastro ressalva, e autor não é inventado', () => {
   const card = { ...card0(), idBoard: P.BOARDS.tabeliao, idList: 'auditoria' };
   const p = R.projetar([entrada(), entrega()], card, H('2026-10-01T16:00'));
   assert.equal(p.estado, 'concluido'); assert.equal(p.ativo, false);
-  assert.match(p.texto, /Concluído 01h30 · s\/ Cadastro · 21\/09 10:30/);
+  assert.match(p.texto, /01h30 concluído · s\/ Cadastro · 21\/09 10:30/);
   assert.equal(p.detalhes.horas_uteis, 1.5);
   assert.equal(R.projetar([entrada(), entrega()], { ...card, closed: true }, agora).texto,
     R.projetar([entrada(), entrega()], card, agora).texto);
@@ -48,7 +48,7 @@ test('sem entrada, prazo e duração permanecem ausentes; excesso não avança f
   assert.equal(done.estado, 'concluido_sem_inicio'); assert.equal(done.prazo, null);
   const tarde = R.projetar([entrada()], card0(), H('2026-09-22T19:00'));
   const noite = R.projetar([entrada()], card0(), H('2026-09-23T07:00'));
-  assert.match(tarde.texto, /Excedido 07h00/);
+  assert.match(tarde.texto, /07h00 excedido/);
   assert.equal(tarde.detalhes.horas_uteis, noite.detalhes.horas_uteis);
 });
 
@@ -112,7 +112,7 @@ test('movimentação concorrente não confirma projeção velha e reconstrói en
   const { state, svc } = harness({ movimento: true });
   const r = await svc.executar({ cardId: ID });
   assert.equal(r.confirmados, 1); assert.equal(state.saved[4], 'concluido');
-  assert.equal(state.saved[5], false); assert.match(state.saved[7], /Concluído 01h30/);
+  assert.equal(state.saved[5], false); assert.match(state.saved[7], /01h30 concluído/);
 });
 
 test('trava ocupada e feature flag impedem qualquer escrita Trello', async () => {

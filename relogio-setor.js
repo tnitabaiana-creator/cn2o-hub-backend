@@ -81,9 +81,10 @@ function projetar(eventos, card, agora, calendario = cal.calendario) {
   const horas = calendario.horasUteis(ciclo.entrou_digitalizacao_em, fim);
   const prazo = calendario.somarHorasUteis(ciclo.entrou_digitalizacao_em, 8).toISOString();
   const ressalva = concluido && !ciclo.cadastro_confirmado ? ' · s/ Cadastro' : '';
-  const texto = concluido ? `${horas <= 8 ? '✅' : '🔴'} Concluído ${hm(Math.round(horas * 60))}${ressalva}` :
-    horas > 8 ? `🔴 Excedido ${hm(Math.ceil((horas - 8) * 60))}` :
-    `${horas >= 6 ? '🟠' : '⏳'} Restam ${hm(Math.max(0, Math.ceil((8 - horas) * 60)))}`;
+  // Tempo primeiro: o Trello trunca o fim do texto na frente do cartão.
+  const texto = concluido ? `${horas <= 8 ? '✅' : '🔴'} ${hm(Math.round(horas * 60))} concluído${ressalva}` :
+    horas > 8 ? `🔴 ${hm(Math.ceil((horas - 8) * 60))} excedido` :
+    `${horas >= 6 ? '🟠' : '⏳'} ${hm(Math.max(0, Math.ceil((8 - horas) * 60)))} restantes`;
   return { ...base, prazo, ativo: !concluido, estado: concluido ? 'concluido' : 'em_andamento',
     texto: `${texto} · ${horaBR(fim)}`, detalhes: { ciclo, horas_uteis: horas, meta_horas_uteis: 8 } };
 }
