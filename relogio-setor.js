@@ -20,7 +20,11 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS relogio_setor (
   ultima_tentativa TIMESTAMPTZ NOT NULL DEFAULT now(), confirmado_em TIMESTAMPTZ,
   erro TEXT, detalhes JSONB NOT NULL DEFAULT '{}'::jsonb
 );
-CREATE INDEX IF NOT EXISTS relogio_setor_pendentes ON relogio_setor(ativo, precisa_repetir);`;
+CREATE INDEX IF NOT EXISTS relogio_setor_pendentes ON relogio_setor(ativo, precisa_repetir);
+CREATE TABLE IF NOT EXISTS relogio_setor_alertas (
+  chave TEXT PRIMARY KEY, card_id TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'pendente',
+  criado_em TIMESTAMPTZ NOT NULL DEFAULT now(), enviado_em TIMESTAMPTZ
+);`;
 
 function falha(codigo, status) {
   return Object.assign(new Error(codigo), { codigo, status,
@@ -59,7 +63,7 @@ function horaBR(instante) {
 function hm(minutos) { return `${String(Math.floor(minutos / 60)).padStart(2, '0')}h${String(minutos % 60).padStart(2, '0')}`; }
 function projetar(eventos, card, agora, calendario = cal.calendario) {
   const corte = new Date(new Date(agora).getTime() + 1).toISOString();
-  const ciclos = P.reconstruir(eventos, { corte, horasUteis: calendario.horasUteis }).ciclos;
+  const ciclos = P.reconstruir(eventos, { corte, horasUteis: calendario.horasUteis, inicioNaLista: P.LISTAS.cadastro }).ciclos;
   const ciclo = ciclos[ciclos.length - 1];
   const base = { ciclo_id: ciclo?.id || null, prazo: null, ativo: noSetor(card), estado: 'pendente',
     texto: `⚠ Entrada não localizada · ${horaBR(agora)}`, detalhes: { ciclo: ciclo || null } };
@@ -74,23 +78,24 @@ function projetar(eventos, card, agora, calendario = cal.calendario) {
     return { ...base, ativo: false, texto: `⚠ Fora do fluxo · ${horaBR(agora)}` };
   }
   const fim = concluido ? ciclo.entrou_gerar_minuta_em : agora;
-  if (!ciclo.entrou_digitalizacao_em) {
+  if (!ciclo.entrou_cadastro_em) {
     return { ...base, ativo: !concluido && noSetor(card), estado: concluido ? 'concluido_sem_inicio' : 'pendente',
       texto: `${concluido ? '✓ Entregue; início ausente' : '⚠ Entrada não localizada'} · ${horaBR(fim)}` };
   }
-  const horas = calendario.horasUteis(ciclo.entrou_digitalizacao_em, fim);
-  const prazo = calendario.somarHorasUteis(ciclo.entrou_digitalizacao_em, 8).toISOString();
+  const horas = calendario.horasUteis(ciclo.entrou_cadastro_em, fim);
+  const prazo = calendario.somarHorasUteis(ciclo.entrou_cadastro_em, 8).toISOString();
   const ressalva = concluido && !ciclo.cadastro_confirmado ? ' · s/ Cadastro' : '';
   // Tempo primeiro: o Trello trunca o fim do texto na frente do cartão.
   const texto = concluido ? `${horas <= 8 ? '✅' : '🔴'} ${hm(Math.round(horas * 60))} concluído${ressalva}` :
-    horas > 8 ? `🔴 ${hm(Math.ceil((horas - 8) * 60))} excedido` :
-    `${horas >= 6 ? '🟠' : '⏳'} ${hm(Math.max(0, Math.ceil((8 - horas) * 60)))} restantes`;
+    horas >= 8 ? (horas === 8 ? '🔴 Limite de 8h úteis atingido' : `🔴 ${hm(Math.ceil((horas - 8) * 60))} excedido`) :
+    `${horas >= 6 ? '🟡' : '🟢'} ${hm(Math.max(0, Math.ceil((8 - horas) * 60)))} restantes`;
   return { ...base, prazo, ativo: !concluido, estado: concluido ? 'concluido' : 'em_andamento',
-    texto: `${texto} · ${horaBR(fim)}`, detalhes: { ciclo, horas_uteis: horas, meta_horas_uteis: 8 } };
+    texto: `${texto} · ${horaBR(fim)}`, detalhes: { ciclo, horas_uteis: horas, meta_horas_uteis: 8,
+      inicio: ciclo.entrou_cadastro_em, marco_inicial: 'cadastro_extradigital' } };
 }
 
 function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date(), calendario = cal.calendario,
-  habilitado = () => process.env.RELOGIO_SETOR_ATIVO === 'true', refreshHistory = null, beforeSweep = null,
+  habilitado = () => process.env.RELOGIO_SETOR_ATIVO !== 'false', refreshHistory = null, beforeSweep = null,
   log = (msg) => console.log(msg), intervaloMs = INTERVALO_MS } = {}) {
   let timer = null, breve = null, rodando = false, ultimoResultado = null;
   const fila = new Set();
@@ -102,7 +107,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     return r.rows;
   }
   async function lerCard(id) {
-    return api('GET', `/cards/${id}?fields=id,idBoard,idList,closed,cover&customFieldItems=true`);
+    return api('GET', `/cards/${id}?fields=id,idBoard,idList,closed,cover,idMembers&customFieldItems=true`);
   }
   function achar(defs, campo) {
     const matches = defs.filter(d => d.name === campo.name);
@@ -177,6 +182,13 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     for (let tentativa = 0; tentativa < 2; tentativa++) {
       const eventos = await lerEventos(client, cardId), hash = assinatura(eventos), card = await lerCard(cardId);
       const p = projetar(eventos, card, agora(), calendario);
+      if (p.estado === 'concluido' && p.detalhes.inicio && p.detalhes.ciclo?.entrou_gerar_minuta_em) {
+        await require('./prazos-metricas').registrar(client,{
+          chave:'setor:'+p.ciclo_id,tipo:'setor',card_id:cardId,protocolo:p.detalhes.ciclo.protocolo,
+          ato:require('./tipos-ato').extrairDoTitulo(p.detalhes.ciclo.titulo).tipo_ato,
+          inicio:p.detalhes.inicio,vencimento:p.prazo,concluido_em:p.detalhes.ciclo.entrou_gerar_minuta_em,
+          evidencia:p.detalhes.ciclo.action_conclusao });
+      }
       if (!QUADROS.includes(card.idBoard) || card.closed || LISTAS_ARQUIVO.includes(card.idList)) {
         await guardar(client, card, { ...p, ativo: false, estado: 'fora_escopo' }, hash, false);
         return 'fora_escopo';
@@ -212,9 +224,28 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
       const finais = await lerEventos(client, cardId);
       if (posicao(atual) !== posicao(card) || assinatura(finais) !== hash) continue;
       await guardar(client, atual, p, hash, true);
+      if (p.ativo && p.detalhes.horas_uteis >= 6) await avisarSetor(client,atual,p);
       return p.estado;
     }
     throw falha('cartao_em_movimentacao');
+  }
+  async function avisarSetor(client,card,p) {
+    const h=p.detalhes.horas_uteis, tipo=h>=8?'vencido':h>=7?'uma_hora':'duas_horas';
+    const chave=createHash('sha256').update(p.ciclo_id+'|'+tipo).digest('hex').slice(0,24);
+    await client.query('INSERT INTO relogio_setor_alertas(chave,card_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[chave,card.id]);
+    const row=(await client.query('SELECT estado FROM relogio_setor_alertas WHERE chave=$1',[chave])).rows[0];
+    if(row?.estado==='enviado')return;
+    const marcador='[setor-8h:'+chave+']';
+    const acoes=await api('GET',`/cards/${card.id}/actions?filter=commentCard&limit=1000&memberCreator=false`);
+    if(!Array.isArray(acoes))throw falha('comentarios_invalidos');
+    if(!acoes.some(a=>a.data?.text?.includes(marcador))) {
+      if(acoes.length>=1000)throw falha('comentarios_acima_limite');
+      const nomes=new Set([process.env.PRAZOS_TABELIAO_TRELLO||'tnitabaiana']);
+      for(const id of card.idMembers||[]) {const m=await api('GET',`/members/${id}?fields=username`);if(m.username)nomes.add(m.username);}
+      const mencoes=[...nomes].filter(x=>/^[a-zA-Z0-9_]+$/.test(x)).map(x=>'@'+x).join(' ');
+      await api('POST',`/cards/${card.id}/actions/comments`,{text:`${mencoes}\nRelógio do setor · 8 horas úteis: ${p.texto}. Contagem desde Cadastro Extradigital; término na entrega em Gerar Minuta.\n${marcador}`});
+    }
+    await client.query("UPDATE relogio_setor_alertas SET estado='enviado',enviado_em=now() WHERE chave=$1",[chave]);
   }
   async function candidatos(client, cardId, cardIds, varrer) {
     if (cardId) return [cardId];
@@ -252,7 +283,8 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
       const campos = {};
       for (const board of QUADROS) campos[board] = await provisionar(board);
       const ids = await candidatos(client, cardId, cardIds, varrer);
-      for (const id of ids) {
+      for (let indice=0;indice<ids.length;indice++) {
+        const id=ids[indice];
         if (!/^[a-f0-9]{24}$/.test(id)) continue;
         try {
           const estado = await sincronizar(client, id, campos);
@@ -261,7 +293,10 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
         } catch (e) {
           resultado.erros++; resultado.ultimo_erro = codigoErro(e);
           await erroCartao(client, id, e);
-          if (e.interromper) { resultado.interrompido = true; break; }
+          if (e.interromper) {
+            for(const pendente of ids.slice(indice))fila.add(pendente);
+            resultado.interrompido = true; break;
+          }
         }
       }
       return resultado;
@@ -301,7 +336,9 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     return { ativo: habilitado(), iniciado: !!timer, rodando, intervalo_minutos: intervaloMs / 60000,
       ultimo_resultado: ultimoResultado, estados: r.rows };
   }
-  return { init, iniciar, parar, executar, enfileirar, status, provisionar,
+  const saude=()=>({ativo:habilitado(),iniciado:!!timer,ultima_rodada:ultimoResultado?.terminado_em||null,
+    ultima_rodada_ok:ultimoResultado?ultimoResultado.erros===0:null});
+  return { init, iniciar, parar, executar, enfileirar, status, saude, provisionar,
     sincronizarCartao: cardId => executar({ cardId }) };
 }
 const padrao = criarServico();

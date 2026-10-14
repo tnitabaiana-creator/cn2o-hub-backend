@@ -65,7 +65,8 @@ function foraDoFluxo(p) {
 
 // A passagem por conferência/pendências não pausa o prazo setorial nem apaga a entrada.
 // A ausência da etapa Cadastro é apresentada; a política pode exigir sua comprovação.
-function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadastro = false } = {}) {
+function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadastro = false, inicioNaLista = LISTAS.digitalizacao } = {}) {
+  const campoInicio = inicioNaLista === LISTAS.cadastro ? 'entrou_cadastro_em' : 'entrou_digitalizacao_em';
   const vistos = new Set();
   const ordenados = eventos.filter(e => e && e.action_id && !vistos.has(e.action_id) && vistos.add(e.action_id))
     .filter(e => Number.isFinite(ms(e.ocorrido_em)) && ms(e.ocorrido_em) < ms(corte))
@@ -86,7 +87,7 @@ function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadast
   let ativo = null, terminou = 0, titulo = '', numero = null, short = null;
   const abrir = ev => {
     const c = { id: `${ev.card_id}:${ev.action_id}`, card_id: ev.card_id, protocolo: null, titulo: '', url: null,
-      entrou_digitalizacao_em: null, saiu_cadastro_em: null, entrou_gerar_minuta_em: null,
+      entrou_digitalizacao_em: null, entrou_cadastro_em: null, saiu_cadastro_em: null, entrou_gerar_minuta_em: null,
       horas_uteis: null, status: 'em_andamento', no_prazo: null, retrabalho: terminou > 0, retornos: 0,
       action_entrada: null, action_saida: null, action_conclusao: null, cadastro_confirmado: false, motivo: null,
       fora_fluxo_em: null, finalizacao_nao_comprovada: false, ultima_posicao: null, saida_fluxo_observada: null };
@@ -103,12 +104,13 @@ function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadast
       if (!ativo) abrir(ev);
       ativo.saiu_cadastro_em = iso(par.ocorrido_em); ativo.action_saida = par.action_id; ativo.cadastro_confirmado = true;
     }
-    if (destino && destino.board === BOARDS.protocolo && destino.lista === LISTAS.digitalizacao) {
+    if (destino && destino.board === BOARDS.protocolo && destino.lista === inicioNaLista) {
       // Reordenação dentro da mesma lista não representa nova entrega física.
-      if (!(ev.tipo === 'updateCard' && d.listBefore && d.listBefore.id === LISTAS.digitalizacao)) {
-        entradas.push({ card_id: ev.card_id, ocorrido_em: quando, action_id: ev.action_id, retorno: !!(ativo && ativo.entrou_digitalizacao_em) });
-        if (!ativo) abrir(ev); else if (ativo.entrou_digitalizacao_em) ativo.retornos++;
-        if (!ativo.entrou_digitalizacao_em) { ativo.entrou_digitalizacao_em = quando; ativo.action_entrada = ev.action_id; }
+      if (!(ev.tipo === 'updateCard' && d.listBefore && d.listBefore.id === inicioNaLista)) {
+        entradas.push({ card_id: ev.card_id, ocorrido_em: quando, action_id: ev.action_id, retorno: !!(ativo && ativo[campoInicio]) });
+        if (!ativo) abrir(ev); else if (ativo[campoInicio]) ativo.retornos++;
+        if (!ativo[campoInicio]) { ativo[campoInicio] = quando; ativo.action_entrada = ev.action_id; }
+        if (inicioNaLista === LISTAS.cadastro) ativo.cadastro_confirmado = true;
       }
     }
     if (saidaCadastro(ev)) {
@@ -140,7 +142,7 @@ function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadast
         ativo.entrou_gerar_minuta_em = quando; ativo.action_conclusao = ev.action_id;
         ativo.status = !exigirCadastro || ativo.cadastro_confirmado ? 'concluido' : 'pendente';
         if (!ativo.cadastro_confirmado) ativo.motivo = 'Entrega em Gerar Minuta observada, mas sem saída de Cadastro Extradigital comprovada no histórico.';
-        if (!ativo.entrou_digitalizacao_em) ativo.motivo = 'Entrega ao Tabelião observada, mas a entrada em Digitalização não consta do histórico; duração desconhecida.';
+        if (!ativo[campoInicio]) ativo.motivo = 'Entrega ao Tabelião observada, mas a entrada em ' + (inicioNaLista === LISTAS.cadastro ? 'Cadastro Extradigital' : 'Digitalização') + ' não consta do histórico; duração desconhecida.';
         terminou++; ativo = null;
       }
     }
@@ -160,10 +162,10 @@ function reconstruir(eventos, { corte, horasUteis = cal.horasUteis, exigirCadast
         (c.ultima_posicao.nome ? '. Última posição: ' + c.ultima_posicao.nome : '') + '. Não compõe o estoque nem os atrasos do setor.';
     }
     const fim = c.entrou_gerar_minuta_em || c.interrompido_em || corte;
-    const horas = c.entrou_digitalizacao_em && !c.finalizacao_nao_comprovada ? horasUteis(c.entrou_digitalizacao_em, fim) : null;
+    const horas = c[campoInicio] && !c.finalizacao_nao_comprovada ? horasUteis(c[campoInicio], fim) : null;
     c.horas_uteis = r2(horas);
     c.no_prazo = horas == null ? null : horas <= 8;
-    if (!c.entrou_digitalizacao_em && !c.motivo) c.motivo = 'Entrada em Digitalização não observada; duração desconhecida.';
+    if (!c[campoInicio] && !c.motivo) c.motivo = 'Entrada em ' + (inicioNaLista === LISTAS.cadastro ? 'Cadastro Extradigital' : 'Digitalização') + ' não observada; duração desconhecida.';
   }
   return { ciclos, entradas };
 }

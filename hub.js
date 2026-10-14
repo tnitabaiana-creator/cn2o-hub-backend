@@ -321,6 +321,18 @@ function exigeAdmin(req, res, next) {
   res.status(403).json({ erro: 'só o Tabelião pode alterar o mural' });
 }
 
+// Diagnóstico do controle global; nunca expor cartões ou dados sem sessão administrativa.
+router.get('/prazos', exigeSessao, async (req,res) => {
+  res.set('Cache-Control','no-store');
+  try { res.json(await require('./prazos-atos-painel').criarConsulta({pool:db.pool})(req.usuario,ehAdmin(req.usuario))); }
+  catch (_) { res.status(503).json({erro:'Relógio do Ato indisponível. Os prazos não foram apagados; confira o Trello.'}); }
+});
+
+router.get('/admin/prazos/status', exigeSessao, exigeAdmin, async (_req, res) => {
+  try { res.json(await require('./prazos-atos').status()); }
+  catch (_) { res.status(503).json({ erro: 'controle de prazos indisponível' }); }
+});
+
 // ---------------------------------------------------------------- mural
 const LIM = { avisos: 60, aniver: 120, metas: 20, titulo: 120, html: 30000, nome: 60 };
 const RE_DATA = /^\d{2}\/\d{2}\/\d{4}$/;

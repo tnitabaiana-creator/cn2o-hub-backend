@@ -7,13 +7,13 @@ const cal = require('../horas-uteis');
 const ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const H = s => new Date(s + ':00-03:00');
 const inicio = H('2026-09-21T09:00'), agora = H('2026-09-21T11:00');
-const card0 = () => ({ id: ID, idBoard: P.BOARDS.protocolo, idList: P.LISTAS.digitalizacao,
+const card0 = () => ({ id: ID, idBoard: P.BOARDS.protocolo, idList: P.LISTAS.cadastro,
   closed: false, due: '2030-01-01T00:00:00Z', dueComplete: false,
   cover: { size: 'full', color: 'purple', idAttachment: null }, customFieldItems: [] });
 const ev = (id, data, tipo, dados) => ({ action_id: id, card_id: ID, ocorrido_em: data, tipo,
   dados: { card: { id: ID, name: 'Prot. (CV) 1234', shortLink: 'AbCdEfGh' }, ...dados } });
 const entrada = () => ev('entrada', inicio, 'updateCard', { board: { id: P.BOARDS.protocolo },
-  listBefore: { id: 'entrada' }, listAfter: { id: P.LISTAS.digitalizacao } });
+  listBefore: { id: 'entrada' }, listAfter: { id: P.LISTAS.cadastro } });
 const entrega = () => ev('entrega', H('2026-09-21T10:30'), 'moveCardToBoard',
   { board: { id: P.BOARDS.tabeliao }, boardSource: { id: P.BOARDS.protocolo }, list: { id: P.LISTAS.gerar_minuta } });
 
@@ -30,11 +30,11 @@ test('relógio usa 8h úteis e prazo próprio; retorno interno não reinicia', (
   assert.match(almoco.texto, /05h00 restantes/);
 });
 
-test('conclusão congela em Gerar, sem Cadastro ressalva, e autor não é inventado', () => {
+test('conclusão congela em Gerar a partir do Cadastro comprovado', () => {
   const card = { ...card0(), idBoard: P.BOARDS.tabeliao, idList: 'auditoria' };
   const p = R.projetar([entrada(), entrega()], card, H('2026-10-01T16:00'));
   assert.equal(p.estado, 'concluido'); assert.equal(p.ativo, false);
-  assert.match(p.texto, /01h30 concluído · s\/ Cadastro · 21\/09 10:30/);
+  assert.match(p.texto, /01h30 concluído · 21\/09 10:30/);
   assert.equal(p.detalhes.horas_uteis, 1.5);
   assert.equal(R.projetar([entrada(), entrega()], { ...card, closed: true }, agora).texto,
     R.projetar([entrada(), entrega()], card, agora).texto);
@@ -184,4 +184,17 @@ test('404 preserva pendência sem repetir cartão inacessível indefinidamente',
   const registro = state.sql.find(q => q.sql.includes("estado='inacessivel'"));
   assert.ok(registro); assert.match(registro.sql, /ativo=false,precisa_repetir=false/);
   assert.equal(state.calls.filter(c => c.method !== 'GET').length, 0);
+});
+
+
+test('digitalização não inicia o relógio; cadastro conta desde a entrada real', () => {
+  const digital = ev('digital', H('2026-09-21T09:00'), 'updateCard', {
+    board:{id:P.BOARDS.protocolo},listBefore:{id:'entrada'},listAfter:{id:P.LISTAS.digitalizacao} });
+  assert.equal(R.projetar([digital],card0(),agora).prazo,null);
+  const cadastro=ev('cadastro',H('2026-09-21T10:00'),'updateCard',{
+    board:{id:P.BOARDS.protocolo},listBefore:{id:P.LISTAS.digitalizacao},listAfter:{id:P.LISTAS.cadastro} });
+  const r=R.projetar([digital,cadastro],card0(),agora);
+  assert.equal(r.detalhes.horas_uteis,1);
+  assert.equal(r.prazo,H('2026-09-22T10:00').toISOString());
+  assert.match(r.texto,/🟢 07h00 restantes/);
 });

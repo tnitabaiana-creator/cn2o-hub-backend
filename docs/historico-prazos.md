@@ -1,0 +1,31 @@
+# Histórico do controle de prazos
+
+## 2026-10-14.3
+
+- Relógio setorial inicia exclusivamente em Cadastro Extradigital e termina em Gerar Minuta.
+- Home, agenda e Trello exibem sinais e avisos de 6h, 7h e 8h úteis.
+- Estatística de cumprimento por responsável, ato e período, com evidência de conclusão.
+- Seções nos relatórios de produtividade e Protocolo/Cadastro, com exportação CSV.
+- Métrica ausente não é representada como 100%; preserva notas e dados financeiros.
+
+## 2026-10-14.2
+
+- Nome aprovado: Relógio do Ato.
+- Painel na home com consulta pessoal e visão da equipe para o tabelião.
+- Minha Agenda com eventos automáticos em D−2 úteis, D−1 útil e D0, vinculados ao cartão original.
+- Nova sessão/transferência/finalização atualiza o acompanhamento sem alterar notas pessoais.
+- API autenticada e testes de isolamento de usuários, feriados e mensagens sem repetição.
+
+## 2026-10-14.1
+
+- Marco inicial da escritura: primeira entrada comprovada em Cadastro Extradigital.
+- Estado canônico por cartão em Postgres, atravessando listas e quadros.
+- Compra e venda urbana/rural sem vendedor corporativo: 10 dias úteis.
+- Testamento e certidão: 5 dias úteis; etiqueta Urgente: até 2 dias úteis.
+- Relógio geral com cores, vencimento visível e alertas por menção no Trello.
+- Relógio setorial de 8 horas e agenda de assinatura preservados.
+- Recuperação periódica, diagnóstico administrativo e deduplicação de alertas.
+- Validação automatizada: testes de política, calendário, urgência, continuidade,
+  assinatura, conclusão e recuperação de resposta de comentário perdida.
+
+Regras e operação: [PRAZOS-ATOS.md](../PRAZOS-ATOS.md).

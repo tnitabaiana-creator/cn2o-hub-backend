@@ -38,6 +38,7 @@ async function init() {
     DELETE FROM sessoes WHERE v2 = false OR expira < now();
   `);
   // usuários da serventia (senha definida por cada um no primeiro acesso)
+  await pool.query(require('./prazos-metricas').SCHEMA);
   const USUARIOS = [
     ['cesar.bravo',     'César Bravo', 'Tabelião'],
     ['josi.silva',      'Josilene',    'Substituta do Tabelião'],

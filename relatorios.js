@@ -114,6 +114,8 @@ async function gerar(tipo, dataRef, opcoes = {}) {
   try { rel.atos_lavrados = await require('./atos-lavrados-db').resumo(db.pool, per.inicioISO, per.fimISO); }
   catch { rel.atos_lavrados = { indisponivel: true, total_oficial: null, total_observado: null, cobertura_completa: false }; }
   rel.criterio_cartoes = 'Cartões Trello: chegada à lista Finalizado; métricas de fluxo, não quantidade oficial de atos lavrados';
+  try { rel.controle_prazos = await require('./prazos-metricas').consultar(db.pool,per.inicioISO,per.fimISO); }
+  catch { rel.controle_prazos = {indisponivel:true}; }
   rel.pesos = d.pesos;
   const { para, homologacao } = email.destinatarios();
   const expediente = cal.calendario.faixas
@@ -123,9 +125,9 @@ async function gerar(tipo, dataRef, opcoes = {}) {
   return {
     rel, para, homologacao,
     assunto: email.assunto(rel, homologacao),
-    html: email.html(rel, { homologacao, expediente }),
-    texto: email.texto(rel, homologacao),
-    csv: email.csv(d.conclusoes, d.pesos, nomes, rel.atos_lavrados, rel.receita_mensal),
+    html: email.html(rel, { homologacao, expediente }).replace('</body>',require('./prazos-metricas').html(rel.controle_prazos)+'</body>'),
+    texto: email.texto(rel, homologacao)+'\n\n'+require('./prazos-metricas').texto(rel.controle_prazos),
+    csv: email.csv(d.conclusoes, d.pesos, nomes, rel.atos_lavrados, rel.receita_mensal)+require('./prazos-metricas').csv(rel.controle_prazos),
     nomeCsv: `relatorio-${tipo}-${per.inicioISO}_${per.fimISO}.csv`
   };
 }
@@ -345,6 +347,12 @@ router.use('/produtividade', require('./produtividade').router);
 router.use('/protocolo-cadastro', require('./protocolo-cadastro').router);
 
 // Herda a autenticação administrativa. Não expõe credenciais nem permite escrita.
+router.get('/prazos', async (req,res) => {
+  res.set('Cache-Control','private, no-store');
+  try { res.json(await require('./prazos-metricas').consultar(db.pool,String(req.query.de||''),String(req.query.ate||''))); }
+  catch(e) { res.status(e.status||503).json({erro:e.status?e.message:'Estatística de prazos indisponível.'}); }
+});
+
 router.get('/relogio-setor/status', async (_req, res) => {
   res.set('Cache-Control', 'private, no-store');
   try { res.json(await require('./relogio-setor-integracao').status()); }

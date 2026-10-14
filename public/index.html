@@ -2592,7 +2592,7 @@ function renderProtocoloOk(r){
   alvo.innerHTML = '<div class="recibo" role="status">' +
     '<div class="rot">Protocolo aberto</div>' +
     '<div class="numero">nº ' + esc(r && r.numero) + '</div>' +
-    ((r && r.prazo) ? '<div class="prazo">Prazo: <b>' + esc(fmtPrazo(r.prazo)) + '</b></div>' : '') +
+    ((r && r.prazo) ? '<div class="prazo">Prazo: <b>' + esc(fmtPrazo(r.prazo)) + '</b></div>' : '<div class="prazo">O prazo de conclusão começa na entrada em <b>Cadastro Extradigital</b>, após a digitalização.</div>') +
     '<div class="links">' +
       (linkOk
         ? '<a class="btn btn-principal" href="' + esc(url) + '" target="_blank" rel="noopener">Abrir cartão no Trello</a>'

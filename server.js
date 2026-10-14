@@ -59,32 +59,9 @@ function corDaCapa(bandeiras) {
   const k = PRIORIDADE_CAPA.find(x => b.includes(x));
   return k ? COR_CAPA[k] : null;
 }
-// ===== PRAZOS AUTOMÁTICOS DE LAVRATURA (fixados na criação; não dependem do escrevente) =====
-// CV-U / CV-R / DOA: 5 dias ÚTEIS com bandeira de construtor/loteador (verde, amarelo
-// ou rosa); 8 dias ÚTEIS sem bandeira de vendedor. INV: 4 úteis (advogado é regra).
-// CDH: 4 úteis com advogado (roxo); 7 úteis sem. TEST: 3 úteis. CDP: 3 dias CORRIDOS.
-function diasUteis(n) {
-  const d = new Date(); let add = 0;
-  while (add < n) { d.setDate(d.getDate() + 1); const wd = d.getDay(); if (wd !== 0 && wd !== 6) add++; }
-  d.setHours(23, 59, 0, 0); return d;
-}
-function diasCorridos(n) { const d = new Date(Date.now() + n * 86400000); d.setHours(23, 59, 0, 0); return d; }
-function prazoDoAto(p) {
-  const f = p.bandeiras || [];
-  const construtor = f.includes('verde') || f.includes('amarelo') || f.includes('rosa');
-  switch (p.ato) {
-    case 'CV-Urbano':
-    case 'CV-Rural':
-    case 'PER':
-    case 'DOA':  return diasUteis(construtor ? 5 : 8);
-    case 'INV':  return diasUteis(4);
-    case 'CDH':  return diasUteis(f.includes('roxo') ? 4 : 7);
-    case 'TEST': return diasUteis(3);
-    case 'CDP':  return diasCorridos(3);
-    case 'CERT': return diasUteis(3);   // v1.36: pedido de certidão/traslado
-    default:     return diasUteis(8);
-  }
-}
+// Prazo de conclusão começa na primeira entrada em Cadastro Extradigital.
+const prazosAtos = require('./prazos-atos');
+const prazosModelo = require('./prazos-atos-modelo');
 // ---------- CERT: pedido de certidão / traslado (v1.36) ----------
 // O cartão do CERT não vai para o quadro 00: vai para o quadro 04 · Certidões/
 // Traslado, na lista de triagem, que é onde as escreventes das certidões
@@ -234,7 +211,8 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
     }
 
     // 4) prazo automático por ato × bandeira (dias úteis; CDP em corridos)
-    const due = prazoDoAto(p).toISOString();
+    const due = ehCert ? prazosModelo.vencimento(new Date().toISOString(),
+      { dias: p.urgente ? 2 : 5, uteis: true }) : null;
 
     // 5) cartão em Protocolo/Entrada
     const card = await trello.criarCartao({
@@ -296,7 +274,9 @@ app.post('/protocolo', exigeSessao, async (req, res) => {
       })
       .catch(e => console.error('[WhatsApp] Erro inesperado em dispararRecibos:', e.message));
 
-    res.json({ numero: pad(numero), card_url: card.shortUrl, prazo: due });
+    res.json({ numero: pad(numero), card_url: card.shortUrl, prazo: due,
+      prazo_inicio: ehCert ? 'protocolo' : 'cadastro_extradigital',
+      prazo_regra: prazosModelo.regra(p) });
   } catch (e) {
     console.error('protocolo:', e.codigo || 'falha de integração');
     if (numeroCriado) return res.status(502).json({ registrado: true, numero: pad(numeroCriado), erro: 'O protocolo ' + pad(numeroCriado) + ' já foi registrado, mas a integração não terminou. Não protocole novamente: confira o número no Hub e peça a regularização do cartão.' });
@@ -365,6 +345,8 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
     try { await rastreio.registrarEvento(a, 'webhook'); rastreado = true; }
     catch (e) { console.error('webhook (rastreio):', e.message); }
   }
+  if (assinatura === 'ok' && a?.data?.card?.id && (rastreio.relevante(a) ||
+    ['addLabelToCard','removeLabelFromCard','addMemberToCard','removeMemberFromCard'].includes(a.type))) prazosAtos.enfileirar(a.data.card.id);
   res.sendStatus(200); // responde já; processa depois
   if (rastreado) {
     rastreio.processarCartao(a.data.card.id).catch(e => console.error('webhook (rastreio):', e.message));
@@ -412,7 +394,7 @@ async function reidratarCampos(a) {
   console.log(`re-hidratado: prot ${reg.numero} no quadro ${boardDestino}`);
 }
 
-app.get('/saude', (_req, res) => res.json({ ok: true }));
+app.get('/saude', (_req, res) => res.json({ ok: true, prazos: prazosAtos.saude(), setor: require('./relogio-setor-integracao').saude() }));
 
 // v1.39.2 (segurança, pacote B): o diagnóstico do WhatsApp era público e devolvia os
 // telefones dos últimos envios (clientes). Agora: sessão de administrador (HUB_ADMINS),
@@ -508,6 +490,7 @@ db.init()
     .catch(e => console.error('produtividade desligada (tabelas):', e.message)))
   .then(() => app.listen(process.env.PORT || 3000, () => {
     console.log('CN2O hub no ar');
+    prazosAtos.iniciar().catch(() => console.error('[prazos-atos] inicializacao_nao_confirmada'));
     if (relatoriosNoAr || atendimentosNoAr) {
       require('./agendador').iniciar({ relatorios: relatoriosNoAr, atendimentos: atendimentosNoAr });
     }
