@@ -20,6 +20,9 @@ try {
  await s.init();await s.init();
  const a=await s.salvar({nome:'Pessoa Exemplo Silva',variantes:['Pessoa Exemplo Lima'],categoria:'possivel_omissao_herdeiros',relato:'Relato de possível omissão recebido para conferência.',documentado:['Documento de teste, página 1.'],pendencias:['Conferir a informação recebida.'],orientacao:'Aguardar decisão do tabelião.',fonte_relato:'Teste isolado',data_recebimento:'2026-10-14'},admin);
  assert.equal((await s.consultar(p)).correspondencias.length,1);
+ const parcial=copia();parcial.sucessao.autores[0].nome='Pessoa Exemplo';
+ assert.equal((await s.consultar(parcial)).correspondencias[0].tipo,'nome_parcial');
+ await assert.rejects(()=>db.registrarProtocolo(parcial,u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
  await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
  assert.equal((await pool.query('SELECT valor FROM contador')).rows[0].valor,100);
  assert.equal((await pool.query('SELECT count(*)::int AS n FROM protocolos')).rows[0].n,0);

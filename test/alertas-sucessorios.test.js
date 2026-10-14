@@ -19,6 +19,18 @@ test('corresponde a acentos, variantes, ordem e pequenos erros sem afirmar ident
  assert.equal(correspondencia({nome:'Terceiro Sem Relação'},alerta),null);
  assert.equal(correspondencia({nome:'Pessoa Exemplo Silva',cpf:'11111111111'},{...alerta,cpf:'22222222222'}),'nome_ou_variante');
 });
+test('nome parcial reconhece omissão de sobrenome, acentos, partículas e ordem',()=>{
+ const a={nome:'Mariana Alves Pereira',variantes:[]};
+ for(const nome of ['mariana alves','Mariána Álves','MARIANA  ALVES','Mariana de Alves','Alves Mariana'])assert.equal(correspondencia({nome},a),'nome_parcial',nome);
+});
+test('nome parcial tolera letras omitidas, repetidas, trocadas e abreviações',()=>{
+ const a={nome:'Mariana Alves Pereira',variantes:[]};
+ for(const nome of ['marina alves','marianna alves','mairana alves','mariana alvez','Marian Alves','M. Alves Pereira'])assert.ok(correspondencia({nome},a),nome);
+});
+test('aproximação não reutiliza palavras nem corresponde apenas por sobrenomes ou iniciais',()=>{
+ const a={nome:'Mariana Alves Pereira',variantes:[]};
+ for(const nome of ['Alves Pereira','Mariana Mariana','Mariana Santos','Carlos Santos Oliveira','M Alves','M A P'])assert.equal(correspondencia({nome},a),null,nome);
+});
 test('decisão vincula pedido e revisão do alerta, ignora identidade e data geradas no servidor',()=>{
  const p={ato:'INV',sucessao:{modalidade:'simples',autores:[{nome:'Pessoa Exemplo Silva'}]},curadoria:{estado:'compativeis',confirmado:true}};
  const m=[{id:'a',revisao:1}],h=fingerprint(p,m);

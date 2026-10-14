@@ -1,6 +1,6 @@
 # Controle interno sucessório — 14/10/2026
 
-O e-Protocolo consulta alertas de inventário simples, cumulativo, sobrepartilha e cessão de direitos hereditários pelo nome de cada autor da herança. O cumulativo exige ao menos dois autores. A consulta considera acentos, variantes cadastradas, ordem dos nomes e erros próximos de digitação. Correspondência de nome exige conferência de identidade, inclusive em possível homonímia.
+O e-Protocolo consulta alertas de inventário simples, cumulativo, sobrepartilha e cessão de direitos hereditários pelo nome de cada autor da herança. O cumulativo exige ao menos dois autores. A consulta ignora acentos, maiúsculas e espaços extras e considera variantes cadastradas, ordem dos nomes e erros próximos de digitação. Também reconhece nomes parciais com prenome e ao menos outra palavra substancial, abreviações e erros em palavras individuais, incluindo letras adjacentes invertidas. Sobrenomes isolados e conjuntos de iniciais não bastam. A sinalização informa quando a correspondência é parcial ou aproximada e exige conferência de identidade, inclusive em possível homonímia.
 
 O tabelião cadastra relato, origem/data, fatos constantes dos documentos, pendências, orientação operacional e, facultativamente, solução jurídica previamente definida pela serventia. O mecanismo não produz análise jurídica nem presume fraude. Os PDFs ficam no PostgreSQL autenticado, com SHA-256, sem publicação no site ou anexação automática ao Trello.
 
