@@ -11,7 +11,7 @@ const action = (id,date,lista,board=M.PROTOCOLO) => ({ id: String(id).padStart(2
 test('matriz aprovada, sem alterar doação e permuta legadas',()=>{
   for(const ato of ['CV-Urbano','CV-Rural']) {
     assert.equal(M.regra({ato}).dias,10);
-    for(const b of ['verde','amarelo','rosa']) assert.equal(M.regra({ato,bandeiras:[b]}).dias,5);
+    for(const b of ['verde','amarelo']) assert.equal(M.regra({ato,bandeiras:[b]}).dias,5);
   }
   for(const ato of ['TEST','CERT']) assert.equal(M.regra({ato}).dias,5);
   for(const ato of ['DOA','PER']) assert.equal(M.regra({ato}).dias,8);
@@ -19,6 +19,31 @@ test('matriz aprovada, sem alterar doação e permuta legadas',()=>{
   assert.equal(M.regra({ato:'CDH'}).dias,7);
   assert.equal(M.regra({ato:'CDH',bandeiras:['roxo']}).dias,4);
   assert.equal(M.regra({ato:'CDP'}).uteis,false);
+});
+test('Santa Mônica: somente compra e venda tem três dias corridos, inclusive feriado e domingo',()=>{
+  for (const ato of ['CV-Urbano','CV-Rural']) {
+    for (const [dados,labels] of [[{ato,bandeiras:['rosa']},[]],[{ato},[{name:'Santa Mônica'}]]]) {
+      const r=M.regra(dados,labels);
+      assert.equal(r.dias,3); assert.equal(r.uteis,false);
+      assert.equal(M.vencimento('2026-10-15T12:00:00Z',r,calendario),'2026-10-19T02:59:59.000Z');
+    }
+    for (const name of ['Construtor','Loteador/Incorporador']) {
+      const r=M.regra({ato},[{name}]); assert.equal(r.dias,5); assert.equal(r.uteis,true);
+    }
+  }
+  for (const ato of ['DOA','PER','TEST','CERT']) {
+    const r=M.regra({ato},[{name:'Santa Mônica'}]); assert.equal(r.dias,5); assert.equal(r.uteis,true);
+  }
+});
+test('retificação alcança relógio ativo sem reiniciar a entrada ou prorrogar urgência',()=>{
+  const estado={inicio:'2026-10-15T12:00:00Z',vencimento:'2026-10-23T02:59:59.000Z',regra:M.regra({ato:'CV-Urbano',bandeiras:['verde']})};
+  const dados={ato:'CV-Urbano'}, labels=[{name:'Santa Mônica'}];
+  const novo=M.aplicarExcecaoSantaMonica(estado,dados,labels,calendario);
+  assert.equal(novo.inicio,estado.inicio); assert.equal(novo.vencimento,'2026-10-19T02:59:59.000Z');
+  assert.equal(novo.regra.uteis,false);
+  const urgente={...estado,vencimento:'2026-10-17T02:59:59.000Z'};
+  assert.equal(M.aplicarExcecaoSantaMonica(urgente,dados,labels,calendario).vencimento,urgente.vencimento);
+  assert.equal(M.aplicarExcecaoSantaMonica(estado,dados,[],calendario),estado);
 });
 test('dias úteis excluem o dia inicial, finais de semana e feriado; limite às 23:59:59 local',()=>{
   assert.equal(M.vencimento(NOW.toISOString(),{dias:2,uteis:true},calendario),'2026-10-20T02:59:59.000Z');

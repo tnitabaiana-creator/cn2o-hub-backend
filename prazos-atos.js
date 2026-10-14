@@ -161,6 +161,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     estado.inicio = new Date(estado.inicio).toISOString();
     estado.vencimento = new Date(estado.vencimento).toISOString();
     if (estado.urgente_em) estado.urgente_em = new Date(estado.urgente_em).toISOString();
+    if (fase !== 'concluido') estado = M.aplicarExcecaoSantaMonica(estado,reg.dados,card.labels);
     if (card.labels?.some(l => M.normalizar(l.name) === 'urgente') && !estado.urgente_em && !acoes.length)
       acoes = await historico(id,'addLabelToCard');
     estado = M.limitarUrgencia(estado,card,acoes,agora());
@@ -172,8 +173,8 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     const responsavel = require('./prazos-atos-painel').resolverResponsavel(card.idBoard,lista.name,cache.usuarios,cache.escreventes,estado.responsavel_login);
     const url = /^https:\/\/trello\.com\/c\/[a-zA-Z0-9]+(?:\/[^\s]*)?$/.test(card.shortUrl || '') ? card.shortUrl : null;
     await client.query(`UPDATE prazos_atos SET vencimento=$2,urgente_em=$3,board_id=$4,list_id=$5,estado=$6,
-      responsavel_login=$7,card_url=COALESCE($8,card_url),atualizado_em=now() WHERE card_id=$1`,
-      [id,estado.vencimento,estado.urgente_em,card.idBoard,card.idList,fase,responsavel,url]);
+      responsavel_login=$7,card_url=COALESCE($8,card_url),regra=$9::jsonb,atualizado_em=now() WHERE card_id=$1`,
+      [id,estado.vencimento,estado.urgente_em,card.idBoard,card.idList,fase,responsavel,url,JSON.stringify(estado.regra)]);
     const s = M.situacao(estado,agora());
     if (fase === 'concluido') {
       if (!await registrarConclusao(client,card,estado,reg,responsavel,card.idList)) throw Error('conclusao_sem_evidencia');

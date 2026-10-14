@@ -2,7 +2,7 @@
 const cal = require('./horas-uteis');
 const CADASTRO = '693aafe273e4860efe413736';
 const PROTOCOLO = '692e0379fa55156e778f27ef';
-const VERSAO = '2026-10-14.3';
+const VERSAO = '2026-10-14.4';
 const normalizar = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 function regra(dados, labels = []) {
   const nomes = labels.map(l => normalizar(l.name));
@@ -10,14 +10,23 @@ function regra(dados, labels = []) {
   const vendedor = f.some(b => ['verde', 'amarelo', 'rosa'].includes(b)) ||
     nomes.some(n => ['loteador/incorporador', 'construtor', 'santa monica'].includes(n));
   const advogado = f.includes('roxo') || nomes.includes('advogado');
+  const santaMonica = f.includes('rosa') || nomes.includes('santa monica');
   const tabela = {
-    'CV-Urbano': [vendedor ? 5 : 10, true], 'CV-Rural': [vendedor ? 5 : 10, true],
+    'CV-Urbano': santaMonica ? [3, false] : [vendedor ? 5 : 10, true],
+    'CV-Rural': santaMonica ? [3, false] : [vendedor ? 5 : 10, true],
     DOA: [vendedor ? 5 : 8, true], PER: [vendedor ? 5 : 8, true],
     INV: [4, true], CDH: [advogado ? 4 : 7, true], TEST: [5, true],
     CDP: [3, false], CERT: [5, true]
   };
   const [dias, uteis] = tabela[dados.ato] || [8, true];
   return { dias, uteis, versao: VERSAO, ato: dados.ato, regra_legada: !tabela[dados.ato] };
+}
+function aplicarExcecaoSantaMonica(estado, dados, labels = [], calendario = cal.calendario) {
+  const r = regra(dados, labels);
+  if (!['CV-Urbano', 'CV-Rural'].includes(r.ato) || r.dias !== 3 || r.uteis) return estado;
+  // Reaplica a retificação desde a entrada original, sem reiniciar ou alongar o prazo.
+  return { ...estado, regra: r, vencimento: new Date(Math.min(
+    Date.parse(estado.vencimento), Date.parse(vencimento(estado.inicio, r, calendario)))).toISOString() };
 }
 function vencimento(inicio, r, calendario = cal.calendario) {
   if (!Number.isFinite(Date.parse(inicio))) throw Error('inicio_invalido');
@@ -82,4 +91,4 @@ function avisoDoDia(vencimento, agora, calendario = cal.calendario) {
   if (agora.getTime() > Date.parse(vencimento)) return 'vencido';
   return marcos(vencimento,calendario).find(m=>m.dia === hoje)?.tipo || null;
 }
-module.exports = { CADASTRO, PROTOCOLO, VERSAO, normalizar, regra, vencimento, chegada, primeiroInicio, limitarUrgencia, situacao, fase, marcos, avisoDoDia };
+module.exports = { CADASTRO, PROTOCOLO, VERSAO, normalizar, regra, aplicarExcecaoSantaMonica, vencimento, chegada, primeiroInicio, limitarUrgencia, situacao, fase, marcos, avisoDoDia };
