@@ -4,7 +4,7 @@ O Hub projeta o prazo setorial em dois campos do Trello: `Prazo do setor` (data)
 
 ## Regra
 
-- Início comprovado: primeira entrada em Cadastro Extradigital, quadro 00. Digitalização não inicia este relógio.
+- Início comprovado: entrada em **Em Digitalização**, quadro 00. Cadastro Extradigital é uma etapa intermediária e não reinicia o prazo.
 - Término comprovado: chegada a Gerar Minuta, quadro 01. A conclusão congela a duração.
 - Meta: 8 horas úteis. Reutiliza `horas-uteis.js`, `EXPEDIENTE` e `FERIADOS_EXTRA`; padrão 08–12/13–17, fuso UTC−3, finais de semana e feriados do calendário do Hub excluídos.
 - Conferência e retornos internos não zeram o início. Retrabalho após entrega usa novo ciclo.
@@ -44,6 +44,23 @@ O chefe do setor (`milvo.neto`, configurável em `PRAZOS_SETOR_LOGINS`) e o tabe
 veem o estoque setorial; a escrevente vê os cartões que lhe forem atribuídos.
 
 A nova estatística em `prazos_metricas` guarda a conclusão comprovada de cada
-ciclo a partir de Cadastro Extradigital, com atraso em horas úteis, sem sobrescrever
+ciclo a partir de Em Digitalização, com atraso em horas úteis, sem sobrescrever
 os eventos e relatórios históricos de volume do fluxo desde Digitalização.
 A estatística canônica do novo prazo fica na seção Relógios e cumprimento de prazos.
+
+## Correção do marco inicial — 2026-10-14
+
+A atualização anterior passou a exigir Cadastro Extradigital e mostrava “Entrada
+não localizada” nos cartões ainda em Digitalização. O marco setorial foi
+restabelecido por confirmação expressa do titular: Em Digitalização → Gerar Minuta.
+O cálculo recupera a movimentação original, sem iniciar um prazo novo na correção.
+Home, agenda e avisos setoriais acompanham esse marco. O prazo geral do ato segue
+sua política independente. Testes verificam início antes do Cadastro, continuidade
+entre etapas, ausência de início comprovado e entrega sem Cadastro.
+
+Para a estatística setorial, a identidade é o cartão e o evento comprovado de
+entrega. Ao reencontrar uma conclusão já registrada com início em Cadastro, a
+reconciliação conserva a chave e a conclusão e atualiza somente o cálculo do
+prazo com a entrada documentada em Digitalização. Não cria outra conclusão.
+Duplicidade ou data conflitante exige conferência; as métricas do ato seguem
+imutáveis. Preservar backup privado antes de reconciliar dados legados.

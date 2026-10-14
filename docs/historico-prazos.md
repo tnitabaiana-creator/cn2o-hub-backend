@@ -1,5 +1,12 @@
 # Histórico do controle de prazos
 
+## 2026-10-14 — correção do início setorial
+
+- Titular confirmou que o setor inicia na entrada em **Em Digitalização**.
+- Corrigidos contador Trello, prazo setorial, home, agenda e texto dos alertas.
+- Recuperado o horário original da movimentação, sem zerar o tempo já decorrido.
+- A regra abaixo da versão .3 foi substituída; o prazo geral do ato permanece independente.
+
 ## 2026-10-14.5
 
 - Inventário simples (uma sucessão): 4 dias úteis.

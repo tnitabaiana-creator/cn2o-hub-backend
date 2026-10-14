@@ -129,8 +129,8 @@ pontos de integração em `index.html`. Publicar backend antes do frontend.
 
 ## Estatística específica e relógio setorial — 2026-10-14.3
 
-Ambos os relógios começam em Cadastro Extradigital. O setorial encerra na entrega
-em Gerar Minuta; o geral continua até Finalizado. São mostrados separadamente
+O relógio setorial começa em **Em Digitalização** e encerra na entrega em Gerar
+Minuta. O geral começa em Cadastro Extradigital e continua até Finalizado. São mostrados separadamente
 na home e agenda. No setor, o amarelo inicia em 6h úteis, com aviso adicional em
 7h e limite em 8h. A agenda mostra os horários calculados no expediente.
 

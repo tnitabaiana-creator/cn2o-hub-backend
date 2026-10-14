@@ -25,7 +25,7 @@ function item(row, agora = new Date()) {
 }
 function setorItem(row, agora = new Date()) {
   const inicio = row.detalhes?.inicio;
-  if (!inicio || row.detalhes?.marco_inicial !== 'cadastro_extradigital') return null;
+  if (!inicio || row.detalhes?.marco_inicial !== 'digitalizacao') return null;
   const horas=cal.horasUteis(inicio,agora),prazo=cal.somarHorasUteis(inicio,8).toISOString();
   const aviso=horas>=8?'vencido':horas>=7?'uma_hora':horas>=6?'duas_horas':null;
   const restante=Math.max(0,Math.ceil((8-horas)*60)),tempo=String(Math.floor(restante/60)).padStart(2,'0')+'h'+String(restante%60).padStart(2,'0');

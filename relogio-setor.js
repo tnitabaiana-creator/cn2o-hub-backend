@@ -63,7 +63,9 @@ function horaBR(instante) {
 function hm(minutos) { return `${String(Math.floor(minutos / 60)).padStart(2, '0')}h${String(minutos % 60).padStart(2, '0')}`; }
 function projetar(eventos, card, agora, calendario = cal.calendario) {
   const corte = new Date(new Date(agora).getTime() + 1).toISOString();
-  const ciclos = P.reconstruir(eventos, { corte, horasUteis: calendario.horasUteis, inicioNaLista: P.LISTAS.cadastro }).ciclos;
+  // O recebimento físico pelo setor ocorre em Digitalização. Cadastro é uma
+  // etapa intermediária e não reinicia nem condiciona este prazo de 8h úteis.
+  const ciclos = P.reconstruir(eventos, { corte, horasUteis: calendario.horasUteis, inicioNaLista: P.LISTAS.digitalizacao }).ciclos;
   const ciclo = ciclos[ciclos.length - 1];
   const base = { ciclo_id: ciclo?.id || null, prazo: null, ativo: noSetor(card), estado: 'pendente',
     texto: `⚠ Entrada não localizada · ${horaBR(agora)}`, detalhes: { ciclo: ciclo || null } };
@@ -78,12 +80,12 @@ function projetar(eventos, card, agora, calendario = cal.calendario) {
     return { ...base, ativo: false, texto: `⚠ Fora do fluxo · ${horaBR(agora)}` };
   }
   const fim = concluido ? ciclo.entrou_gerar_minuta_em : agora;
-  if (!ciclo.entrou_cadastro_em) {
+  if (!ciclo.entrou_digitalizacao_em) {
     return { ...base, ativo: !concluido && noSetor(card), estado: concluido ? 'concluido_sem_inicio' : 'pendente',
       texto: `${concluido ? '✓ Entregue; início ausente' : '⚠ Entrada não localizada'} · ${horaBR(fim)}` };
   }
-  const horas = calendario.horasUteis(ciclo.entrou_cadastro_em, fim);
-  const prazo = calendario.somarHorasUteis(ciclo.entrou_cadastro_em, 8).toISOString();
+  const horas = calendario.horasUteis(ciclo.entrou_digitalizacao_em, fim);
+  const prazo = calendario.somarHorasUteis(ciclo.entrou_digitalizacao_em, 8).toISOString();
   const ressalva = concluido && !ciclo.cadastro_confirmado ? ' · s/ Cadastro' : '';
   // Tempo primeiro: o Trello trunca o fim do texto na frente do cartão.
   const texto = concluido ? `${horas <= 8 ? '✅' : '🔴'} ${hm(Math.round(horas * 60))} concluído${ressalva}` :
@@ -91,7 +93,7 @@ function projetar(eventos, card, agora, calendario = cal.calendario) {
     `${horas >= 6 ? '🟡' : '🟢'} ${hm(Math.max(0, Math.ceil((8 - horas) * 60)))} restantes`;
   return { ...base, prazo, ativo: !concluido, estado: concluido ? 'concluido' : 'em_andamento',
     texto: `${texto} · ${horaBR(fim)}`, detalhes: { ciclo, horas_uteis: horas, meta_horas_uteis: 8,
-      inicio: ciclo.entrou_cadastro_em, marco_inicial: 'cadastro_extradigital' } };
+      inicio: ciclo.entrou_digitalizacao_em, marco_inicial: 'digitalizacao' } };
 }
 
 function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date(), calendario = cal.calendario,
@@ -183,7 +185,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
       const eventos = await lerEventos(client, cardId), hash = assinatura(eventos), card = await lerCard(cardId);
       const p = projetar(eventos, card, agora(), calendario);
       if (p.estado === 'concluido' && p.detalhes.inicio && p.detalhes.ciclo?.entrou_gerar_minuta_em) {
-        await require('./prazos-metricas').registrar(client,{
+        await require('./prazos-metricas').registrarSetor(client,{
           chave:'setor:'+p.ciclo_id,tipo:'setor',card_id:cardId,protocolo:p.detalhes.ciclo.protocolo,
           ato:require('./tipos-ato').extrairDoTitulo(p.detalhes.ciclo.titulo).tipo_ato,
           inicio:p.detalhes.inicio,vencimento:p.prazo,concluido_em:p.detalhes.ciclo.entrou_gerar_minuta_em,
@@ -243,7 +245,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
       const nomes=new Set([process.env.PRAZOS_TABELIAO_TRELLO||'tnitabaiana']);
       for(const id of card.idMembers||[]) {const m=await api('GET',`/members/${id}?fields=username`);if(m.username)nomes.add(m.username);}
       const mencoes=[...nomes].filter(x=>/^[a-zA-Z0-9_]+$/.test(x)).map(x=>'@'+x).join(' ');
-      await api('POST',`/cards/${card.id}/actions/comments`,{text:`${mencoes}\nRelógio do setor · 8 horas úteis: ${p.texto}. Contagem desde Cadastro Extradigital; término na entrega em Gerar Minuta.\n${marcador}`});
+      await api('POST',`/cards/${card.id}/actions/comments`,{text:`${mencoes}\nRelógio do setor · 8 horas úteis: ${p.texto}. Contagem desde Em Digitalização; término na entrega em Gerar Minuta.\n${marcador}`});
     }
     await client.query("UPDATE relogio_setor_alertas SET estado='enviado',enviado_em=now() WHERE chave=$1",[chave]);
   }

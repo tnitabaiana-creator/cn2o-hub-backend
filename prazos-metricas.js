@@ -21,6 +21,36 @@ async function registrar(client,x) {
     [s.chave,s.tipo,s.card_id,s.protocolo||null,s.responsavel_login||null,s.ato||null,s.inicio,s.vencimento,s.concluido_em,s.no_prazo,s.horas_uteis,s.atraso_horas_uteis,s.evidencia]);
   return s;
 }
+// Executar sob a trava consultiva do relógio setorial. A identidade da entrega é
+// sua ação de conclusão; corrigir o início do ciclo não cria outra entrega.
+async function registrarSetor(client,x) {
+  if (x.tipo!=='setor' || typeof x.card_id!=='string' || !x.card_id.trim() ||
+      typeof x.evidencia!=='string' || !x.evidencia.trim()) throw Error('metrica_setor_identidade_invalida');
+  const s=snapshot(x);
+  const anteriores=await client.query(`SELECT * FROM prazos_metricas
+    WHERE tipo='setor' AND card_id=$1 AND evidencia=$2`,[s.card_id,s.evidencia]);
+  if (anteriores.rows.length>1) throw Error('metrica_setor_conclusao_duplicada');
+  if (anteriores.rows.length===1) {
+    const anterior=anteriores.rows[0];
+    if (new Date(anterior.concluido_em).getTime()!==new Date(s.concluido_em).getTime())
+      throw Error('metrica_setor_conclusao_divergente');
+    const atualizado=await client.query(`UPDATE prazos_metricas SET
+      inicio=$4,vencimento=$5,no_prazo=$6,horas_uteis=$7,atraso_horas_uteis=$8
+      WHERE chave=$1 AND tipo='setor' AND card_id=$2 AND evidencia=$3
+      AND (SELECT count(*) FROM prazos_metricas WHERE tipo='setor' AND card_id=$2 AND evidencia=$3)=1
+      RETURNING *`,[anterior.chave,s.card_id,s.evidencia,s.inicio,s.vencimento,s.no_prazo,s.horas_uteis,s.atraso_horas_uteis]);
+    if (atualizado.rows.length!==1) throw Error('metrica_setor_reconciliacao_pendente');
+    return atualizado.rows[0];
+  }
+  const chave='setor:'+s.card_id+':conclusao:'+s.evidencia;
+  const novo=await client.query(`INSERT INTO prazos_metricas
+    (chave,tipo,card_id,protocolo,responsavel_login,ato,inicio,vencimento,concluido_em,no_prazo,horas_uteis,atraso_horas_uteis,evidencia)
+    VALUES($1,'setor',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    ON CONFLICT(chave) DO NOTHING RETURNING *`,
+    [chave,s.card_id,s.protocolo||null,s.responsavel_login||null,s.ato||null,s.inicio,s.vencimento,s.concluido_em,s.no_prazo,s.horas_uteis,s.atraso_horas_uteis,s.evidencia]);
+  if (novo.rows.length!==1) throw Error('metrica_setor_chave_em_conflito');
+  return novo.rows[0];
+}
 function resumir(linhas) {
   const grupos=new Map();
   function acumular(g,r){g.concluidos++;if(r.no_prazo)g.no_prazo++;else g.atrasados++;g.horas+=Number(r.horas_uteis);g.atraso+=Number(r.atraso_horas_uteis);g.maior_atraso=Math.max(g.maior_atraso,Number(r.atraso_horas_uteis));}
@@ -50,4 +80,4 @@ function csv(r){
   const cel=v=>'"'+String(v==null?'':v).replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"';
   return '\r\nCONTROLE DE PRAZOS\r\nTipo;Protocolo;Responsável;Ato;Início;Vencimento;Conclusão;No prazo;Horas úteis;Atraso em horas úteis\r\n'+r.detalhes.map(x=>[x.tipo,x.protocolo,x.responsavel_login,x.ato,x.inicio,x.vencimento,x.concluido_em,x.no_prazo?'Sim':'Não',x.horas_uteis,x.atraso_horas_uteis].map(cel).join(';')).join('\r\n')+'\r\n';
 }
-module.exports={SCHEMA,snapshot,registrar,resumir,consultar,html,texto,csv};
+module.exports={SCHEMA,snapshot,registrar,registrarSetor,resumir,consultar,html,texto,csv};

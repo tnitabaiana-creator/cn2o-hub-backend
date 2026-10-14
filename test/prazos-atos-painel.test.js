@@ -50,10 +50,11 @@ test('visão administrativa e resumo não retornam dados de dossiê',async()=>{
 
 
 test('agenda e painel setorial usam o mesmo início e marcos de 6h, 7h e 8h',()=>{
-  const row={card_id:'x',protocolo:1500,detalhes:{inicio:'2026-10-14T12:00:00Z',marco_inicial:'cadastro_extradigital'}};
+  const row={card_id:'x',protocolo:1500,detalhes:{inicio:'2026-10-14T12:00:00Z',marco_inicial:'digitalizacao'}};
   const i=P.setorItem(row,new Date('2026-10-14T19:00:00Z'));
   assert.equal(i.aviso,'duas_horas');assert.equal(i.cor,'amarelo');
   assert.deepEqual(i.marcos.map(m=>m.hora),['16:00','17:00','09:00']);
   assert.equal(i.marcos[2].dia,'2026-10-15');
   assert.equal(P.setorItem({...row,detalhes:{inicio:row.detalhes.inicio}}),null);
+  assert.equal(P.setorItem({...row,detalhes:{inicio:row.detalhes.inicio,marco_inicial:'cadastro_extradigital'}}),null);
 });
