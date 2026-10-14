@@ -344,6 +344,13 @@ router.use('/produtividade', require('./produtividade').router);
 // Relatório setorial: Digitalização → Cadastro → Gerar Minuta (somente leitura).
 router.use('/protocolo-cadastro', require('./protocolo-cadastro').router);
 
+// Herda a autenticação administrativa. Não expõe credenciais nem permite escrita.
+router.get('/relogio-setor/status', async (_req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  try { res.json(await require('./relogio-setor-integracao').status()); }
+  catch (_) { res.status(503).json({ erro: 'Estado do relógio do setor indisponível.' }); }
+});
+
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ erro: 'requisição inválida' });
   next(err);

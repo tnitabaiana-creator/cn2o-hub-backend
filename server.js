@@ -368,6 +368,8 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
   res.sendStatus(200); // responde já; processa depois
   if (rastreado) {
     rastreio.processarCartao(a.data.card.id).catch(e => console.error('webhook (rastreio):', e.message));
+    // Somente eventos autenticados; o contador conserva o prazo geral do ato.
+    require('./relogio-setor-integracao').enfileirar(a.data.card.id);
   }
   // v1.39.2 (segurança, pacote B): a re-hidratação ESCREVE no Trello, então só com a
   // assinatura válida. Sem TRELLO_SECRET configurado (instalação nova), só para os quadros
@@ -509,5 +511,7 @@ db.init()
     if (relatoriosNoAr || atendimentosNoAr) {
       require('./agendador').iniciar({ relatorios: relatoriosNoAr, atendimentos: atendimentosNoAr });
     }
+    if (relatoriosNoAr) require('./relogio-setor-integracao').iniciar()
+      .catch(() => console.error('[relogio-setor] inicializacao_nao_confirmada'));
   }))
   .catch(e => { console.error('falha no boot:', e); process.exit(1); });

@@ -96,8 +96,45 @@ function criarCalendario({ expediente = '08:00-12:00,13:00-17:00', feriadosExtra
     return total / 3600e3;
   }
 
+  // Instante em que uma duração útil termina, usando o mesmo calendário das métricas.
+  // Não muda o Date recebido. Zero conserva o instante, mesmo fora do expediente.
+  // Datas inválidas e durações negativas/não numéricas são erros, não prazos imediatos.
+  function somarHorasUteis(inicio, horas) {
+    if (!(inicio instanceof Date) && typeof inicio !== 'string' && typeof inicio !== 'number') {
+      throw new TypeError('Início inválido: informe Date, ISO ou milissegundos.');
+    }
+    const t0 = new Date(inicio).getTime();
+    if (!Number.isFinite(t0)) throw new RangeError('Início inválido para o prazo em horas úteis.');
+    if (typeof horas !== 'number' || !Number.isFinite(horas) || horas < 0) {
+      throw new RangeError('Horas úteis devem ser um número finito maior ou igual a zero.');
+    }
+    let restante = Math.round(horas * 3600e3);
+    if (!Number.isSafeInteger(restante)) throw new RangeError('Duração em horas úteis fora do limite.');
+    if (!restante) return new Date(t0);
+    if (faixas.some(([a, b], i) => a < 0 || b > 1440 || b <= a || (i && a < faixas[i - 1][1]))) {
+      throw new RangeError('EXPEDIENTE inválido para somar horas úteis: faixas sobrepostas.');
+    }
+    let dia = Math.floor((t0 + OFFSET_MS) / DIA_MS) * DIA_MS - OFFSET_MS;
+    // Limite defensivo de cem anos: evita cálculo sem término em entrada excessiva.
+    for (let dias = 0; dias < 36600 && Number.isFinite(new Date(dia).getTime()); dias++, dia += DIA_MS) {
+      if (!ehDiaUtil(chave(dia + OFFSET_MS))) continue;
+      for (const [a, b] of faixas) {
+        const ini = Math.max(t0, dia + a * 60000), fim = dia + b * 60000;
+        if (fim <= ini) continue;
+        const disponivel = fim - ini;
+        if (restante <= disponivel) {
+          const resultado = new Date(ini + restante);
+          if (!Number.isFinite(resultado.getTime())) throw new RangeError('Prazo fora do intervalo de datas suportado.');
+          return resultado;
+        }
+        restante -= disponivel;
+      }
+    }
+    throw new RangeError('Prazo em horas úteis excede o horizonte de cem anos.');
+  }
+
   const horasPorDia = faixas.reduce((s, [a, b]) => s + (b - a), 0) / 60;
-  return { horasUteis, ehDiaUtil, feriadosDoAno, horasPorDia, faixas };
+  return { horasUteis, somarHorasUteis, ehDiaUtil, feriadosDoAno, horasPorDia, faixas };
 }
 
 // ---- datas locais (America/Maceio) para o agendador e os períodos dos relatórios ----
@@ -129,5 +166,5 @@ const padrao = criarCalendario({
 
 module.exports = {
   criarCalendario, pascoa, local, meiaNoiteLocal, somaDias, dataBR,
-  horasUteis: padrao.horasUteis, ehDiaUtil: padrao.ehDiaUtil, calendario: padrao
+  horasUteis: padrao.horasUteis, somarHorasUteis: padrao.somarHorasUteis, ehDiaUtil: padrao.ehDiaUtil, calendario: padrao
 };
