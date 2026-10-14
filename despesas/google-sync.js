@@ -8,7 +8,8 @@ const SHEETS='https://sheets.googleapis.com/v4/spreadsheets';
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const apiError=message=>Object.assign(new Error(message),{publicMessage:message});
 const escapeQuery=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
+function createGoogleSync({pool,initialize,fetcher=fetch,workspace='cn2o',callback=workspace==='bravo'?CALLBACK.replace('/despesas/','/despesas-bravo/'):CALLBACK}={}){
+ const bravo=workspace==='bravo',rootKey=bravo?'bravo-controle-despesas-root':'controle-despesas-root',sheetKey=bravo?'bravo-controle-despesas-sheet':'controle-despesas-sheet';
  let busy=false,access=null,timer;
  async function connection(){return (await pool.query('SELECT * FROM despesas_google_connection WHERE id=1')).rows[0];}
  async function jsonRequest(url,options){const response=await fetcher(url,{...options,signal:AbortSignal.timeout(45000)});let body;try{body=await response.json();}catch{throw apiError('Google não retornou uma resposta válida. Tente sincronizar novamente.');}if(!response.ok)throw apiError(response.status===401?'A autorização do Google expirou. Reconecte a conta.':response.status===403?'Google recusou o acesso. Confira as APIs Drive e Sheets e as permissões da conta.':response.status===429?'Limite temporário do Google. A sincronização será repetida.':'Google não confirmou a sincronização (HTTP '+response.status+').');return body;}
@@ -18,20 +19,20 @@ function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
  async function findFile(c,q){const data=await api(c,DRIVE+'/files?'+new URLSearchParams({q:q+' and trashed=false',fields:'files(id,webViewLink,parents)',pageSize:'100'}));return data.files?.[0];}
  async function folder(c,name,parent,key){let f=await findFile(c,"mimeType='application/vnd.google-apps.folder' and appProperties has { key='cn2oKey' and value='"+escapeQuery(key)+"' }"+(parent?" and '"+escapeQuery(parent)+"' in parents":""));if(!f)f=await post(c,DRIVE+'/files?fields=id,webViewLink',{name,mimeType:'application/vnd.google-apps.folder',...(parent?{parents:[parent]}:{}),appProperties:{cn2oKey:key}});if(!f.id||!f.webViewLink)throw apiError('Google não confirmou a pasta criada.');return f;}
  async function resources(c){
-  const root=await folder(c,'CN2O — Controle de Despesas',null,'controle-despesas-root');
-  let sheet=await findFile(c,"mimeType='application/vnd.google-apps.spreadsheet' and '"+escapeQuery(root.id)+"' in parents and appProperties has { key='cn2oKey' and value='controle-despesas-sheet' }");
-  if(!sheet)sheet=await post(c,DRIVE+'/files?fields=id,webViewLink',{name:'Controle de Despesas — CN2O',mimeType:'application/vnd.google-apps.spreadsheet',parents:[root.id],appProperties:{cn2oKey:'controle-despesas-sheet'}});
+  const root=await folder(c,(bravo?'Bravo Patrimonial':'CN2O')+' — Controle de Despesas',null,rootKey);
+  let sheet=await findFile(c,"mimeType='application/vnd.google-apps.spreadsheet' and '"+escapeQuery(root.id)+"' in parents and appProperties has { key='cn2oKey' and value='"+sheetKey+"' }");
+  if(!sheet)sheet=await post(c,DRIVE+'/files?fields=id,webViewLink',{name:'Controle de Despesas — '+(bravo?'Bravo Patrimonial':'CN2O'),mimeType:'application/vnd.google-apps.spreadsheet',parents:[root.id],appProperties:{cn2oKey:sheetKey}});
   if(!sheet.id||!sheet.webViewLink)throw apiError('Google não confirmou a planilha criada.');
   await pool.query('UPDATE despesas_google_connection SET folder_id=$1,folder_url=$2,spreadsheet_id=$3,spreadsheet_url=$4 WHERE id=1',[root.id,root.webViewLink,sheet.id,sheet.webViewLink]);
   return {...c,folder_id:root.id,folder_url:root.webViewLink,spreadsheet_id:sheet.id,spreadsheet_url:sheet.webViewLink};
  }
- async function originalDocument(id){const {rows}=await pool.query("SELECT * FROM despesas_documents WHERE id=$1 AND state='complete'",[id]);if(!rows[0])throw apiError('Documento indisponível para cópia.');return rows[0];}
+ async function originalDocument(id){const {rows}=await pool.query("SELECT * FROM despesas_documents WHERE id=$1 AND state='complete' AND COALESCE(metadata->'routing'->>'destination',$2)=$2",[id,workspace]);if(!rows[0])throw apiError('Documento indisponível para cópia neste controle.');return rows[0];}
  async function copyDocument(c,id){
   const doc=await originalDocument(id),m=doc.metadata;
   const year=await folder(c,m.period.slice(0,4),c.folder_id,'ano-'+m.period.slice(0,4));
   const month=await folder(c,m.period,year.id,'mes-'+m.period);
   const linked=(await pool.query('SELECT file_id,url FROM despesas_google_files WHERE document_id=$1',[id])).rows[0];
-  let f=linked?{id:linked.file_id,webViewLink:linked.url}:await findFile(c,"appProperties has { key='cn2oDocumentId' and value='"+escapeQuery(id)+"' }");
+  let f=linked?{id:linked.file_id,webViewLink:linked.url}:await findFile(c,"appProperties has { key='cn2oDocumentId' and value='"+escapeQuery(id)+"' }"+(bravo?" and appProperties has { key='expenseWorkspace' and value='bravo' }":""));
   if(f){
    // A previous attempt may have completed at Google before the database acknowledged it.
    const remote=await api(c,DRIVE+'/files/'+encodeURIComponent(f.id)+'?fields=id,webViewLink,size,appProperties');
@@ -42,7 +43,7 @@ function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
    const bytes=Buffer.concat(rows.map(p=>Buffer.from(p.bytes)));
    if(bytes.length!==m.size||hash(bytes)!==doc.hash)throw apiError('Original não passou na conferência de integridade para o Drive.');
    const boundary='cn2o_'+randomBytes(18).toString('hex');
-   const meta={name:id.slice(0,8)+' — '+m.name,parents:[month.id],appProperties:{cn2oDocumentId:id,sha256:doc.hash}};
+   const meta={name:id.slice(0,8)+' — '+m.name,parents:[month.id],appProperties:{cn2oDocumentId:id,sha256:doc.hash,expenseWorkspace:workspace}};
    const body=Buffer.concat([Buffer.from('--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+'\r\n--'+boundary+'\r\nContent-Type: '+m.type+'\r\n\r\n'),bytes,Buffer.from('\r\n--'+boundary+'--\r\n')]);
    f=await api(c,'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body});
   }
@@ -52,12 +53,14 @@ function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
  async function updateSheet(c){
   const {categories,labels,eligible,pending}=await import('./google-sheet-values.mjs');
   const entries=(await pool.query("SELECT id,data,version,updated_at FROM despesas_entries WHERE COALESCE(data->>'demo','false')<>'true' AND COALESCE(data->>'voided','false')<>'true' ORDER BY data->>'paidDate',id")).rows;
-  const docs=(await pool.query("SELECT d.id,d.metadata,d.ocr,d.created_by,f.url FROM despesas_documents d LEFT JOIN despesas_google_files f ON f.document_id=d.id WHERE d.state='complete' ORDER BY d.created_at,d.id")).rows;
+  const docs=(await pool.query("SELECT d.id,d.metadata,d.ocr,d.created_by,f.url FROM despesas_documents d LEFT JOIN despesas_google_files f ON f.document_id=d.id WHERE d.state='complete' AND COALESCE(d.metadata->'routing'->>'destination',$1)=$1 ORDER BY d.created_at,d.id",[workspace])).rows;
   const headers=['ID','Data do pagamento','Mês do pagamento / referência','Fornecedor','CPF/CNPJ','Descrição / finalidade','Natureza da despesa','Valor registrado (R$)','Tratamento proposto','Pagamento conferido','Documentação conferida','Revisão fiscal','Dedutível revisado antes do limite (R$)','Responsável','Fundamento','Pendência','Comprovantes no Drive','IDs dos documentos','Versão','Última alteração'];
+  if(bravo){headers[11]='Revisão contábil da Bravo';headers[12]='Dedutível revisado na contabilidade da Bravo (R$)';}
   const values=[headers,...entries.map(r=>{const e=r.data;return [r.id,e.paidDate,(e.paidDate?e.paidDate.slice(0,7):e.referencePeriod),e.supplier,e.taxId,e.description,categories[e.category]||e.category,e.cents/100,labels[e.treatment]||e.treatment,e.paymentConfirmed?'Sim':'Não',e.docsConfirmed?'Sim':'Não',e.reviewed?'Sim':'Não',eligible(e)?e.cents/100:0,e.reviewer,e.reason,e.notes,e.docIds.map(id=>docs.find(d=>d.id===id)?.url||'Aguardando cópia no Drive').join('\n'),e.docIds.join(' | '),r.version,new Date(r.updated_at).toISOString()];})];
   const docValues=[['ID','Nome original','Tipo documental','Período de recebimento','Enviado por','Link do original no Drive','Situação da leitura','Situação do vínculo'],...docs.map(d=>[d.id,d.metadata.name,d.metadata.kind,d.metadata.period,d.created_by,d.url||'Aguardando cópia no Drive',d.ocr?.status||'Ainda não lido',entries.some(e=>e.data.docIds.includes(d.id))?'Vinculado':'Sem lançamento'])];
   const summary=new Map();for(const r of entries){const e=r.data,k=(e.paidDate?e.paidDate.slice(0,7):e.referencePeriod)+'|'+e.category,g=summary.get(k)||[(e.paidDate?e.paidDate.slice(0,7):e.referencePeriod),categories[e.category]||e.category,0,0,0,0,0];g[2]++;g[3]+=e.cents;g[4]+=eligible(e)?e.cents:0;g[5]+=e.treatment==='nao'&&e.reviewed?e.cents:0;g[6]+=pending(e)?1:0;summary.set(k,g);}
   const summaries=[['Mês','Natureza da despesa','Quantidade','Total registrado (R$)','Dedutíveis revisadas antes do limite (R$)','Não dedutíveis revisadas (R$)','Lançamentos pendentes'],...[...summary.values()].map(g=>g.map((v,i)=>i>=3&&i<=5?v/100:v))];
+  if(bravo)summaries[0][4]='Dedutíveis revisadas na contabilidade da Bravo (R$)';
   const metadata=await api(c,SHEETS+'/'+c.spreadsheet_id+'?fields=sheets(properties(sheetId,title,gridProperties))');
   const definitions=[['Lançamentos',values],['Documentos',docValues],['Resumo por natureza',summaries]],requests=[{updateSpreadsheetProperties:{properties:{locale:'pt_BR',timeZone:'America/Sao_Paulo'},fields:'locale,timeZone'}}];
   let next=Math.max(0,...metadata.sheets.map(s=>s.properties.sheetId))+1;
@@ -81,7 +84,7 @@ function createGoogleSync({pool,initialize,fetcher=fetch,callback=CALLBACK}={}){
   await post(c,SHEETS+'/'+c.spreadsheet_id+':batchUpdate',{requests});
  }
  async function enqueueAll(){
-  await pool.query("INSERT INTO despesas_google_jobs(entity,record_id) SELECT 'document',id FROM despesas_documents WHERE state='complete' ON CONFLICT(entity,record_id) DO UPDATE SET generation=despesas_google_jobs.generation+1,attempts=0,next_attempt=now()");
+  await pool.query("INSERT INTO despesas_google_jobs(entity,record_id) SELECT 'document',id FROM despesas_documents WHERE state='complete' AND COALESCE(metadata->'routing'->>'destination',$1)=$1 ON CONFLICT(entity,record_id) DO UPDATE SET generation=despesas_google_jobs.generation+1,attempts=0,next_attempt=now()",[workspace]);
   await pool.query("INSERT INTO despesas_google_jobs(entity,record_id) SELECT 'entry',id FROM despesas_entries ON CONFLICT(entity,record_id) DO UPDATE SET generation=despesas_google_jobs.generation+1,attempts=0,next_attempt=now()");
  }
  async function run(){

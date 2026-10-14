@@ -3,7 +3,7 @@ import { database } from './database.mjs';
 import { requireUser, reply, failure, demand, uuid } from './auth.mjs';
 import { signature } from './validation.mjs';
 const chunkSize=1024*1024;
-export async function processRequest(request,{authenticate=requireUser,db=null,store=null}={}){
+export async function processRequest(request,{authenticate=requireUser,db=null,store=null,workspace='cn2o'}={}){
   try{
     const user=await authenticate(request),url=new URL(request.url),action=url.searchParams.get('action'),id=url.searchParams.get('id');
     db??=database();demand(store,'Armazenamento indisponível.',503);
@@ -13,10 +13,11 @@ export async function processRequest(request,{authenticate=requireUser,db=null,s
       demand(['Comprovante de pagamento','Nota fiscal ou recibo','Contrato','Ordem de serviço','Outro documento'].includes(doc.kind),'Tipo documental inválido.');
       demand(/^\d{4}-(0[1-9]|1[0-2])$/.test(doc.period||''),'Período inválido.');
       demand(Number.isSafeInteger(doc.size)&&doc.size>0&&doc.size<=50*1024*1024&&['application/pdf','image/png','image/jpeg','image/webp'].includes(doc.type),'Arquivo inválido ou acima de 50 MB.');
-      const metadata={name:doc.name,kind:doc.kind,period:doc.period,size:doc.size,type:doc.type};
+      const metadata={name:doc.name,kind:doc.kind,period:doc.period,size:doc.size,type:doc.type,workspace};
       await db.sql`INSERT INTO despesas_documents(id,hash,metadata,created_by) VALUES (${doc.id}::uuid,${doc.hash},${JSON.stringify(metadata)}::jsonb,${user.login}) ON CONFLICT(hash) DO NOTHING`;
-      const [saved]=await db.sql`SELECT id,state,created_by FROM despesas_documents WHERE hash=${doc.hash}`;
+      const [saved]=await db.sql`SELECT id,state,created_by,metadata FROM despesas_documents WHERE hash=${doc.hash}`;
       demand(saved,'Falha ao reservar documento.',503);
+      demand(!saved.metadata?.routing?.destination||saved.metadata.routing.destination===workspace,'Este original foi transferido ao outro controle. Abra o destino para utilizá-lo.',409);
       if(saved.state==='complete')return reply({id:saved.id,duplicate:true});
       demand(saved.created_by===user.login,'Este arquivo já está sendo enviado por outra pessoa.',409);
       return reply({id:saved.id,duplicate:false});
@@ -24,6 +25,7 @@ export async function processRequest(request,{authenticate=requireUser,db=null,s
     demand(uuid(id),'Documento inválido.');
     const [doc]=await db.sql`SELECT * FROM despesas_documents WHERE id=${id}::uuid`;
     demand(doc,'Documento não encontrado.',404);
+    demand(!doc.metadata?.routing?.destination||doc.metadata.routing.destination===workspace,'Documento transferido para outro controle.',404);
     const n=Number(url.searchParams.get('chunk')),count=Math.ceil(doc.metadata.size/chunkSize);
     if(action==='chunk'){
       demand(Number.isInteger(n)&&n>=0&&n<count,'Parte inválida.');
