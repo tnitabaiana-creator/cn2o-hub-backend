@@ -1,5 +1,12 @@
 # Histórico do controle de prazos
 
+## 2026-10-14.5
+
+- Inventário simples (uma sucessão): 4 dias úteis.
+- Inventário cumulativo ou complexo: 10 dias úteis, por caixa própria no protocolo.
+- Reclassificação de cartão existente por item marcado na checklist, conservando o início original.
+- Quadro de Avisos: tabela de prazos e orientação de contagem para a equipe.
+
 ## 2026-10-14.4
 
 - Compra e venda urbana/rural com etiqueta Santa Mônica ou bandeira rosa: 3 dias corridos.

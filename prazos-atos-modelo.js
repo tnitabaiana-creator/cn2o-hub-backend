@@ -2,8 +2,13 @@
 const cal = require('./horas-uteis');
 const CADASTRO = '693aafe273e4860efe413736';
 const PROTOCOLO = '692e0379fa55156e778f27ef';
-const VERSAO = '2026-10-14.4';
+const VERSAO = '2026-10-14.5';
 const normalizar = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+function classificarInventario(dados, checklists = []) {
+  const marcados = checklists.flatMap(c => c.checkItems || []).filter(i => i.state === 'complete').map(i => normalizar(i.name));
+  return { cumulativo:dados.inventario?.cumulativo === true || dados.sucessao?.modalidade === 'cumulativo' || marcados.includes('inventario cumulativo'),
+    complexo:dados.inventario?.complexo === true || marcados.includes('inventario complexo') };
+}
 function regra(dados, labels = []) {
   const nomes = labels.map(l => normalizar(l.name));
   const f = dados.bandeiras || [];
@@ -11,15 +16,27 @@ function regra(dados, labels = []) {
     nomes.some(n => ['loteador/incorporador', 'construtor', 'santa monica'].includes(n));
   const advogado = f.includes('roxo') || nomes.includes('advogado');
   const santaMonica = f.includes('rosa') || nomes.includes('santa monica');
+  const inventario = classificarInventario(dados);
   const tabela = {
     'CV-Urbano': santaMonica ? [3, false] : [vendedor ? 5 : 10, true],
     'CV-Rural': santaMonica ? [3, false] : [vendedor ? 5 : 10, true],
     DOA: [vendedor ? 5 : 8, true], PER: [vendedor ? 5 : 8, true],
-    INV: [4, true], CDH: [advogado ? 4 : 7, true], TEST: [5, true],
+    INV: [inventario.cumulativo || inventario.complexo ? 10 : 4, true], CDH: [advogado ? 4 : 7, true], TEST: [5, true],
     CDP: [3, false], CERT: [5, true]
   };
   const [dias, uteis] = tabela[dados.ato] || [8, true];
-  return { dias, uteis, versao: VERSAO, ato: dados.ato, regra_legada: !tabela[dados.ato] };
+  return { dias, uteis, versao: VERSAO, ato: dados.ato, regra_legada: !tabela[dados.ato],
+    ...(dados.ato === 'INV' ? { inventario } : {}) };
+}
+function aplicarExcecaoInventario(estado, dados, calendario = cal.calendario) {
+  const r = regra(dados);
+  if (r.ato !== 'INV' || r.dias !== 10 || (estado.regra.dias === 10 && estado.regra.uteis)) return estado;
+  let fim = vencimento(estado.inicio,r,calendario);
+  if (estado.urgente_em) {
+    const inicioUrgente = new Date(Math.max(Date.parse(estado.inicio),Date.parse(estado.urgente_em))).toISOString();
+    fim = new Date(Math.min(Date.parse(fim),Date.parse(estado.vencimento),Date.parse(vencimento(inicioUrgente,{dias:2,uteis:true},calendario)))).toISOString();
+  }
+  return { ...estado, regra:r, vencimento:fim };
 }
 function aplicarExcecaoSantaMonica(estado, dados, labels = [], calendario = cal.calendario) {
   const r = regra(dados, labels);
@@ -91,4 +108,4 @@ function avisoDoDia(vencimento, agora, calendario = cal.calendario) {
   if (agora.getTime() > Date.parse(vencimento)) return 'vencido';
   return marcos(vencimento,calendario).find(m=>m.dia === hoje)?.tipo || null;
 }
-module.exports = { CADASTRO, PROTOCOLO, VERSAO, normalizar, regra, aplicarExcecaoSantaMonica, vencimento, chegada, primeiroInicio, limitarUrgencia, situacao, fase, marcos, avisoDoDia };
+module.exports = { CADASTRO, PROTOCOLO, VERSAO, normalizar, classificarInventario, regra, aplicarExcecaoInventario, aplicarExcecaoSantaMonica, vencimento, chegada, primeiroInicio, limitarUrgencia, situacao, fase, marcos, avisoDoDia };

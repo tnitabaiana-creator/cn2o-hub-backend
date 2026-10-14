@@ -348,7 +348,7 @@ app.post('/webhook/trello', express.raw({ type: () => true, limit: '1mb' }), asy
     catch (e) { console.error('webhook (rastreio):', e.message); }
   }
   if (assinatura === 'ok' && a?.data?.card?.id && (rastreio.relevante(a) ||
-    ['addLabelToCard','removeLabelFromCard','addMemberToCard','removeMemberFromCard'].includes(a.type))) prazosAtos.enfileirar(a.data.card.id);
+    ['addLabelToCard','removeLabelFromCard','addMemberToCard','removeMemberFromCard','updateCheckItemStateOnCard','updateCheckItem','addChecklistToCard','removeChecklistFromCard'].includes(a.type))) prazosAtos.enfileirar(a.data.card.id);
   res.sendStatus(200); // responde já; processa depois
   if (rastreado) {
     rastreio.processarCartao(a.data.card.id).catch(e => console.error('webhook (rastreio):', e.message));

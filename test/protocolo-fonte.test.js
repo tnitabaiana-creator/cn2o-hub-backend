@@ -166,3 +166,9 @@ test('JavaScript dos geradores continua sintaticamente válido, inclusive UI',()
   const html=fs.readFileSync(path.join(__dirname,'..','public','index.html'),'utf8');
   for(const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)) new vm.Script(m[1]);
 });
+
+test('protocolo conserva classificação explícita do inventário em caixas booleanas',()=>{
+  const dados=f.prepararDados({ato:'INV',inventario:{complexo:true,cumulativo:false}},{login:'test.operator'});
+  assert.deepEqual(dados.inventario,{complexo:true,cumulativo:false});
+  assert.throws(()=>f.prepararDados({ato:'INV',inventario:{complexo:'false'}},{login:'test.operator'}),/caixas/);
+});

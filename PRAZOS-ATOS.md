@@ -1,4 +1,4 @@
-# Controle contínuo de prazos — versão 2026-10-14.4
+# Controle contínuo de prazos — versão 2026-10-14.5
 
 O prazo geral começa na **primeira entrada comprovada em Cadastro Extradigital**
 (`693aafe273e4860efe413736`, quadro 00). Protocolo/Entrada e Em Digitalização não
@@ -11,7 +11,8 @@ iniciam essa contagem. O relógio setorial de 8 horas permanece independente.
 | CV urbana e rural | Santa Mônica (etiqueta específica ou bandeira rosa) | 3 corridos |
 | CV urbana e rural | demais construtoras/loteadoras / sem bandeira | 5 / 10 úteis |
 | Doação e permuta | vendedor corporativo / demais | 5 / 8 úteis |
-| Inventário | todos | 4 úteis |
+| Inventário simples | uma sucessão, sem marcação especial | 4 úteis |
+| Inventário cumulativo ou complexo | caixa própria marcada no protocolo | 10 úteis |
 | Cessão de direitos hereditários | advogado / demais | 4 / 7 úteis |
 | Testamento | todos | 5 úteis |
 | Cessão de direitos possessórios | todos | 3 corridos |
@@ -148,3 +149,10 @@ A seção adicional acompanha o mês do relatório de produtividade de escritura
 a semana do relatório de Protocolo/Cadastro. Tem exportação CSV; o relatório
 semanal/mensal histórico recebe o bloco também em HTML, texto e CSV. Não altera
 os valores financeiros nem a contagem oficial de atos lavrados.
+
+Inventário: as caixas `inventario.cumulativo` e `inventario.complexo` são booleanas no protocolo.
+Para reclassificar um cartão existente, marque o item exato “Inventário complexo”
+ou “Inventário cumulativo” em uma checklist do próprio cartão. A reclassificação
+aplica 10 dias úteis desde a entrada original; não reinicia o relógio, não altera
+atos concluídos e conserva eventual limite urgente. Desmarcar não reduz automaticamente
+um prazo já reclassificado; mudança posterior exige revisão explícita.

@@ -179,3 +179,24 @@ test('histórico divergente é rejeitado',async()=>{
   const s=criarServico({api:async()=>[{id:'a'.repeat(24),date:NOW.toISOString(),data:{card:{id:'b'.repeat(24)}}}]});
   await assert.rejects(s.historico(cardId,'updateCard:idList'),/divergente/);
 });
+
+test('inventário simples conserva quatro úteis; cumulativo ou complexo usa dez úteis',()=>{
+  assert.equal(M.regra({ato:'INV'}).dias,4);
+  for(const inventario of [{cumulativo:true},{complexo:true},{cumulativo:true,complexo:true}]){
+    const r=M.regra({ato:'INV',inventario});assert.equal(r.dias,10);assert.equal(r.uteis,true);
+    assert.equal(M.vencimento('2026-10-02T18:50:11.772Z',r),'2026-10-20T02:59:59.000Z');
+  }
+  assert.equal(M.regra({ato:'TEST',inventario:{complexo:true}}).dias,5);
+});
+test('somente caixa marcada reconhece inventário complexo no Trello',()=>{
+  assert.deepEqual(M.classificarInventario({},[{checkItems:[{name:'Inventário complexo',state:'complete'}]}]),{complexo:true,cumulativo:false});
+  assert.deepEqual(M.classificarInventario({},[{checkItems:[{name:'Inventário complexo',state:'incomplete'}]}]),{complexo:false,cumulativo:false});
+});
+test('reclassificação complexa conta da mesma entrada e conserva limite urgente',()=>{
+  const estado={inicio:'2026-10-02T18:50:11.772Z',vencimento:'2026-10-09T02:59:59.000Z',regra:M.regra({ato:'INV'})};
+  const dados={ato:'INV',inventario:{complexo:true}};
+  const novo=M.aplicarExcecaoInventario(estado,dados);
+  assert.equal(novo.inicio,estado.inicio);assert.equal(novo.vencimento,'2026-10-20T02:59:59.000Z');assert.equal(novo.regra.dias,10);
+  const urgente={...estado,urgente_em:estado.inicio,vencimento:'2026-10-07T02:59:59.000Z'};
+  assert.equal(M.aplicarExcecaoInventario(urgente,dados).vencimento,urgente.vencimento);
+});

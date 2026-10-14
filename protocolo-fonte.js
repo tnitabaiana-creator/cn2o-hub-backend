@@ -45,6 +45,11 @@ function normalizarPagamentos(v) {
 function prepararDados(dados, usuario, data = new Date().toISOString()) {
   const p = copy(dados);
   delete p.numero; delete p.fonte_protocolo; delete p.revisao; delete p.schema_version;
+  if (p.ato === 'INV' && p.inventario !== undefined) {
+    if (!obj(p.inventario) || ['cumulativo','complexo'].some(k => p.inventario[k] !== undefined && typeof p.inventario[k] !== 'boolean'))
+      throw falha(400,'INVENTARIO_INVALIDO','Marque inventário cumulativo ou complexo nas caixas próprias.');
+    p.inventario = { cumulativo:p.inventario.cumulativo === true, complexo:p.inventario.complexo === true };
+  } else if (p.ato !== 'INV') delete p.inventario;
   if (p.curadoria !== undefined) validarCuradoria(p);
   p.curadoria = normalizarCuradoria(p.curadoria, usuario.login, data);
   if (p.pagamentos !== undefined) p.pagamentos = normalizarPagamentos(p.pagamentos);

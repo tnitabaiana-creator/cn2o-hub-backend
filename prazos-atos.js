@@ -147,6 +147,8 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     }
     if (fase === 'concluido' && !estado) return 'concluido_sem_carga';
     let acoes = [];
+    const dadosPrazo = reg.dados.ato === 'INV' ? { ...reg.dados, inventario:M.classificarInventario(reg.dados,
+      await api('GET',`/cards/${id}/checklists?fields=name&checkItems=all&checkItem_fields=name,state`)) } : reg.dados;
     if (!estado) {
       acoes = await historico(id, 'createCard,copyCard,emailCard,convertToCardFromCheckItem,updateCard:idList,moveCardToBoard,addLabelToCard');
       // Após transferência, a API do cartão pode omitir movimentos do quadro anterior.
@@ -161,7 +163,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
       });
       const inicio = M.primeiroInicio([...preservados,...acoes],reg.dados,reg.criado_em);
       if (!inicio) return 'aguarda_cadastro';
-      const r = M.regra(reg.dados, card.labels);
+      const r = M.regra(dadosPrazo, card.labels);
       estado = { inicio: inicio.em, evidencia: inicio.evidencia, regra: r, vencimento: M.vencimento(inicio.em,r),
         urgente_em: reg.dados.urgente ? inicio.em : null };
       await client.query(`INSERT INTO prazos_atos(card_id,protocolo,inicio,evidencia,vencimento,regra,urgente_em)
@@ -172,6 +174,7 @@ function criarServico({ pool = db.pool, api = criarApi(), agora = () => new Date
     estado.vencimento = new Date(estado.vencimento).toISOString();
     if (estado.urgente_em) estado.urgente_em = new Date(estado.urgente_em).toISOString();
     if (fase !== 'concluido') estado = M.aplicarExcecaoSantaMonica(estado,reg.dados,card.labels);
+    if (fase !== 'concluido') estado = M.aplicarExcecaoInventario(estado,dadosPrazo);
     if (card.labels?.some(l => M.normalizar(l.name) === 'urgente') && !estado.urgente_em && !acoes.length)
       acoes = await historico(id,'addLabelToCard');
     estado = M.limitarUrgencia(estado,card,acoes,agora());
