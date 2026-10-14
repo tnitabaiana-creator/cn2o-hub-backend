@@ -286,7 +286,13 @@ async function registrarEventos(acoes, origem = 'webhook') {
       params.push(...l);
     });
     const r = await q(`INSERT INTO eventos_trello (action_id, tipo, card_id, board_id, ocorrido_em, origem, dados)
-      VALUES ${vals.join(',')} ON CONFLICT (action_id) DO NOTHING RETURNING action_id`, params);
+      VALUES ${vals.join(',')} ON CONFLICT (action_id) DO UPDATE SET
+        origem = EXCLUDED.origem, dados = EXCLUDED.dados, recebido_em = now(), processado_em = NULL
+      WHERE eventos_trello.origem = 'carga_setorial' AND EXCLUDED.origem = 'webhook'
+        AND eventos_trello.tipo = EXCLUDED.tipo AND eventos_trello.card_id = EXCLUDED.card_id
+        AND eventos_trello.board_id IS NOT DISTINCT FROM EXCLUDED.board_id
+        AND eventos_trello.ocorrido_em = EXCLUDED.ocorrido_em
+      RETURNING action_id`, params);
     novos += r.rowCount;
   }
   return novos;
@@ -328,7 +334,13 @@ async function processarCartao(cardId) {
     await c.query('BEGIN');
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['rastreio:' + cardId]);
     const evs = (await c.query(
-      'SELECT action_id, tipo, ocorrido_em, dados FROM eventos_trello WHERE card_id = $1', [cardId])).rows;
+      "SELECT action_id, tipo, ocorrido_em, dados FROM eventos_trello WHERE card_id = $1 AND origem <> 'carga_setorial'", [cardId])).rows;
+    // A fotografia setorial não simula uma reconstrução legada. Sem eventos legados,
+    // nem apagar projeções existentes: a consulta do novo relatório lê a fonte direta.
+    if (!evs.length) {
+      await c.query('COMMIT');
+      return { passagens: 0, pendencias: 0, concluido: false, ignorado_setorial: true };
+    }
     const prot = await protocoloDoCartao(c, cardId);
     const r = reconstruir(evs, { escreventes: await escreventes(c), protocolo: prot });
 
@@ -363,7 +375,7 @@ async function processarCartao(cardId) {
 // Todos os cartões com evento ainda não processado (sobra de queda do servidor) ou,
 // com todos=true, todos os cartões (depois de mudar regra de categoria ou calendário).
 async function reprocessar({ todos = false, log = () => {} } = {}) {
-  const r = await q(`SELECT DISTINCT card_id FROM eventos_trello ${todos ? '' : 'WHERE processado_em IS NULL'}`);
+  const r = await q(`SELECT DISTINCT card_id FROM eventos_trello WHERE origem <> 'carga_setorial' ${todos ? '' : 'AND processado_em IS NULL'}`);
   let n = 0;
   for (const { card_id } of r.rows) {
     await processarCartao(card_id);

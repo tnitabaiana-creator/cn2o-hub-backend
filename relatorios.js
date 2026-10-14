@@ -268,7 +268,8 @@ router.get('/status', async (req, res) => {
   try {
     const [ev, conc, env, webhooks] = await Promise.all([
       q(`SELECT count(*)::int AS eventos, count(DISTINCT card_id)::int AS cartoes, max(ocorrido_em) AS ultimo,
-                count(*) FILTER (WHERE processado_em IS NULL)::int AS pendentes,
+                count(*) FILTER (WHERE processado_em IS NULL AND origem <> 'carga_setorial')::int AS pendentes,
+                count(*) FILTER (WHERE origem = 'carga_setorial')::int AS eventos_setoriais,
                 count(*) FILTER (WHERE origem = 'webhook')::int AS via_webhook FROM eventos_trello`),
       q(`SELECT count(*)::int AS conclusoes, count(*) FILTER (WHERE tipo_ato = 'OUTROS')::int AS sem_tipo FROM conclusoes`),
       q(`SELECT tipo, periodo_inicio, status, enviado_em FROM envios_relatorio ORDER BY id DESC LIMIT 1`),
@@ -340,6 +341,8 @@ router.post('/carga', json, (req, res) => {
 router.use('/atendimentos', require('./atendimentos').router);
 // v1.40 — produtividade em reais por escrevente (planilha do sistema + análise da IA)
 router.use('/produtividade', require('./produtividade').router);
+// Relatório setorial: Digitalização → Cadastro → Gerar Minuta (somente leitura).
+router.use('/protocolo-cadastro', require('./protocolo-cadastro').router);
 
 router.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return res.status(400).json({ erro: 'requisição inválida' });

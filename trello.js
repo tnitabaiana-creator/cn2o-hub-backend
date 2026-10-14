@@ -1,6 +1,11 @@
 // trello.js — helpers da API REST do Trello
 const BASE = 'https://api.trello.com/1';
-const auth = () => `key=${process.env.TRELLO_KEY}&token=${process.env.TRELLO_TOKEN}`;
+// Variáveis copiadas do painel podem conter uma quebra de linha no final.
+// Normalizar antes da autenticação evita falhas na reconciliação do histórico.
+const auth = () => new URLSearchParams({
+  key: String(process.env.TRELLO_KEY || '').trim(),
+  token: String(process.env.TRELLO_TOKEN || '').trim()
+}).toString();
 
 async function t(method, path, body) {
   const url = `${BASE}${path}${path.includes('?') ? '&' : '?'}${auth()}`;
