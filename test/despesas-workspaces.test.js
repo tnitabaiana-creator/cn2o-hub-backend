@@ -99,6 +99,18 @@ test('full-acervo audit distinguishes company signals from the users surname',as
   assert.equal(result.documents.filter(d=>d.signals.length).length,1);
   assert.deepEqual(evidence({metadata:{name:'César Bravo'},ocr:{pages:[{text:'Tomador César Bravo'}]}}),[]);
 });
+test('mixed historical PDF stays with other entries when segregated evidence is selected in the destination',async t=>{
+  const f=await fixture(t),mixed=await f.document('cn2o','Caixa-misto-ficticio.pdf'),page=await f.document('bravo','Bravo-pagina-segregada-ficticia.pdf');
+  const company=entry(mixed),other={...entry(mixed),supplier:'Outro fornecedor fictício'};
+  await f.request('cn2o','data','',company);await f.request('cn2o','data','',other);
+  const args={pool:f.pool,source:'cn2o',target:'bravo',actor:'cesar.bravo',input:{kind:'entry',id:company.id,version:1,reason:'Tomador Bravo confirmado em página segregada; PDF misto preservado'}};
+  await assert.rejects(transfer({...args,input:{...args.input,replacementDocumentIds:[mixed.id]}}),e=>e.status===409);
+  await transfer({...args,input:{...args.input,replacementDocumentIds:[page.id]}});
+  const source=(await f.request('cn2o','data','')).body,target=(await f.request('bravo','data','')).body;
+  assert.equal(source.documents.length,1);assert.equal(source.entries.filter(e=>!e.voided).length,1);
+  assert.equal(source.entries.find(e=>e.id===other.id).voided,false);
+  assert.deepEqual(target.entries[0].docIds,[page.id]);assert.deepEqual(target.entries[0].routing.retainedSourceDocumentIds,[mixed.id]);
+});
 test('Bravo HTTP endpoints keep the existing authorization boundary',async t=>{
   const express=require('express'),f=await fixture(t),app=express();
   const router=createRouter({pool:f.pool,workspace:'bravo',initialize:async()=>{},session:async token=>token==='owner'?user:token==='jonas'?{login:'jonas.aragao'}:token==='employee'?{login:'outro'}:null});

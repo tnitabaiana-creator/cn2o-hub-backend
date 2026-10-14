@@ -83,12 +83,21 @@ async function transfer({pool,source,target,input,actor}){
       const old=(await client.query(`SELECT id,data FROM ${t('entries')} WHERE id=$1`,[entry.id])).rows[0];
       if(old&&!(old.data.voided&&old.data.routing?.destination===source))reject('O identificador já existe no destino. Concilie antes de repetir.',409);
       const docIds=[];
-      for(const id of entry.data.docIds){
-        const others=(await client.query(`SELECT id FROM ${s('entries')} WHERE id<>$2 AND data->'docIds' ? $1 AND COALESCE(data->>'voided','false')<>'true'`,[id,entry.id])).rows;
-        if(others.length)reject('Há comprovante compartilhado com outro lançamento. Concilie os vínculos antes de transferir.',409);
-        docIds.push(await ensureDestination(await getDoc(id)));
+      if(input.replacementDocumentIds!==undefined){
+        const ids=input.replacementDocumentIds;
+        if(!Array.isArray(ids)||!ids.length||ids.length>100||ids.some(id=>!validId(id))||new Set(ids).size!==ids.length)reject('Selecione os comprovantes segregados já arquivados no destino.');
+        const available=(await client.query(`SELECT id FROM ${t('documents')} WHERE id=ANY($1::uuid[]) AND state='complete' AND COALESCE(metadata->'routing'->>'destination',$2)=$2`,[ids,target])).rows;
+        if(available.length!==ids.length)reject('Um comprovante selecionado não está disponível no controle de destino.',409);
+        docIds.push(...ids);
+      }else{
+        for(const id of entry.data.docIds){
+          const others=(await client.query(`SELECT id FROM ${s('entries')} WHERE id<>$2 AND data->'docIds' ? $1 AND COALESCE(data->>'voided','false')<>'true'`,[id,entry.id])).rows;
+          if(others.length)reject('Há comprovante compartilhado. Arquive as páginas segregadas no destino e selecione-as na transferência.',409);
+          docIds.push(await ensureDestination(await getDoc(id)));
+        }
       }
-      const routing={source,sourceEntryId:entry.id,movedAt:at,by:actor,reason};
+      const routing={source,sourceEntryId:entry.id,movedAt:at,by:actor,reason,
+        ...(input.replacementDocumentIds?{retainedSourceDocumentIds:entry.data.docIds,replacementDocumentIds:docIds}:{})};
       const data={...entry.data,workspace:target,docIds,reviewed:false,docsConfirmed:false,treatment:'analise',
         reason:'Revisão contábil do controle de destino pendente. '+reason,
         notes:entry.data.notes+' | Transferido de '+profile(source).name+'; revisão contábil pendente.',routing};
