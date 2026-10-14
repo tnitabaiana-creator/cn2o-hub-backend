@@ -140,6 +140,8 @@ function rotuloPreco(ato) {
 
 const fonteContrato = require('./protocolo-fonte');
 const fonteDB = require('./protocolo-fonte-db');
+const controleSucessorio = require('./alertas-sucessorios');
+app.use('/hub/controle-sucessorio', controleSucessorio.createRouter({pool:db.pool,exigeSessao,ehAdmin:hub.ehAdmin}));
 // Esta credencial não autentica usuários nem qualquer rota de escrita.
 app.get('/integracoes/eprotocolo/:cardId', require('./protocolo-fonte-integracao').handler({ query: (sql, params) => db.pool.query(sql, params) }));
 
@@ -476,6 +478,7 @@ app.use(protecao.tratadorDeErros);
 // v1.38: as tabelas dos relatórios não derrubam o hub — sem elas, o protocolo e o resto
 // sobem normalmente, o rastreio fica desligado e o agendador não inicia.
 db.init()
+  .then(() => controleSucessorio.createService(db.pool).init())
   .then(() => require('./db-agentes').init())
   .then(() => fonteDB.init())
   .then(() => require('./db-relatorios').init()

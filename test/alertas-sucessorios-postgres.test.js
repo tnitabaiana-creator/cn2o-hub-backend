@@ -1,0 +1,63 @@
+"use strict";
+const test=require('node:test'),assert=require('node:assert/strict');
+test('controle sucessório transacional com PostgreSQL isolado', {skip:!process.env.CN2O_SUCESSAO_TEST_DB}, async()=>{
+ const conn=new URL(process.env.CN2O_SUCESSAO_TEST_DB);
+ if(conn.hostname!=='127.0.0.1' || !/^\/sucessao_test$/.test(conn.pathname))throw new Error('Use banco sucessao_test isolado em loopback.');
+ const {Pool}=require('pg');const bootstrap=new Pool({connectionString:conn.toString()});
+ const schema='teste_sucessao_'+require('node:crypto').randomUUID().replace(/-/g,'');
+ await bootstrap.query('CREATE SCHEMA '+schema);
+ conn.searchParams.set('options','-c search_path='+schema);process.env.DATABASE_URL=conn.toString();
+const db=require('../db');
+const {createService,createRouter,CHECKLIST}=require('../alertas-sucessorios');
+const express=require('express');
+const pool=db.pool,s=createService(pool),u={login:'escrevente.teste'},admin={login:'tabeliao.teste'};
+const p={ato:'INV',apresentante:{nome:'Apresentante Exemplo',telefone:'79999990000'},parte_envolvida:{nome:'Inventariante Exemplo'},sucessao:{modalidade:'simples',autores:[{nome:'Pessoa Exemplo Silva'}]},curadoria:{versao:1,estado:'compativeis',confirmado:true,observacao:'',divergencias:[]},pagamentos:[]};
+const copia=()=>JSON.parse(JSON.stringify(p));
+let server;
+try {
+
+ await pool.query('CREATE TABLE protocolos(numero INTEGER PRIMARY KEY,dados JSONB,usuario TEXT); CREATE TABLE contador(nome TEXT PRIMARY KEY,valor INTEGER); INSERT INTO contador VALUES(\'protocolo\',100)');
+ await s.init();await s.init();
+ const a=await s.salvar({nome:'Pessoa Exemplo Silva',variantes:['Pessoa Exemplo Lima'],categoria:'possivel_omissao_herdeiros',relato:'Relato de possível omissão recebido para conferência.',documentado:['Documento de teste, página 1.'],pendencias:['Conferir a informação recebida.'],orientacao:'Aguardar decisão do tabelião.',fonte_relato:'Teste isolado',data_recebimento:'2026-10-14'},admin);
+ assert.equal((await s.consultar(p)).correspondencias.length,1);
+ await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ assert.equal((await pool.query('SELECT valor FROM contador')).rows[0].valor,100);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM protocolos')).rows[0].n,0);
+ const app=express();app.use('/controle',createRouter({pool,service:s,ehAdmin:x=>x.login===admin.login,exigeSessao:(req,res,next)=>{const t=req.get('X-Auth-Token');if(!t)return res.status(401).end();req.usuario={login:t};next();}}));server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const url='http://127.0.0.1:'+server.address().port;
+ let r=await fetch(url+'/controle/alertas');assert.equal(r.status,401);
+ r=await fetch(url+'/controle/alertas',{method:'POST',headers:{'Content-Type':'application/json','X-Auth-Token':u.login},body:'{}'});assert.equal(r.status,403);
+ const rev=await s.solicitar(copia(),u,'Conferência de teste.');assert.equal((await s.solicitar(copia(),u)).id,rev.id);
+ r=await fetch(url+'/controle/revisoes/'+rev.id,{headers:{'X-Auth-Token':'outra.escrevente'}});assert.equal(r.status,404);
+ const checklist=Object.fromEntries(Object.keys(CHECKLIST).map(k=>[k,true]));
+ await assert.rejects(()=>s.decidir(rev.id,{estado:'liberado',base_estado:'pendente',fundamento:'Referência documental suficientemente detalhada para teste.'},admin),/Conclua/);
+ await s.decidir(rev.id,{estado:'obstado',base_estado:'pendente',fundamento:'Documento de teste página 1: irregularidade registrada no ambiente isolado.'},admin);
+ const conf={documentacao_completa:true,interessados_contemplados:true,sem_divergencia:true,referencias:'Documento de teste, página 1: pontos e interessados contemplados.'};
+ const tentando=copia();tentando.observacoes_nao_documentadas='Outro pedido após obstamento';await assert.rejects(()=>s.conferir(tentando,conf,u),e=>e.codigo==='DECISAO_TABELIAO_NECESSARIA');
+ await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ let atual=(await pool.query('SELECT * FROM sucessao_revisoes WHERE id=$1',[rev.id])).rows[0];
+ await s.decidir(rev.id,{estado:'liberado',base_estado:'obstado',base_decidido_em:atual.decidido_em.toISOString(),fundamento:'Documentação de teste conferida, página 1, conclusão registrada.',checklist},admin);
+ const alterado=copia();alterado.observacoes_nao_documentadas='Alteração posterior';await assert.rejects(()=>db.registrarProtocolo(alterado,u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ await assert.rejects(()=>db.registrarProtocolo(copia(),'outra.escrevente'),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ const n=await db.registrarProtocolo(copia(),u.login);assert.equal(n,100);
+ await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ assert.equal((await pool.query('SELECT protocolo FROM sucessao_revisoes WHERE id=$1',[rev.id])).rows[0].protocolo,100);
+ const rev2=await s.solicitar(copia(),u);await s.decidir(rev2.id,{estado:'homonimo',base_estado:'pendente',fundamento:'Documento de identificação de teste demonstra tratar-se de homônimo.',checklist:{identidade:true}},admin);
+ const b=await s.salvar({...a.dados,id:a.id,base_revisao:a.revisao,relato:a.dados.relato+' Complemento recebido.'},admin);
+ await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ const rev3=await s.solicitar(copia(),u);await s.decidir(rev3.id,{estado:'liberado',base_estado:'pendente',fundamento:'Referência documental testada com aprovação e validade controlada.',checklist},admin);
+ await pool.query("UPDATE sucessao_revisoes SET decidido_em=now()-interval '8 days' WHERE id=$1",[rev3.id]);await assert.rejects(()=>db.registrarProtocolo(copia(),u.login),e=>e.codigo==='CONTROLE_SUCESSORIO_PENDENTE');
+ const doc=await s.anexar(a.id,{nome:'teste.pdf',base64:Buffer.from('%PDF-1.4\nTeste isolado').toString('base64')},admin);const doc2=await s.anexar(a.id,{nome:'copia.pdf',base64:Buffer.from('%PDF-1.4\nTeste isolado').toString('base64')},admin);assert.equal(doc.id,doc2.id);
+ const sem=copia();sem.sucessao.autores[0].nome='Outro Nome Distinto';assert.equal(await db.registrarProtocolo(sem,u.login),101);
+ const cv={ato:'CV-Urbano',controle_sucessorio:{estado:'liberado'}};assert.equal(await db.registrarProtocolo(cv,u.login),102);assert.equal(cv.controle_sucessorio,undefined);
+ const cum=copia();cum.sucessao={modalidade:'cumulativo',autores:[{nome:'Outro Nome Distinto'},{nome:'Pessoa Exemplo Lima'}]};assert.equal((await s.consultar(cum)).correspondencias.length,1);
+ const cdh=copia();cdh.ato='CDH';cdh.sucessao.modalidade='cessao';assert.equal((await s.consultar(cdh)).correspondencias.length,1);
+ await assert.rejects(()=>s.conferir(copia(),{...conf,referencias:'Pouco'},u),e=>e.codigo==='REFERENCIA_OBRIGATORIA');
+ await s.conferir(copia(),conf,u);assert.equal(await db.registrarProtocolo(copia(),u.login),103);
+ const concorrente=copia();concorrente.observacoes_nao_documentadas='Teste de envio concorrente';await s.conferir(concorrente,conf,u);
+ const envios=await Promise.allSettled([db.registrarProtocolo(JSON.parse(JSON.stringify(concorrente)),u.login),db.registrarProtocolo(JSON.parse(JSON.stringify(concorrente)),u.login)]);assert.equal(envios.filter(x=>x.status==='fulfilled').length,1);assert.equal(envios.filter(x=>x.status==='rejected').length,1);
+ console.log(JSON.stringify({ok:true,cobertura:['migração idempotente','retenção antes de numeração','permissões','idempotência de pedidos e anexos','bloqueio fundamentado','liberação única','alteração de dados e cadastro','prazo de validade','homonímia','cumulativo e CDH','atos fora do escopo'],alertas:(await pool.query('SELECT count(*) FROM sucessao_alertas')).rows[0].count,eventos:(await pool.query('SELECT count(*) FROM sucessao_eventos')).rows[0].count}));
+}finally{
+ if(server)await new Promise(r=>server.close(r));await pool.end();
+ await bootstrap.query('DROP SCHEMA '+schema+' CASCADE');await bootstrap.end();
+}
+});
