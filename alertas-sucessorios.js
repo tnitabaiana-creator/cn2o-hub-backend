@@ -3,7 +3,7 @@ const { randomUUID, createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { canonicalJSON } = require('./protocolo-fonte');
-const VERSION = '2026-10-14.1';
+const VERSION = '2026-10-14.2';
 const LOCK = 83141014;
 const CATEGORIAS = ['possivel_omissao_herdeiros','vinculo_a_conferir','divergencia_documental','indicios_a_apurar'];
 const CHECKLIST = {
@@ -45,9 +45,44 @@ function sucessao(p) {
   return {modalidade:s.modalidade, autores};
 }
 function distancia(a,b) {
-  let r = Array.from({length:b.length+1},(_,i)=>i);
-  for(let i=1;i<=a.length;i++) { const n=[i]; for(let j=1;j<=b.length;j++) n[j]=Math.min(n[j-1]+1,r[j]+1,r[j-1]+(a[i-1]===b[j-1]?0:1)); r=n; }
+  let r = Array.from({length:b.length+1},(_,i)=>i), anterior;
+  for(let i=1;i<=a.length;i++) {
+    const n=[i];
+    for(let j=1;j<=b.length;j++) {
+      n[j]=Math.min(n[j-1]+1,r[j]+1,r[j-1]+(a[i-1]===b[j-1]?0:1));
+      if(i>1 && j>1 && a[i-1]===b[j-2] && a[i-2]===b[j-1])n[j]=Math.min(n[j],anterior[j-2]+1);
+    }
+    anterior=r;r=n;
+  }
   return r[b.length];
+}
+const PARTICULAS = new Set(['DE','DA','DO','DOS','DAS']);
+const tokensNome = s=>s.split(' ').filter(x=>x && !PARTICULAS.has(x));
+function tokenProximo(a,b) {
+  if(a===b)return true;
+  if(a.length===1)return a===b[0];
+  if(a.length>=3 && b.startsWith(a))return true;
+  if(Math.min(a.length,b.length)<4)return false;
+  const tamanho=Math.max(a.length,b.length),d=distancia(a,b);
+  return d<=(tamanho>=7?2:1) && d/tamanho<=0.3;
+}
+function nomeParcial(nome,candidato,aproximado=false) {
+  const entrada=tokensNome(nome),base=tokensNome(candidato);
+  // Exige duas palavras substanciais e o prenome: sobrenomes isolados não bastam.
+  if(entrada.length<2 || entrada.length>base.length || entrada.filter(x=>x.length>=3).length<2)return false;
+  const combina=(a,b)=>aproximado?tokenProximo(a,b):a===b;
+  if(!entrada.some(x=>combina(x,base[0])))return false;
+  // Cada palavra digitada ocupa uma palavra distinta no nome cadastrado.
+  const ocupados=new Map();
+  function associar(i,vistos) {
+    for(let j=0;j<base.length;j++) {
+      if(vistos.has(j) || !combina(entrada[i],base[j]))continue;
+      vistos.add(j);
+      if(!ocupados.has(j) || associar(ocupados.get(j),vistos)){ocupados.set(j,i);return true;}
+    }
+    return false;
+  }
+  return entrada.every((_x,i)=>associar(i,new Set()));
 }
 function correspondencia(autor, alerta) {
   const nome = normalizar(autor.nome), nomes = [alerta.nome,...(alerta.variantes || [])].map(normalizar);
@@ -56,6 +91,8 @@ function correspondencia(autor, alerta) {
   const semParticulas = s=>s.split(' ').filter(x=>!['DE','DA','DO','DOS','DAS'].includes(x)).sort().join(' ');
   if (nomes.some(n=>semParticulas(n)===semParticulas(nome))) return 'nome_reordenado';
   if (nome.length >= 12 && nomes.some(n=>n.length>=12 && 1-distancia(nome,n)/Math.max(nome.length,n.length)>=0.86)) return 'nome_aproximado';
+  if (nomes.some(n=>nomeParcial(nome,n))) return 'nome_parcial';
+  if (nomes.some(n=>nomeParcial(nome,n,true))) return 'nome_aproximado_parcial';
   return null;
 }
 function cadastro(b) {
