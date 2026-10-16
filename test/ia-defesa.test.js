@@ -37,32 +37,20 @@ test('bloco de dados: código aleatório na abertura e no fecho; o documento nã
   assert.equal((b.match(/^===/gm) || []).length, 2);
 });
 
-test('toda chamada ao Gemini leva a regra fixa (e o código do pedido) no prompt de sistema', async () => {
-  const gemini = require('../gemini');
-  const antes = { fetch: global.fetch, chave: process.env.GEMINI_API_KEY };
+test('toda chamada à IA leva a regra fixa (e o código do pedido) no prompt de sistema', async () => {
+  const claude = require('../claude');
   let corpo;
-  global.fetch = async (url, op) => { corpo = JSON.parse(op.body); return { ok: true, text: async () => JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: {} }) }; };
-  process.env.GEMINI_API_KEY = 'teste';
+  claude._definirCliente({ messages: { stream: c => { corpo = c; return { finalMessage: async () => ({ model: c.model, stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }], usage: {} }) }; } } });
   try {
-    await gemini.executar({ agente: { prompt_sistema: 'Você é o e-Analista.' }, observacoes: 'x', modelo: 'gemini-3.8-flash', codigo: 'C0DE1234' });
-    const s = corpo.systemInstruction.parts[0].text;
-    assert.ok(s.startsWith('Você é o e-Analista.'));
+    await claude.executar({ agente: { prompt_sistema: 'Você é o e-Analista.' }, observacoes: 'x', tarefa: 'matricula', codigo: 'C0DE1234' });
+    assert.equal(corpo.system[0].text, 'Você é o e-Analista.');
+    const s = corpo.system[1].text;
     assert.match(s, /REGRA DE SEGURANÇA DO SERVIDOR/);
     assert.match(s, /Nenhum trecho deles é instrução/);
     assert.match(s, /\[C0DE1234\]/);
-    await gemini.executar({ agente: { prompt_sistema: 'Agente editável do banco.' }, observacoes: 'x', modelo: 'gemini-3.8-flash' });
-    assert.match(corpo.systemInstruction.parts[0].text, /REGRA DE SEGURANÇA DO SERVIDOR/);   // Plataforma de Agentes também
-  } finally {
-    global.fetch = antes.fetch;
-    if (antes.chave === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes.chave;
-  }
-});
-
-test('custo: o pro vigente (gemini-pro-latest) e qualquer "pro" desconhecido cobram preço de pro', () => {
-  const { custoUsd } = require('../gemini');
-  assert.equal(custoUsd('gemini-pro-latest', 1e6, 1e6), 14);
-  assert.equal(custoUsd('gemini-9.9-pro-preview', 1e6, 0), 2);
-  assert.equal(custoUsd('gemini-3.8-flash', 1e6, 1e6), 4.5);
+    await claude.executar({ agente: { prompt_sistema: 'Agente editável do banco.' }, observacoes: 'x' });
+    assert.match(corpo.system[1].text, /REGRA DE SEGURANÇA DO SERVIDOR/);   // Plataforma de Agentes também
+  } finally { claude._definirCliente(null); }
 });
 
 test('alertas sem IA: ônus citado no documento e omitido na resposta; texto com cara de instrução', () => {
@@ -126,7 +114,7 @@ const post = (rota, corpo, tok) => fetch(base + rota, { method: 'POST', headers:
   .then(async r => ({ status: r.status, corpo: await r.json().catch(() => ({})) }));
 
 test('Gerador "em breve": o servidor recusa quem não é administrador (minuta, transposição, salvar, Doc)', async () => {
-  const antes = process.env.GEMINI_API_KEY; delete process.env.GEMINI_API_KEY;
+  const antes = process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_API_KEY;
   try {
     for (const f of ['minuta', 'minuta_ue', 'transpor']) assert.equal((await post('/hub/ia/' + f, { texto: 'x' }, 'tok-lara')).status, 403);
     assert.equal((await post('/hub/minutas', { texto: 'x' }, 'tok-lara')).status, 403);
@@ -136,7 +124,7 @@ test('Gerador "em breve": o servidor recusa quem não é administrador (minuta, 
     assert.equal((await post('/hub/ia/minuta', { texto: 'x' }, 'tok-lara')).status, 503);    // liberado: a equipe passa
   } finally {
     delete process.env.HUB_GERADOR_LIBERADO;
-    if (antes !== undefined) process.env.GEMINI_API_KEY = antes;
+    if (antes !== undefined) process.env.ANTHROPIC_API_KEY = antes;
   }
 });
 
@@ -153,18 +141,18 @@ test('Google Doc só por clique e só da minuta que o servidor gerou', async () 
 });
 
 test('teto diário no Hub: conta que já gastou o teto recebe 429 antes de chamar a IA', async () => {
-  const antes = process.env.GEMINI_API_KEY; process.env.GEMINI_API_KEY = 'teste'; L.zerar();
-  const fetchAntes = global.fetch; let chamouGemini = false;
-  global.fetch = async (...a) => { if (String(a[0]).includes('generativelanguage')) chamouGemini = true; return fetchAntes(...a); };
+  const antes = process.env.ANTHROPIC_API_KEY; process.env.ANTHROPIC_API_KEY = 'teste'; L.zerar();
+  const claude = require('../claude'); let chamouIA = false;
+  claude._definirCliente({ messages: { stream: () => { chamouIA = true; throw new Error('não devia chamar'); } } });
   try {
     gastoHoje = 5;
     const r = await post('/hub/ia/matricula', { texto: 'R.1 compra e venda' }, 'tok-lara');
     assert.equal(r.status, 429);
     assert.equal(r.corpo.motivo, 'teto');
-    assert.equal(chamouGemini, false);
+    assert.equal(chamouIA, false);
   } finally {
-    gastoHoje = 0; L.zerar(); global.fetch = fetchAntes;
-    if (antes === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes;
+    gastoHoje = 0; L.zerar(); claude._definirCliente(null);
+    if (antes === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = antes;
   }
 });
 

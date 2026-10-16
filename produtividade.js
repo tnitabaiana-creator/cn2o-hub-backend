@@ -210,6 +210,18 @@ const PROMPT_IA = [
   ' "observacoes":["até 6 observações de gestão, uma frase cada"],',
   ' "alertas":[{"titulo":"curto","detalhe":"1 a 2 frases","nivel":"atencao ou info"}]}'
 ].join('\n');
+// v1.49: o mesmo formato, garantido pela API (output_config.format); limparAnalise ainda confere.
+const ESQUEMA_ANALISE = {
+  type: 'object', additionalProperties: false, required: ['resumo', 'pessoas', 'observacoes', 'alertas'],
+  properties: {
+    resumo: { type: 'string' },
+    pessoas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'texto'],
+      properties: { id: { type: 'string' }, texto: { type: 'string' } } } },
+    observacoes: { type: 'array', items: { type: 'string' } },
+    alertas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['titulo', 'detalhe', 'nivel'],
+      properties: { titulo: { type: 'string' }, detalhe: { type: 'string' }, nivel: { type: 'string', enum: ['atencao', 'info'] } } } }
+  }
+};
 function limparAnalise(j, ids) {
   const s = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f]/g, ' ').trim().slice(0, n);
   if (!j || typeof j !== 'object') throw new Error('a IA não devolveu a análise no formato esperado');
@@ -224,17 +236,17 @@ function limparAnalise(j, ids) {
   };
 }
 async function analisar(m, anterior, login) {
-  const gemini = require('./gemini');
+  const claude = require('./claude');
   const defesa = require('./ia-defesa');
   const nomes = await nomesDaEquipe();
   const cfg = await lerConfig();
   const codigo = defesa.novoCodigo();
   const pacote = resumoParaIA(m, anterior, nomes, cfg);
-  const modelo = gemini.MODELO_UNICO;   // v1.40.1: modelo único (gemini-3.8-flash)
-  const r = await gemini.executar({
-    agente: { prompt_sistema: PROMPT_IA, temperatura: 0.2 },
+  const modelo = claude.perfil('produtividade').modelo;   // v1.49: Haiku com esforço baixo (só números)
+  const r = await claude.executar({
+    agente: { prompt_sistema: PROMPT_IA },
     observacoes: defesa.blocoDados('NÚMEROS DO MÊS', JSON.stringify(pacote, null, 1), codigo),
-    modelo, codigo
+    tarefa: 'produtividade', esquema: ESQUEMA_ANALISE, codigo
   });
   try {
     require('./db-agentes').registrarConsumo({ minuta_id: null, usuario: login, agente: 'hub-produtividade', etapa: 'hub', uso: r.uso })
@@ -343,7 +355,7 @@ router.post('/config', json, async (req, res) => {
 });
 
 router.post('/analisar', json, async (req, res) => {
-  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ erro: 'a IA ainda não está configurada no servidor' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ erro: 'a IA ainda não está configurada no servidor' });
   const { aguardarLimite, tetoDiario, MSG_TETO } = require('./limite-ia');
   try {
     const alvo = lerMes(req.body || {});

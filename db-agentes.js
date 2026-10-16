@@ -24,8 +24,8 @@ async function init() {
       atualizado_por   TEXT
     );
 
-    -- usa_busca: liga a ferramenta de busca do Gemini para este agente. No app
-    -- do Gemini o Gem pesquisa sozinho; pela API é preciso declarar.
+    -- usa_busca: liga a ferramenta de busca na web para este agente (v1.49: a da
+    -- própria Claude; até a v1.48, a do Gemini). Pela API é preciso declarar.
     -- temperatura: 0 para transcrição literal, mais alto para redação.
     ALTER TABLE agentes ADD COLUMN IF NOT EXISTS usa_busca   BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE agentes ADD COLUMN IF NOT EXISTS temperatura NUMERIC(3,2);

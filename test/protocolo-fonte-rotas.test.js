@@ -28,14 +28,15 @@ function ambiente() {
     situacao:async()=>({fonte_desatualizada:stale}),obter:async()=>fonte
   };
   const uso={modelo:'modelo-falso',tokens_entrada:1,tokens_saida:1,custo_usd:0};
-  const gemini = {
+  const claude = {
+    ehHeic:()=>false,perfil:()=>({modelo:"modelo-falso"}),perfisVigentes:()=>[],PRECOS:{},
     extrair:async args=>{chamadas.push(args);if(staleDurante)stale=true;return{dados:{preco:'100.000,00',_alertas:[],_fonte_decisoes:[]},uso};},
     redigir:async args=>{chamadas.push(args);if(staleDurante)stale=true;return{texto:JSON.stringify({texto:'Minuta fictícia.',decisoes:[]}),uso};},
     revisar:async args=>{chamadas.push(args);if(staleDurante)stale=true;return{texto:JSON.stringify({texto:'Minuta revisada fictícia.',decisoes:[]}),uso};}
   };
   const sandbox={module:{exports:{}},console:{error(){}},process:{env:{}},Buffer,require:n=>{
     if(n==='express')return{Router:()=>router,json:()=>()=>{}};
-    if(n==='./db-agentes')return dba;if(n==='./db')return{pool:{}};if(n==='./gemini')return gemini;
+    if(n==='./db-agentes')return dba;if(n==='./db')return{pool:{}};if(n==='./claude')return claude;
     if(n==='./protocolo-fonte')return f;if(n==='./protocolo-fonte-db')return source;if(n==='./protocolo-fonte-ia')return fonteIA;
     if(n==='./ocr')return{ativo:()=>false};if(n==='./limite-ia')return{};if(n==='./docx')return{};
     throw new Error('Dependência imprevista '+n);

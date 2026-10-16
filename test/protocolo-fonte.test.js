@@ -162,7 +162,7 @@ test('endpoint privado retorna TEST somente autenticado e falha em inexistente/d
   assert.equal((await lerIntegracao([row],'a'.repeat(64),'../../dados')).statusCode,400);
 });
 test('JavaScript dos geradores continua sintaticamente válido, inclusive UI',()=>{
-  for(const n of ['agentes.js','db-agentes.js','gemini.js','hub.js','ocr.js','server.js']) new vm.Script(fs.readFileSync(path.join(__dirname,'..',n),'utf8'),{filename:n});
+  for(const n of ['agentes.js','db-agentes.js','claude.js','hub.js','ocr.js','server.js']) new vm.Script(fs.readFileSync(path.join(__dirname,'..',n),'utf8'),{filename:n});
   const html=fs.readFileSync(path.join(__dirname,'..','public','index.html'),'utf8');
   for(const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)) new vm.Script(m[1]);
 });

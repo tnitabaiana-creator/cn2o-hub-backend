@@ -1,7 +1,7 @@
 // ocr.js — pré-passada de OCR DEDICADO do Hub CN2O: a "dupla leitura" das
 // ferramentas de IA. Para cada arquivo anexado (foto/print/PDF), pede ao Google
 // a leitura completa com CONFIANÇA POR PALAVRA e devolve um bloco de texto que o
-// hub.js apensa às observações enviadas ao Gemini — o modelo confronta a própria
+// hub.js apensa às observações enviadas à IA — o modelo confronta a própria
 // leitura com a do OCR e leva as divergências e as palavras incertas ao ⚠ CONFERIR.
 //
 // DOIS MOTORES, na ordem de preferência:
@@ -19,7 +19,7 @@
 //      Só entra em cena quando não há GCP_VISION_KEY.
 //
 // Sem nenhuma das duas, ativo() é false e o hub segue exatamente como antes
-// (só Gemini). Qualquer falha aqui NUNCA bloqueia o balcão: a análise prossegue.
+// (só a IA). Qualquer falha aqui NUNCA bloqueia o balcão: a análise prossegue.
 //
 // Outras variáveis (opcionais):
 //   DOCAI_CONFIANCA_MIN → limiar de confiança, padrão 0.80 (vale nos dois motores)

@@ -57,11 +57,29 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - Gerador de Minuta: só o Tabelião, até `HUB_GERADOR_LIBERADO=1`. O Google Doc não nasce
   sozinho: `POST /hub/minuta-doc` cria o documento da última minuta gerada pela pessoa.
 
-## Modelo de IA (v1.40.1)
+## Modelo de IA (v1.49 — API Claude)
 
-- Um modelo só para todas as chamadas: `gemini-3.8-flash` (`GEMINI_MODELO_UNICO` troca sem deploy).
-  Pedidos de outro modelo — variáveis antigas `HUB_MODELO_*`/`GEMINI_MODEL_*` ou agente com modelo
-  gravado no banco — são atendidos por ele, com uma linha no log.
+- Toda a IA passa pelo `claude.js` (SDK `@anthropic-ai/sdk`, chave `ANTHROPIC_API_KEY`).
+  Cada ação tem um perfil — modelo e esforço (`output_config.effort`) pela dificuldade:
+
+  | Ação | Modelo | Esforço |
+  |---|---|---|
+  | Gerador de Minuta (`minuta`, `minuta_ue`), redigir minuta (agentes) | Opus 5.5 | high |
+  | Revisar minuta (agentes), Analista de Matrículas | Opus 5.5 | medium |
+  | Leitor de dossiê ITCMD | Sonnet 5.5 | high |
+  | Qualificação, extrair campos e agentes de etapa única | Sonnet 5.5 | medium |
+  | Descrição do imóvel, transposição, Redator | Sonnet 5.5 | low |
+  | Análise da produtividade | Haiku 5.5 | low |
+
+- Trocar um perfil sem deploy: `IA_PERFIL_<TAREFA>=modelo:esforço` (ver `.env.example`).
+  `GET /hub/ia/status` e `GET /agentes/modelos` mostram a tabela vigente.
+- JSON garantido pela API (`output_config.format`) na transposição, no ITCMD, na extração e na
+  produtividade; o servidor ainda confere a forma. Se a API recusar um esquema, a chamada segue
+  sem ele.
+- Foto HEIC (iPhone) não é lida pela Claude: no Hub vai só o texto do OCR dela; sem OCR, ou na
+  Plataforma de Agentes, o pedido é recusado com o aviso para mandar JPG/PNG.
+- Agente com `usa_busca` usa a busca na web da própria Claude (US$ 10 por mil buscas, no consumo).
+- O OCR dedicado (Cloud Vision, `GCP_VISION_KEY`) continua como dupla leitura.
 
 ## Dados pessoais (v1.39.4)
 

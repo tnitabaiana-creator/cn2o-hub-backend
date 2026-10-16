@@ -69,8 +69,8 @@
 //                                sem planilha vinculada: 200 com vinculado:false
 //
 // Administradores: variável HUB_ADMINS (logins separados por vírgula); sem ela,
-// vale 'cesar.bravo'. A IA usa o gemini.js da Plataforma (GEMINI_API_KEY).
-// Modelo: um só para tudo desde a v1.40.1 — gemini-3.8-flash (GEMINI_MODELO_UNICO; ver modeloDe). Google Docs:
+// vale 'cesar.bravo'. A IA usa o claude.js da Plataforma (ANTHROPIC_API_KEY).
+// Modelo e esforço por ferramenta desde a v1.49 (PERFIS no claude.js; IA_PERFIL_<FERRAMENTA>). Google Docs:
 // HUB_DOCS_WEBAPP_URL, HUB_DOCS_SECRET, HUB_DOCS_TIMEOUT_MS (ver docs.js). Acervo:
 // HUB_ACERVO_WEBAPP_URL, HUB_ACERVO_SECRET, HUB_ACERVO_CACHE_MIN, HUB_ACERVO_TIMEOUT_MS
 // (ver acervo.js e docs/apps-script/LeitorAcervo.gs). Auditoria: HUB_AUDITORIA_DIAS
@@ -78,7 +78,7 @@
 
 const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
-const gemini = require('./gemini');    // cliente Gemini da Plataforma CN2O (GEMINI_API_KEY)
+const claude = require('./claude');    // v1.49: cliente Claude da Plataforma CN2O (ANTHROPIC_API_KEY)
 const PROMPTS = require('./hub-prompts');
 const fonteContrato = require('./protocolo-fonte');
 const fonteDB = require('./protocolo-fonte-db');
@@ -928,7 +928,7 @@ router.get('/admin/auditoria', exigeSessao, exigeAdmin, async (req, res) => {
 
 // ---------------------------------------------------------------- IA
 const MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']);
-const LIMITE_B64 = 18 * 1024 * 1024;     // ≈ 13 MB de arquivo — o pedido inteiro ao Gemini tem de ficar abaixo de 20 MB
+const LIMITE_B64 = 18 * 1024 * 1024;     // ≈ 13 MB de arquivo — o pedido inteiro à Claude tem de ficar abaixo de 32 MB
 // v1.39.3 (segurança, pacote C): limite por pessoa (padrão 15 a cada 10 min, antes 40) e
 // teto diário de gasto — o mesmo módulo vale para a Plataforma de Agentes (agentes.js).
 const { aguardarLimite, tetoDiario, MSG_TETO } = require('./limite-ia');
@@ -942,53 +942,24 @@ const geradorLiberado = u => ehAdmin(u) || String(process.env.HUB_GERADOR_LIBERA
 // minuta que o servidor gerou — o cliente não manda texto para virar Doc.
 const ultimaMinuta = new Map();          // login → { pedido, em }
 const MINUTA_DOC_MS = 2 * 3600e3;
-function modeloIA() { return gemini.MODELO_UNICO; }
-// v1.40.1 (economia): todas as ferramentas do Hub usam o modelo único do gemini.js
-// (gemini-3.8-flash; trocar sem deploy por GEMINI_MODELO_UNICO). Até a v1.40, o Extrator,
-// a transposição e o Gerador iam no tier pro (HUB_MODELO_EXTRATOR, HUB_MODELO_MINUTAS,
-// HUB_MODELO_TRANSPOR…) e o flash era o socorro; essas variáveis não valem mais.
-function modeloDe() { return gemini.MODELO_UNICO; }
-function modeloIndisponivel(e) {
-  const m = (e && e.message) || '';
-  return /NOT_FOUND|is not found for API version/i.test(m) ||
-         /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(m);
-}
-// v1.21 — congestionamento do lado do Google (503 UNAVAILABLE / "experiencing
-// high demand" / "model is overloaded"). Não é defeito do Hub nem do documento:
-// é pico de uso no modelo. Some sozinho em segundos, então a regra é insistir
-// um pouco antes de desistir — e, se insistir não bastar, trocar de modelo.
+// v1.49: cada ferramenta tem o seu perfil (modelo + esforço) no claude.js — a minuta no
+// Opus com esforço alto, a descrição literal no Sonnet com esforço baixo etc. Até a v1.48
+// era o modelo único gemini-3.8-flash; GEMINI_MODELO_UNICO e HUB_MODELO_* não valem mais.
+function modeloDe(ferramenta) { return claude.perfil(ferramenta).modelo; }
+function modeloIA() { return modeloDe('minuta'); }
+// Congestionamento do lado do provedor (529 overloaded / 503). Não é defeito do Hub nem do
+// documento: é pico de uso. O SDK já insiste sozinho (claude.js, maxRetries); se ainda
+// assim falhar, a tela recebe "aguarde e tente de novo".
 function ehSobrecarga(e) {
   const m = (e && e.message) || '';
-  return /\b(503|529)\b/.test(m) ||
-         /UNAVAILABLE|overloaded|experiencing high demand/i.test(m) ||
-         /"status"\s*:\s*"INTERNAL"/i.test(m);
+  return /\b(503|529)\b/.test(m) || /UNAVAILABLE|overloaded|experiencing high demand/i.test(m);
 }
 function ehCota(e) {
   const m = (e && e.message) || '';
-  return /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(m);
+  return /\b429\b|rate_limit|RESOURCE_EXHAUSTED|exceeded your current quota|spend limit/i.test(m);
 }
-function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
-// Esperas entre as retentativas (ms). Uma retentativa por padrão; dá para
-// afrouxar sem deploy pela variável HUB_IA_ESPERA_MS ("1500,4000").
-function esperasRetentativa() {
-  return String(process.env.HUB_IA_ESPERA_MS || '1500,4000')   // v1.40.1: sem modelo de socorro, duas tentativas a mais
-    .split(',').map(s => parseInt(s.trim(), 10)).filter(n => n > 0);
-}
-// O socorro é sempre o outro degrau: se o pro congestionou, vai de flash; se
-// foi o flash, tenta o pro. Assim nenhuma ferramenta fica sem plano B.
-// v1.40.1: com modelo único não há outro degrau — o socorro é insistir no mesmo (esperas).
-function modeloAlternativo() { return null; }
-async function chamarModelo(agenteIA, arquivos, observacoes, modelo, etiqueta, codigo) {
-  const esperas = esperasRetentativa();
-  for (let i = 0; ; i++) {
-    try {
-      return await gemini.executar({ agente: agenteIA, arquivos, observacoes, modelo, codigo });
-    } catch (e) {
-      if (!ehSobrecarga(e) || i >= esperas.length) throw e;
-      console.error('hub ia ' + etiqueta + ': "' + modelo + '" congestionado — nova tentativa em ' + esperas[i] + 'ms');
-      await esperar(esperas[i]);
-    }
-  }
+function chamarModelo(agenteIA, arquivos, observacoes, ferramenta, codigo, esquema) {
+  return claude.executar({ agente: agenteIA, arquivos, observacoes, tarefa: ferramenta, esquema, codigo });
 }
 // O custo entra na mesma tabela `consumo` da Plataforma de Agentes: um extrato
 // só de IA para o cartório inteiro (agente = hub-qualificacao / hub-matricula).
@@ -1023,7 +994,7 @@ function resumoIA(consumo, inicio, quantosArquivos) {
 router.get('/ia/status', exigeSessao, (req, res) => {
   // docs_ativo (v1.29): a tela do Gerador sabe de antemão se a minuta vai nascer
   // também como Google Doc (ponte docs.js configurada) — só informação, sem segredo.
-  res.json({ configurada: !!process.env.GEMINI_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor(), docs_ativo: docs.ativo() });
+  res.json({ configurada: !!process.env.ANTHROPIC_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), perfis: claude.perfisVigentes(), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor(), docs_ativo: docs.ativo() });
 });
 
 router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
@@ -1632,8 +1603,8 @@ const RE_CABECALHO_RESERVADO = /^[ \t]*===\s*(HOJE|QUEM\s+EST[ÁA]\s+MINUTANDO|Q
 // O botão "Extrair e transpor dados" da tela do Gerador manda só os documentos das
 // partes (e, se a escrevente quiser, observações — nunca a ficha, que ainda não
 // existe nessa hora). O prompt (docs/prompt-transposicao.txt, embutido em
-// hub-prompts.js pelo gerador) devolve JSON; o executar() do gemini.js não tem modo
-// JSON, então o servidor faz o parse aqui e entrega à tela um objeto de FORMA FIXA
+// hub-prompts.js pelo gerador) devolve JSON — desde a v1.49 com o esquema ESQUEMA_TRANSPOR
+// garantido pela API —, e o servidor ainda faz o parse aqui e entrega à tela um objeto de FORMA FIXA
 // (spec §9.2): todas as chaves sempre presentes, "" por padrão, nada fora do contrato,
 // tamanhos com teto. A tela nunca precisa se defender de chave faltante ou de lixo.
 const CHAVES_PESSOA = ['nome', 'nacionalidade', 'estado_civil', 'regime_bens', 'profissao', 'data_nascimento',
@@ -1672,6 +1643,10 @@ function normalizarCasamento(c) {
   const cas = { conjuges: listaTransposta(c.conjuges) };
   CHAVES_CASAMENTO.forEach(k => { cas[k] = textoTransposto(c[k]); });
   cas.nome_solteiro = {};
+  // v1.49: o esquema JSON da API não admite chaves livres — o mapa vem como lista de pares
+  if (Array.isArray(c.nome_solteiro)) {
+    c = Object.assign({}, c, { nome_solteiro: Object.fromEntries(c.nome_solteiro.filter(ehObjeto).map(x => [textoTransposto(x.nome), x.anterior])) });
+  }
   if (ehObjeto(c.nome_solteiro)) {
     Object.keys(c.nome_solteiro).slice(0, LIM_TRANSPOR.pessoas).forEach(chave => {
       const nome = textoTransposto(chave), anterior = textoTransposto(c.nome_solteiro[chave]);
@@ -1688,6 +1663,25 @@ function normalizarTransposicao(j) {
     alertas: listaTransposta(j.alertas)
   };
 }
+// v1.49 — esquemas JSON (output_config.format) da transposição e do dossiê ITCMD. Todas as
+// chaves obrigatórias e nenhuma a mais: o modelo devolve exatamente a forma que os
+// normalizadores acima e abaixo esperam. Se a API recusar o esquema, o claude.js segue sem
+// ele (o prompt já descreve o JSON).
+const SJ = { type: 'string' };
+const sjObj = (props) => ({ type: 'object', properties: props, required: Object.keys(props), additionalProperties: false });
+const sjLista = (item) => ({ type: 'array', items: item });
+const sjNulo = (s) => ({ anyOf: [s, { type: 'null' }] });
+const sjEnum = (lista) => ({ type: 'string', enum: lista.concat('') });
+const sjTextos = (chaves) => Object.fromEntries(chaves.map(k => [k, SJ]));
+const ESQUEMA_TRANSPOR = sjObj({
+  pessoas: sjLista(sjObj(Object.assign(sjTextos(CHAVES_PESSOA), {
+    certidao: sjObj(sjTextos(CHAVES_CERTIDAO)), documentos: sjLista(SJ), qualificacao: SJ }))),
+  casamento: sjNulo(sjObj(Object.assign({ conjuges: sjLista(SJ) }, sjTextos(CHAVES_CASAMENTO), {
+    nome_solteiro: Object.assign(sjLista(sjObj({ nome: SJ, anterior: SJ })), { description: 'um par por cônjuge com nome anterior: nome atual e nome antes do casamento' }),
+    averbacoes: SJ }))),
+  alertas: sjLista(SJ)
+});
+
 // O prompt proíbe markdown e texto fora do objeto, mas o servidor não confia: tira as
 // cercas (```json … ```) e o que vier antes do primeiro "{" ou depois do último "}".
 // Devolve o objeto ou null (e null vira 502 "tente de novo" na rota).
@@ -1818,6 +1812,34 @@ function normalizarDossieItcmd(j) {
   };
 }
 
+const sjBool = sjNulo({ type: 'boolean' });
+const sjNome = sjObj({ nome: SJ, cpf: SJ });
+const sjBemItcmd = (comDestino) => sjObj(Object.assign({ descricao: SJ, tipo: sjEnum(ITCMD_ENUM.tipo_bem), matricula: SJ, inscricao_municipal_incra: SJ,
+  valor_referencia: SJ, fonte_valor: SJ, fonte: SJ }, comDestino ? { destino: SJ, fracao: SJ } : { natureza: sjEnum(ITCMD_ENUM.natureza), fracao_do_falecido: SJ }));
+const ESQUEMA_ITCMD = sjObj({
+  operacao: sjEnum(ITCMD_ENUM.operacao),
+  advogado: sjObj({ nome: SJ, oab: SJ, cpf: SJ }),
+  requerimento: sjObj({ data: SJ, resumo: SJ, tipo_inventario: sjEnum(['extrajudicial', 'judicial']), processo: SJ, vara_comarca: SJ }),
+  inventariante: sjObj({ nome: SJ, cpf: SJ, endereco: SJ, telefone_email: SJ, fonte: SJ }),
+  falecidos: sjLista(sjObj({
+    nome: SJ, cpf: SJ, data_obito: SJ, local_obito: SJ,
+    certidao_obito: sjObj({ serventia: SJ, matricula: SJ, data_emissao: SJ }),
+    estado_civil_no_obito: sjEnum(ITCMD_ENUM.estado_civil),
+    conjuge: sjObj({ nome: SJ, cpf: SJ, regime: sjEnum(ITCMD_ENUM.regime), regime_como_consta: SJ, data_casamento: SJ, pacto: SJ, sobrevivente: sjBool, separado_de_fato: sjBool }),
+    filhos: sjLista(sjObj({ nome: SJ, cpf: SJ, situacao: sjEnum(ITCMD_ENUM.situacao), filho_do_conjuge_sobrevivente: sjBool, representantes: sjLista(sjNome), fonte: SJ })),
+    ascendentes: sjObj({ pai: sjObj({ nome: SJ, vivo: sjBool }), mae: sjObj({ nome: SJ, vivo: sjBool }),
+      avos_paternos_vivos: sjNulo({ type: 'integer' }), avos_maternos_vivos: sjNulo({ type: 'integer' }) }),
+    colaterais: sjLista(sjObj({ nome: SJ, cpf: SJ, parentesco: sjEnum(ITCMD_ENUM.parentesco), vinculo: sjEnum(ITCMD_ENUM.vinculo), situacao: sjEnum(ITCMD_ENUM.situacao), representantes: sjLista(sjNome) })),
+    bens: sjLista(sjBemItcmd(false)),
+    dividas: SJ, inventario_requerido_em: SJ,
+    partilha: sjObj({ desigual: sjBool, cessoes: sjLista(sjObj({ cedente: SJ, beneficiario: SJ, fracao_do_quinhao: SJ, natureza: sjEnum(['nao_onerosa', 'onerosa']), fonte: SJ })), descricao: SJ })
+  })),
+  doacao: sjObj({ doadores: sjLista(sjNome),
+    donatarios: sjLista(sjObj({ nome: SJ, doacoes_anteriores_no_ano: SJ, itcmd_recolhido_anteriores: SJ, fonte: SJ })),
+    bens: sjLista(sjBemItcmd(true)), reserva_usufruto: sjBool, data_prevista: SJ }),
+  alertas: sjLista(SJ)
+});
+
 // ---------------------------------------------------------------- Minuta → Google Docs (v1.29)
 // Com a ponte ligada (docs.js), a minuta PRONTA ou PRELIMINAR nasce como Google Doc
 // na pasta do Gerador: o corpo do documento é o trecho entre os marcadores do
@@ -1875,8 +1897,8 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   if (GERADOR.has(nome) && !geradorLiberado(req.usuario)) {   // v1.39.3
     return res.status(403).json({ erro: 'o Gerador de Minuta ainda está "em breve" — por enquanto só o Tabelião usa' });
   }
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(503).json({ motivo: 'sem_chave', erro: 'a IA ainda não está configurada no servidor (falta a GEMINI_API_KEY no Railway)' });
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ motivo: 'sem_chave', erro: 'a IA ainda não está configurada no servidor (falta a ANTHROPIC_API_KEY no Railway)' });
   }
   const corpo = req.body || {};
   // Cabeçalho que só o servidor pode escrever (data, quem assina/minuta, dados do
@@ -1901,6 +1923,12 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
     if (!b64 || !/^[A-Za-z0-9+/]+=*$/.test(b64)) return res.status(400).json({ erro: `arquivo vazio ou corrompido: ${rotulo}` });
     total += b64.length;
     arquivos.push({ nome: rotulo, mime, base64: b64 });
+  }
+  // v1.49: a Claude não lê HEIC/HEIF (foto de iPhone). Com o OCR dedicado ligado, o texto da
+  // foto ainda vai ao modelo; sem ele, a foto não teria leitor nenhum — melhor recusar.
+  const heic = arquivos.find(a => claude.ehHeic(a.mime));
+  if (heic && !ocr.ativo()) {
+    return res.status(400).json({ erro: `foto HEIC (iPhone) não é lida pela IA: ${heic.nome} — envie em JPG ou PNG` });
   }
   if (total > LIMITE_B64) {
     return res.status(413).json({ erro: 'arquivos grandes demais para uma análise só (máx. ≈ 13 MB somados) — envie só as páginas necessárias' });
@@ -1944,7 +1972,7 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   }
   try {
     // Dupla leitura: OCR dedicado (Document AI) quando a credencial existir.
-    // Nunca bloqueia: qualquer falha aqui e a análise segue só com o Gemini.
+    // Nunca bloqueia: qualquer falha aqui e a análise segue só com a leitura da IA.
     let resumoOcr = ocr.ativo()
       ? (arquivos.length ? null : { ativo: false, motivo: 'sem arquivos anexados' })
       : { ativo: false, motivo: 'OCR dedicado não configurado (falta a chave do Cloud Vision no servidor)' };
@@ -1959,28 +1987,17 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
         if (lido.bloco) observacoesFinais = observacoes + '\n\n' + lido.bloco;
       } catch (e) {
         console.error('hub ocr ' + nome + ':', e.message);
-        resumoOcr = { ativo: false, motivo: 'falha no OCR dedicado — análise seguiu só com o Gemini' };
+        resumoOcr = { ativo: false, motivo: 'falha no OCR dedicado — análise seguiu só com a leitura da IA' };
       }
     }
 
     if (fonte) observacoesFinais += '\n\n' + fonteContrato.contextoFonte(fonte, manifestosFonte);
     const agenteIA = { prompt_sistema: PROMPTS[nome].prompt + (fonte ? '\n' + fonteIA.instrucaoSaida() : ''), temperatura: 0, usa_busca: false };
-    const modeloPreferido = modeloDe(nome);
-    let r;
+    // v1.49: transposição e ITCMD com esquema JSON garantido pela API (o servidor ainda
+    // confere a forma em normalizarTransposicao / normalizarDossieItcmd).
+    const esquema = nome === 'transpor' ? ESQUEMA_TRANSPOR : nome === 'itcmd' ? ESQUEMA_ITCMD : null;
     if (fonte) await fonteDB.conferir(fonte, req.usuario);
-    try {
-      r = await chamarModelo(agenteIA, arquivos, observacoesFinais, modeloPreferido, nome, codigo);
-    } catch (e0) {
-      const socorro = modeloAlternativo(modeloPreferido);
-      if (!socorro || (!modeloIndisponivel(e0) && !ehSobrecarga(e0))) throw e0;
-      console.error('hub ia ' + nome + ': modelo "' + modeloPreferido + '" fora do ar (' + String(e0.message).slice(0, 90) + ') — socorro em ' + socorro);
-      try {
-        r = await chamarModelo(agenteIA, arquivos, observacoesFinais, socorro, nome, codigo);
-      } catch (e1) {
-        console.error('hub ia ' + nome + ': o socorro "' + socorro + '" também falhou (' + String(e1.message).slice(0, 90) + ')');
-        throw e0;   // o balcão precisa ver a causa de origem, não a do plano B
-      }
-    }
+    const r = await chamarModelo(agenteIA, arquivos, observacoesFinais, nome, codigo, esquema);
     const uso = r.uso || {};
     // O consumo é cobrado pela resposta dada — inclusive quando, na transposição, a
     // resposta vier sem JSON: o modelo trabalhou e o extrato do Tabelião tem de bater.
@@ -2070,7 +2087,7 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
   } catch (e) {
     console.error(`hub ia ${nome}:`, e.message);
     auditar(req, 'ia', nome, 'falha após ' + (Date.now() - inicio) + ' ms: ' + txt(e.message, 180));
-    // Nada de despejar o JSON cru do Google no balcão: o escrevente precisa
+    // Nada de despejar o JSON cru do provedor no balcão: o escrevente precisa
     // saber o que fazer, não o código de erro de quem hospeda o modelo.
     if (ehSobrecarga(e)) {
       return res.status(503).json({

@@ -15,7 +15,7 @@ Tempo estimado: 20 minutos, sendo 15 de espera de deploy.
 cn2o-hub-backend/
 ├── agentes.js          ← novo   (rotas do módulo)
 ├── db-agentes.js       ← novo   (schema e consultas)
-├── gemini.js           ← novo   (cliente da API do Gemini)
+├── claude.js           ← v1.49  (cliente da API Claude; antes gemini.js)
 ├── docx.js             ← novo   (geração do arquivo do Word)
 ├── seed-agentes.js     ← novo   (carga inicial dos agentes)
 ├── public/
@@ -110,13 +110,16 @@ Só uma é obrigatória:
 
 | Variável | Valor | Obrigatória |
 |---|---|---|
-| `GEMINI_API_KEY` | a chave do Google AI Studio | **sim** |
-| `GEMINI_MODELO_UNICO` | `gemini-3.8-flash` | não (é o padrão; desde a v1.40.1 vale para todas as chamadas) |
+| `ANTHROPIC_API_KEY` | a chave do console.anthropic.com (v1.49) | **sim** |
+| `IA_PERFIL_<TAREFA>` | ex. `IA_PERFIL_MINUTA=claude-opus-5-5:high` | não (troca modelo e esforço de uma ação; ver README, "Modelo de IA") |
+| `IA_TIMEOUT_MS` | `600000` | não (tempo máximo de uma chamada) |
 | `LIMITE_UPLOAD` | `24mb` | não |
 | `CAMBIO_USD_BRL` | `5.12` | não (só para a tela de consumo) |
 | `AGENTES_ADMIN` | logins extras com poder de editar agentes, separados por vírgula | não |
 
-A chave sai de **aistudio.google.com → Get API key**. Crie no mesmo projeto do
+A chave sai de **console.anthropic.com → API Keys** (v1.49); defina lá também um limite de
+gasto mensal. Até a v1.48 a IA era o Gemini — o texto abaixo é o histórico daquela chave.
+A chave do Gemini saía de **aistudio.google.com → Get API key**. Crie no mesmo projeto do
 Google Cloud onde você quer a fatura, e ative o faturamento — no nível gratuito
 os limites de requisição por minuto derrubam o uso de um cartório.
 
@@ -210,11 +213,11 @@ projeto nem um ponto de falha no build do Railway, num ganho que o fluxo real da
 serventia não usa. Se um dia precisar de `.docx` de verdade (macro, mala direta,
 campos de mesclagem), troca-se só o `docx.js`.
 
-**Cache de prompt.** Os prompts de sistema são grandes (o de Compra e Venda tem
-69 mil caracteres) e vão inteiros a cada chamada. O cache explícito do Gemini
-cortaria perto de um quarto da conta, mas cobra armazenamento por hora e só
-compensa com volume constante. Deixei para depois de você ver a fatura real de um
-mês. É mudança localizada no `gemini.js`.
+**Cache de prompt (v1.49).** Os prompts de sistema são grandes (o de Compra e Venda tem
+69 mil caracteres; o Prompt-Mestre do Gerador, 200 mil) e vão inteiros a cada chamada. Na
+API Claude o prompt da minuta, da redação e da revisão vai com `cache_control`: dentro de
+5 minutos a releitura custa 5% do preço. A regra de segurança com o código do pedido vai num
+bloco à parte, para não invalidar o cache.
 
 **Anexar a minuta ao cartão do Trello.** O `trello.js` já tem tudo o que falta
 (`obterCartao`, `aplicarCampos`) e o `minutas.protocolo` já liga as duas pontas.
