@@ -10,7 +10,7 @@ const P = require('../produtividade');
 
 const INICIAL = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'dados', 'produtividade-inicial.json'), 'utf8'));
 const clone = o => JSON.parse(JSON.stringify(o));
-const fetchReal = global.fetch;   // o teste da IA troca o fetch global (Gemini); os pedidos às rotas usam o real
+const fetchReal = global.fetch;   // os pedidos às rotas usam o fetch real (a IA usa um cliente falso no teste)
 
 test('carga inicial: junho a agosto de 2026 passam na validação, com os números do painel anterior', () => {
   assert.deepEqual(INICIAL.map(m => [m.ano, m.mes]), [[2026, 6], [2026, 7], [2026, 8]]);
@@ -135,15 +135,16 @@ test('lista, dias úteis, gravação, configuração e exclusão', async () => {
 });
 
 test('análise da IA: dados só somados no prompt, resposta guardada no mês', async () => {
-  const antes = { fetch: global.fetch, chave: process.env.GEMINI_API_KEY };
-  let prompt = '';
+  const antes = { chave: process.env.ANTHROPIC_API_KEY };
+  const claude = require('../claude');
+  let prompt = '', pedido = null;
   const resposta = { resumo: 'Agosto fechou estável.', pessoas: [{ id: 'LARA.SILVA', texto: 'Liderou a mesa.' }],
     observacoes: ['Concentração alta na mesa.'], alertas: [{ titulo: 'Forma vazia', detalhe: 'R$ 282 mil sem forma informada.', nivel: 'atencao' }] };
-  global.fetch = async (url, op) => {
-    prompt = op.body;
-    return { ok: true, text: async () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify(resposta) + '\n```' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 300 } }) };
-  };
-  process.env.GEMINI_API_KEY = 'teste';
+  claude._definirCliente({ messages: { stream: c => {
+    pedido = c; prompt = JSON.stringify(c);
+    return { finalMessage: async () => ({ model: c.model, stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(resposta) }], usage: { input_tokens: 1000, output_tokens: 300 } }) };
+  } } });
+  process.env.ANTHROPIC_API_KEY = 'teste';
   try {
     const r = await pedir('/analisar', 'tok-cesar', { ano: 2026, mes: 8 });
     assert.equal(r.status, 200, JSON.stringify(r.corpo));
@@ -157,9 +158,13 @@ test('análise da IA: dados só somados no prompt, resposta guardada no mês', a
     assert.match(prompt, /REGRA DE SEGURANÇA DO SERVIDOR/);
     assert.match(prompt, /mesa de escrituras/);
     assert.match(prompt, /nunca desconte novamente/); assert.match(prompt, /lançamentos financeiros/);
+    assert.equal(pedido.model, 'claude-haiku-5-5');                         // v1.49: Haiku, esforço baixo, JSON garantido
+    assert.equal(pedido.output_config.effort, 'low');
+    assert.deepEqual(pedido.output_config.format.schema.required, ['resumo', 'pessoas', 'observacoes', 'alertas']);
+    assert.equal(r.corpo.analise.modelo, 'claude-haiku-5-5');
     assert.equal((await pedir('/analisar', 'tok-cesar', { ano: 2025, mes: 1 })).status, 404);
   } finally {
-    global.fetch = antes.fetch;
-    if (antes.chave === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes.chave;
+    claude._definirCliente(null);
+    if (antes.chave === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = antes.chave;
   }
 });

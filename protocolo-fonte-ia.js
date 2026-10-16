@@ -6,8 +6,11 @@ function instrucaoSaida() {
 }
 function lerResultado(texto) {
   let r;
-  try { r = JSON.parse(String(texto).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-  catch (_) { throw f.falha(502, 'CONFERENCIA_INVALIDA', 'A IA não devolveu a minuta com a conferência estruturada da fonte. Refaça a geração.'); }
+  const s = String(texto).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { r = JSON.parse(s); }
+  // v1.49: tolera texto solto antes do primeiro "{" ou depois do último "}"
+  catch (_) { try { r = JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1)); } catch (_e) { r = undefined; } }
+  if (r === undefined) { throw f.falha(502, 'CONFERENCIA_INVALIDA', 'A IA não devolveu a minuta com a conferência estruturada da fonte. Refaça a geração.'); }
   if (!r || typeof r.texto !== 'string' || !r.texto.trim() || !Array.isArray(r.decisoes))
     throw f.falha(502, 'CONFERENCIA_INVALIDA', 'A IA não devolveu texto e conferência válidos.');
   return r;

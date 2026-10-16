@@ -8,7 +8,7 @@
 
 const express = require('express');
 const dba = require('./db-agentes');
-const gemini = require('./gemini');
+const claude = require('./claude');   // v1.49: API Claude (antes gemini.js)
 const docx = require('./docx');
 const { pool } = require('./db');
 const fonteContrato = require('./protocolo-fonte');
@@ -28,10 +28,10 @@ const CARGOS_ADMIN = ['Tabelião', 'Substituta do Tabelião'];
 const ehAdmin = u => CARGOS_ADMIN.includes(u.cargo) ||
   (process.env.AGENTES_ADMIN || '').split(',').map(s => s.trim()).includes(u.login);
 
-// v1.39.3 (segurança): o detalhe só vai à tela quando é recado nosso (gemini.js escreve
+// v1.39.3 (segurança): o detalhe só vai à tela quando é recado nosso (claude.js escreve
 // mensagens em português para truncamento, resposta vazia, tempo esgotado e bloqueio);
 // erro cru do banco ou do provedor fica só no log.
-const RE_RECADO = /excedeu o limite de saída|voltou vazia|não respondeu em|bloqueou a requisição|não configurada/i;
+const RE_RECADO = /excedeu o limite de saída|voltou vazia|não respondeu em|bloqueou a requisição|não configurada|HEIC/i;
 const erro = (res, code, msg, detalhe) => {
   if (detalhe && !RE_RECADO.test(String(detalhe))) {
     console.error('agentes:', msg, '—', String(detalhe).slice(0, 300));
@@ -54,6 +54,8 @@ async function freioIA(req, res, next) {
   let total = 0;
   for (const a of arquivos) {
     if (!MIMES_IA.has(String((a && a.mime) || '').toLowerCase())) return erro(res, 400, 'formato não aceito: use foto JPG/PNG ou PDF');
+    // v1.49: a Claude não lê HEIC/HEIF (foto de iPhone) e a Plataforma não tem OCR dedicado
+    if (claude.ehHeic(a.mime)) return erro(res, 400, 'foto HEIC (iPhone) não é lida pela IA — envie a foto em JPG ou PNG');
     total += String((a && a.base64) || '').length;
   }
   if (total > MAX_B64) return erro(res, 413, 'arquivos grandes demais para um pedido só (máx. ≈ 13 MB somados)');
@@ -93,14 +95,15 @@ router.get('/', async (req, res) => {
   } catch (e) { erro(res, 500, 'falha ao listar agentes', e.message); }
 });
 
-// GET /agentes/modelos — o que a chave do Gemini enxerga de verdade.
-// Use isto para conferir os IDs antes de culpar o código.
+// GET /agentes/modelos — v1.49: a tabela de perfis vigente (modelo + esforço de cada ação,
+// já com as trocas feitas por IA_PERFIL_* no Railway) e o preço de cada modelo.
 router.get('/modelos', async (req, res) => {
   if (!ehAdmin(req.usuario)) return erro(res, 403, 'somente Tabelião ou Substituta');   // v1.39.3
   try {
     res.json({
-      configurado: { extracao: gemini.MODELO_EXTRACAO, redacao: gemini.MODELO_REDACAO },
-      disponiveis: await gemini.listarModelos()
+      configurado: { extracao: claude.perfil('agente-extrair').modelo, redacao: claude.perfil('agente-redigir').modelo },
+      perfis: claude.perfisVigentes(),
+      precos_usd_mtok: claude.PRECOS
     });
   } catch (e) { erro(res, 502, 'falha ao consultar os modelos', e.message); }
 });
@@ -224,7 +227,7 @@ router.post('/:slug/extrair', freioIA, async (req, res) => {
     fonteContrato.validarAtoAgente(fonte, ag);
     const manifestos = await manifestosDoPedido(arquivos, fonte, req.usuario);
     await fonteDB.conferir(fonte, req.usuario);
-    const { dados, uso } = await gemini.extrair({
+    const { dados, uso } = await claude.extrair({
       agente: ag, arquivos, observacoes: req.body.observacoes, fonte, manifestos
     });
     const conferencia = fonte ? fonteContrato.matrizCobertura(fonte, dados._fonte_decisoes, manifestos, null, dados) : [];
@@ -275,7 +278,7 @@ router.post('/:slug/executar', freioIA, async (req, res) => {
       return erro(res, 400, 'anexe um documento ou preencha o formulário');
     }
 
-    const { texto, uso } = await gemini.executar({
+    const { texto, uso } = await claude.executar({
       agente: ag, arquivos, campos, observacoes: req.body.observacoes
     });
 
@@ -318,7 +321,7 @@ router.post('/minutas/:id/redigir', freioIA, async (req, res) => {
     // Edições são dados complementares; não alteram a fonte canônica nem suas decisões.
     const dados = req.body.dados && typeof req.body.dados === 'object' ? req.body.dados : m.dados;
 
-    const resultado = await gemini.redigir({
+    const resultado = await claude.redigir({
       agente: ag, dados, observacoes: req.body.observacoes, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
     });
     const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);
@@ -355,7 +358,7 @@ router.post('/minutas/:id/revisar', freioIA, async (req, res) => {
     const ag = await dba.obterAgente(m.agente);
     const historico = (m.turnos || []).filter(t => t.papel === 'usuario').map(t => t.conteudo).slice(-10);   // v1.39.3: só os 10 últimos ajustes
 
-    const resultado = await gemini.revisar({
+    const resultado = await claude.revisar({
       agente: ag, minutaAtual: m.texto, pedido, historico, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
     });
     const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);

@@ -9,7 +9,7 @@
 //      abertura e de fecho. Um documento não adivinha o código, então não "fecha" o bloco.
 //   2) neutralizar: dentro dos dados, "===" vira "= = =" e "---" no começo da linha vira
 //      "- - -" — marcador do servidor não se falsifica nem com o código errado.
-//   3) REGRA_FIXA: vai no fim do prompt de sistema de TODA chamada ao Gemini (gemini.js),
+//   3) REGRA_FIXA: vai no fim do prompt de sistema de TODA chamada à IA (claude.js),
 //      inclusive dos agentes editáveis pelo Tabelião: dado nunca é instrução.
 //   4) alertas: conferência determinística (sem IA) depois da resposta — ônus que o
 //      documento cita e a resposta omitiu, e trechos com cara de instrução no documento.

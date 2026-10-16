@@ -457,7 +457,7 @@ app.use('/agentes', exigeSessao, require('./agentes'));
 app.use('/hub/relatorios', require('./relatorios').router);
 
 // --- Hub CN2O (mural do Time + Extrator e Analista com IA) ----------------
-// Mesma sessão, mesmo banco e mesma chave do Gemini; o site fica no Netlify.
+// Mesma sessão, mesmo banco e mesma chave da IA (Claude); o site fica no Netlify.
 app.use('/hub/despesas', require('./despesas').router);
 app.use('/hub/despesas-bravo', require('./despesas').bravoRouter);
 app.use('/hub/pastas', require('./pastas').router);   // v1.44 — Ficheiro de Pastas (pastas.js)
