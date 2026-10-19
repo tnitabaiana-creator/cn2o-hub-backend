@@ -79,6 +79,7 @@
 const express = require('express');
 const db = require('./db');            // pool, sessões e usuários do hub de protocolo
 const claude = require('./claude');    // v1.49: cliente Claude da Plataforma CN2O (ANTHROPIC_API_KEY)
+const triagem = require('./triagem');  // v1.51: o Haiku escolhe modelo e esforço caso a caso (IA_TRIAGEM)
 const PROMPTS = require('./hub-prompts');
 const fonteContrato = require('./protocolo-fonte');
 const fonteDB = require('./protocolo-fonte-db');
@@ -958,8 +959,9 @@ function ehCota(e) {
   const m = (e && e.message) || '';
   return /\b429\b|rate_limit|RESOURCE_EXHAUSTED|exceeded your current quota|spend limit/i.test(m);
 }
-function chamarModelo(agenteIA, arquivos, observacoes, ferramenta, codigo, esquema) {
-  return claude.executar({ agente: agenteIA, arquivos, observacoes, tarefa: ferramenta, esquema, codigo });
+// perfil: { modelo, esforco } da triagem (v1.51); null = perfil fixo da ferramenta.
+function chamarModelo(agenteIA, arquivos, observacoes, ferramenta, codigo, esquema, perfil) {
+  return claude.executar({ agente: agenteIA, arquivos, observacoes, tarefa: ferramenta, esquema, codigo, perfil });
 }
 // O custo entra na mesma tabela `consumo` da Plataforma de Agentes: um extrato
 // só de IA para o cartório inteiro (agente = hub-qualificacao / hub-matricula).
@@ -995,6 +997,19 @@ router.get('/ia/status', exigeSessao, (req, res) => {
   // docs_ativo (v1.29): a tela do Gerador sabe de antemão se a minuta vai nascer
   // também como Google Doc (ponte docs.js configurada) — só informação, sem segredo.
   res.json({ configurada: !!process.env.ANTHROPIC_API_KEY, modelo: modeloIA() || null, modelo_extrator: modeloDe('qualificacao'), perfis: claude.perfisVigentes(), ocr_dedicado: ocr.ativo(), ocr_motor: ocr.motor(), docs_ativo: docs.ativo() });
+});
+
+// v1.51 — triagem de esforço: o que a triagem escolheu × o que aconteceu (modo sombra primeiro).
+router.get('/ia/triagem', exigeSessao, exigeAdmin, async (req, res) => {
+  try {
+    const dias = Math.min(90, Math.max(1, parseInt(req.query.dias, 10) || 14));
+    const r = await require('./db-agentes').resumoTriagem(dias);
+    res.json(Object.assign({ modo: triagem.modo(), faixas: triagem.FAIXAS,
+      degraus: triagem.DEGRAUS.map((d, i) => d && { degrau: i, nome: triagem.NOME_DEGRAU(i) }).filter(Boolean) }, r, { degraus_casos: r.degraus }));
+  } catch (e) {
+    console.error('hub triagem (ler):', e.message);
+    res.status(500).json({ erro: 'falha ao ler a triagem' });
+  }
 });
 
 router.get('/ia/uso', exigeSessao, exigeAdmin, async (req, res) => {
@@ -1997,7 +2012,18 @@ router.post('/ia/:ferramenta', exigeSessao, jsonIA, async (req, res) => {
     // confere a forma em normalizarTransposicao / normalizarDossieItcmd).
     const esquema = nome === 'transpor' ? ESQUEMA_TRANSPOR : nome === 'itcmd' ? ESQUEMA_ITCMD : null;
     if (fonte) await fonteDB.conferir(fonte, req.usuario);
-    const r = await chamarModelo(agenteIA, arquivos, observacoesFinais, nome, codigo, esquema);
+    // v1.51: triagem (sombra: só registra; ativa: escolhe o degrau). Sinais sem dado pessoal.
+    const r = await triagem.comTriagem({
+      tarefa: nome, login: req.usuario.login, codigo,
+      sinais: triagem.emEscopo(nome) ? triagem.sinaisDoPedido({ tarefa: nome, texto, arquivos, ocrResumo: resumoOcr, ocrTexto: blocoOcr, fonte }) : null,
+      chamar: perfil => chamarModelo(agenteIA, arquivos, observacoesFinais, nome, codigo, esquema, perfil),
+      classificar: resp => {
+        if (esquema) return extrairJson(resp.texto) ? 'ok' : 'json_invalido';
+        if (!geraMinuta) return 'ok';
+        if (!fonte) return triagem.estadoDaMinuta(resp.texto);
+        try { return triagem.estadoDaMinuta(fonteIA.lerResultado(resp.texto).texto); } catch (_) { return 'json_invalido'; }
+      }
+    });
     const uso = r.uso || {};
     // O consumo é cobrado pela resposta dada — inclusive quando, na transposição, a
     // resposta vier sem JSON: o modelo trabalhou e o extrato do Tabelião tem de bater.

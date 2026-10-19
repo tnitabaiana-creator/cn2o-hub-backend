@@ -22,7 +22,7 @@ function ambiente(){
     const texto='Estado: PRONTA\n===MINUTA_COPIAVEL===\nEscritura fictícia.\n===FIM_MINUTA===';
     return{texto:semProtocolo?texto:JSON.stringify({texto,decisoes:[]}),uso:{modelo:'falso',custo_usd:0}};
   }};
-  const deps={express:{Router:()=>router,json:()=>()=>{}},'./db':{pool:{query}},'./claude':claude,'./hub-prompts':{minuta:{prompt:'Prompt fictício'}},
+  const deps={express:{Router:()=>router,json:()=>()=>{}},'./db':{pool:{query}},'./claude':claude,'./triagem':{emEscopo:()=>false,sinaisDoPedido:()=>null,comTriagem:async o=>o.chamar(null),estadoDaMinuta:()=>'ok',modo:()=>'desligada',FAIXAS:{},DEGRAUS:[],NOME_DEGRAU:()=>''},'./hub-prompts':{minuta:{prompt:'Prompt fictício'}},
     './protocolo-fonte':f,'./protocolo-fonte-db':source,'./protocolo-fonte-ia':ia,'./trello':{},'./ocr':{ativo:()=>false},'./docs':{ativo:()=>false},
     './auth':{},'./agenda-imagem':require('../agenda-imagem'),'./limite-ia':{aguardarLimite:()=>0,tetoDiario:async()=>({excedido:false})},'./ia-defesa':require('../ia-defesa'),
     './atos':{NOMES_ATO:{}},'./acervo':{},'./db-agentes':{registrarConsumo:async()=>{}},'./protecao':{mascaraIp:()=>''}};

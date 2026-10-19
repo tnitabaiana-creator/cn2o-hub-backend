@@ -9,6 +9,7 @@
 const express = require('express');
 const dba = require('./db-agentes');
 const claude = require('./claude');   // v1.49: API Claude (antes gemini.js)
+const triagem = require('./triagem');  // v1.51: modelo e esforço caso a caso (IA_TRIAGEM)
 const docx = require('./docx');
 const { pool } = require('./db');
 const fonteContrato = require('./protocolo-fonte');
@@ -227,8 +228,10 @@ router.post('/:slug/extrair', freioIA, async (req, res) => {
     fonteContrato.validarAtoAgente(fonte, ag);
     const manifestos = await manifestosDoPedido(arquivos, fonte, req.usuario);
     await fonteDB.conferir(fonte, req.usuario);
-    const { dados, uso } = await claude.extrair({
-      agente: ag, arquivos, observacoes: req.body.observacoes, fonte, manifestos
+    const { dados, uso } = await triagem.comTriagem({
+      tarefa: 'agente-extrair', login: req.usuario.login,
+      sinais: triagem.emEscopo('agente-extrair') ? triagem.sinaisDoPedido({ tarefa: 'agente-extrair', ato: ag.codigo_ato || ag.slug, texto: req.body.observacoes || '', arquivos, fonte }) : null,
+      chamar: perfil => claude.extrair({ agente: ag, arquivos, observacoes: req.body.observacoes, fonte, manifestos, perfil })
     });
     const conferencia = fonte ? fonteContrato.matrizCobertura(fonte, dados._fonte_decisoes, manifestos, null, dados) : [];
     delete dados._fonte_decisoes;
@@ -321,8 +324,11 @@ router.post('/minutas/:id/redigir', freioIA, async (req, res) => {
     // Edições são dados complementares; não alteram a fonte canônica nem suas decisões.
     const dados = req.body.dados && typeof req.body.dados === 'object' ? req.body.dados : m.dados;
 
-    const resultado = await claude.redigir({
-      agente: ag, dados, observacoes: req.body.observacoes, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
+    const resultado = await triagem.comTriagem({
+      tarefa: 'agente-redigir', login: req.usuario.login,
+      sinais: triagem.emEscopo('agente-redigir') ? triagem.sinaisDoPedido({ tarefa: 'agente-redigir', ato: ag.codigo_ato || ag.slug, texto: req.body.observacoes || '', dados, fonte }) : null,
+      chamar: perfil => claude.redigir({ agente: ag, dados, observacoes: req.body.observacoes, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || [], perfil }),
+      classificar: resp => { if (!fonte) return triagem.estadoDaMinuta(resp.texto); try { return triagem.estadoDaMinuta(fonteIA.lerResultado(resp.texto).texto); } catch (_) { return 'json_invalido'; } }
     });
     const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);
     const uso = resultado.uso;
@@ -358,8 +364,11 @@ router.post('/minutas/:id/revisar', freioIA, async (req, res) => {
     const ag = await dba.obterAgente(m.agente);
     const historico = (m.turnos || []).filter(t => t.papel === 'usuario').map(t => t.conteudo).slice(-10);   // v1.39.3: só os 10 últimos ajustes
 
-    const resultado = await claude.revisar({
-      agente: ag, minutaAtual: m.texto, pedido, historico, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || []
+    const resultado = await triagem.comTriagem({
+      tarefa: 'agente-revisar', login: req.usuario.login,
+      sinais: triagem.emEscopo('agente-revisar') ? triagem.sinaisDoPedido({ tarefa: 'agente-revisar', ato: m.agente, texto: pedido, fonte, minutaAtual: m.texto, historico }) : null,
+      chamar: perfil => claude.revisar({ agente: ag, minutaAtual: m.texto, pedido, historico, fonte, manifestos: m.fonte_manifestos || [], conferencia: m.fonte_conferencia || [], perfil }),
+      classificar: resp => { if (!fonte) return triagem.estadoDaMinuta(resp.texto); try { return triagem.estadoDaMinuta(fonteIA.lerResultado(resp.texto).texto); } catch (_) { return 'json_invalido'; } }
     });
     const { texto, conferencia } = fonteIA.conferirResultado(fonte, resultado, m.fonte_manifestos || []);
     const uso = resultado.uso;
