@@ -36,7 +36,7 @@ function ambiente() {
   };
   const sandbox={module:{exports:{}},console:{error(){}},process:{env:{}},Buffer,require:n=>{
     if(n==='express')return{Router:()=>router,json:()=>()=>{}};
-    if(n==='./db-agentes')return dba;if(n==='./db')return{pool:{}};if(n==='./claude')return claude;
+    if(n==='./db-agentes')return dba;if(n==='./db')return{pool:{}};if(n==='./claude')return claude;if(n==='./triagem')return {emEscopo:()=>false,sinaisDoPedido:()=>null,comTriagem:async o=>o.chamar(null),estadoDaMinuta:()=>'ok',modo:()=>'desligada',FAIXAS:{},DEGRAUS:[],NOME_DEGRAU:()=>''};
     if(n==='./protocolo-fonte')return f;if(n==='./protocolo-fonte-db')return source;if(n==='./protocolo-fonte-ia')return fonteIA;
     if(n==='./ocr')return{ativo:()=>false};if(n==='./limite-ia')return{};if(n==='./docx')return{};
     throw new Error('Dependência imprevista '+n);

@@ -79,6 +79,35 @@ async function init() {
     CREATE INDEX IF NOT EXISTS minutas_usuario_idx  ON minutas (usuario, criado DESC);
     CREATE INDEX IF NOT EXISTS minutas_protocolo_idx ON minutas (protocolo);
     CREATE INDEX IF NOT EXISTS consumo_criado_idx   ON consumo (criado DESC);
+
+    -- v1.51: triagem de complexidade (triagem.js) — o que a triagem escolheu e o que de fato
+    -- aconteceu. Só sinais (contagens e marcas), nunca nome, CPF ou trecho de documento.
+    CREATE TABLE IF NOT EXISTS ia_triagem (
+      id                 SERIAL PRIMARY KEY,
+      criado             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      usuario            TEXT,
+      ferramenta         TEXT NOT NULL,
+      modo               TEXT NOT NULL,
+      origem             TEXT NOT NULL,
+      score              INTEGER,
+      degrau_sugerido    INTEGER,
+      modelo_sugerido    TEXT,
+      esforco_sugerido   TEXT,
+      degrau_usado       INTEGER,
+      modelo_usado       TEXT,
+      esforco_usado      TEXT,
+      confianca          TEXT,
+      motivo             TEXT,
+      sinais             JSONB NOT NULL DEFAULT '{}'::jsonb,
+      custo_triagem_usd  NUMERIC(12,6) NOT NULL DEFAULT 0,
+      custo_real_usd     NUMERIC(12,6) NOT NULL DEFAULT 0,
+      custo_estimado_usd NUMERIC(12,6),
+      tokens_entrada     INTEGER NOT NULL DEFAULT 0,
+      tokens_saida       INTEGER NOT NULL DEFAULT 0,
+      resultado          TEXT,
+      ms                 INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS ia_triagem_criado_idx ON ia_triagem (criado DESC);
   `);
 }
 
@@ -254,8 +283,54 @@ async function resumoConsumo(dias = 30) {
   return { linhas: rows, total: tot[0] || { minutas: 0, usd: 0 }, dias };
 }
 
+// ------------------------------------------------------------------ TRIAGEM (v1.51)
+
+const COLUNAS_TRIAGEM = ['usuario', 'ferramenta', 'modo', 'origem', 'score', 'degrau_sugerido', 'modelo_sugerido', 'esforco_sugerido',
+  'degrau_usado', 'modelo_usado', 'esforco_usado', 'confianca', 'motivo', 'sinais', 'custo_triagem_usd', 'custo_real_usd',
+  'custo_estimado_usd', 'tokens_entrada', 'tokens_saida', 'resultado', 'ms'];
+async function registrarTriagem(t) {
+  const valores = COLUNAS_TRIAGEM.map(c => c === 'sinais' ? JSON.stringify(t.sinais || {}) : (t[c] === undefined ? null : t[c]));
+  await pool.query(
+    `INSERT INTO ia_triagem (${COLUNAS_TRIAGEM.join(', ')}) VALUES (${COLUNAS_TRIAGEM.map((_, i) => '$' + (i + 1)).join(', ')})`,
+    valores
+  );
+}
+
+// Por ferramenta: casos, origem da decisão, nota média, custo real × estimado se a sugestão valesse;
+// e a distribuição dos degraus sugeridos e usados.
+async function resumoTriagem(dias = 14) {
+  const d = [String(dias)];
+  const { rows: ferramentas } = await pool.query(
+    `SELECT ferramenta,
+            COUNT(*)::int AS casos,
+            COUNT(*) FILTER (WHERE origem = 'regra')::int AS por_regra,
+            COUNT(*) FILTER (WHERE origem = 'haiku')::int AS por_haiku,
+            COUNT(*) FILTER (WHERE origem = 'falha')::int AS falhas,
+            ROUND(AVG(score))::int AS nota_media,
+            ROUND(SUM(custo_real_usd)::numeric, 4) AS custo_real,
+            ROUND(SUM(COALESCE(custo_estimado_usd, custo_real_usd))::numeric, 4) AS custo_estimado,
+            ROUND(SUM(custo_triagem_usd)::numeric, 4) AS custo_triagem,
+            COUNT(*) FILTER (WHERE degrau_sugerido < degrau_usado)::int AS sugeriu_menos,
+            COUNT(*) FILTER (WHERE degrau_sugerido > degrau_usado)::int AS sugeriu_mais
+       FROM ia_triagem
+      WHERE criado > now() - ($1 || ' days')::interval
+      GROUP BY ferramenta ORDER BY custo_real DESC`, d);
+  const { rows: degraus } = await pool.query(
+    `SELECT ferramenta, degrau_sugerido, degrau_usado, COUNT(*)::int AS casos
+       FROM ia_triagem
+      WHERE criado > now() - ($1 || ' days')::interval
+      GROUP BY ferramenta, degrau_sugerido, degrau_usado
+      ORDER BY ferramenta, degrau_sugerido NULLS FIRST, degrau_usado`, d);
+  const { rows: resultados } = await pool.query(
+    `SELECT ferramenta, resultado, COUNT(*)::int AS casos
+       FROM ia_triagem
+      WHERE criado > now() - ($1 || ' days')::interval
+      GROUP BY ferramenta, resultado ORDER BY ferramenta, casos DESC`, d);
+  return { dias, ferramentas, degraus, resultados };
+}
+
 module.exports = {
   init, listarAgentes, obterAgente, salvarAgente, versoesDoAgente,
   criarMinuta, atualizarMinuta, obterMinuta, listarMinutas, registrarTurno,
-  registrarConsumo, resumoConsumo
+  registrarConsumo, resumoConsumo, registrarTriagem, resumoTriagem
 };

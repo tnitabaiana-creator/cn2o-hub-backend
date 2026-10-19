@@ -81,6 +81,20 @@ quando o cartão viaja entre quadros (webhook) e serve a lista ⚙ Parceiros.
 - Agente com `usa_busca` usa a busca na web da própria Claude (US$ 10 por mil buscas, no consumo).
 - O OCR dedicado (Cloud Vision, `GCP_VISION_KEY`) continua como dupla leitura.
 
+## Triagem de esforço (v1.51)
+
+- Antes da análise, `triagem.js` calcula **sinais** do caso — contagens e marcas (arquivos, páginas,
+  CPFs, registros da matrícula, ônus, rural, menor, espólio, PJ, curadoria…), nunca nome, CPF ou trecho.
+- Regras dão a nota (0–100); nota < 25 ou > 75 decide sozinha. No meio, o Haiku (esforço baixo, JSON
+  garantido) escolhe o degrau. Confiança baixa sobe um degrau.
+- Escada: 1 Haiku baixo · 2 Haiku médio · 3 Sonnet baixo · 4 Sonnet médio · 5 Sonnet alto · 6 Opus médio ·
+  7 Opus alto. Faixas: minuta, redigir, revisar e matrícula 4–7; ITCMD 4–6; qualificação e extrair 3–5.
+- `IA_TRIAGEM`: `sombra` (padrão — só grava em `ia_triagem`; a análise usa o perfil fixo), `ativa`
+  (decide; truncada ou JSON inválido refaz um degrau acima, uma vez) ou `desligada`.
+  `IA_PERFIL_<TAREFA>` fixado vence a triagem.
+- `GET /hub/ia/triagem?dias=14` (Tabelião): casos, origem, degrau sugerido × usado, resultado e custo real ×
+  estimado se a sugestão valesse. O Haiku da triagem entra no consumo como `hub-triagem`.
+
 ## Dados pessoais (v1.39.4)
 
 - Minutas guardadas: identificador aleatório, abertas só por quem guardou (ou pelo

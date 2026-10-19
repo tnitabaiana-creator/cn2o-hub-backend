@@ -32,15 +32,27 @@ const PERFIS = {
   'agente-extrair':  { modelo: SONNET, esforco: 'medium', maxTokens: 32000 },
   'agente-executar': { modelo: SONNET, esforco: 'medium', maxTokens: 32000 },
   // Relatório de Produtividade
-  'produtividade':   { modelo: HAIKU,  esforco: 'low',    maxTokens: 16000 }
+  'produtividade':   { modelo: HAIKU,  esforco: 'low',    maxTokens: 16000 },
+  // v1.51: triagem de complexidade (triagem.js) — lê só sinais do caso e escolhe o degrau
+  'triagem':         { modelo: HAIKU,  esforco: 'low',    maxTokens: 4000 }
 };
 const PERFIL_PADRAO = { modelo: SONNET, esforco: 'medium', maxTokens: 32000 };
 const avisados = new Set();   // variável de perfil inválida: log uma vez
 
-function perfil(tarefa) {
+const nomeVarPerfil = tarefa => 'IA_PERFIL_' + String(tarefa || '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
+// v1.51: o Tabelião fixou o perfil desta tarefa por variável — a triagem não mexe nele.
+function perfilFixado(tarefa) { return !!String(process.env[nomeVarPerfil(tarefa)] || '').trim(); }
+
+// escolhido: { modelo, esforco } vindo da triagem (triagem.js); a variável IA_PERFIL_* vence.
+function perfil(tarefa, escolhido) {
   const base = Object.assign({}, PERFIS[tarefa] || PERFIL_PADRAO);
-  const nomeVar = 'IA_PERFIL_' + String(tarefa || '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  const nomeVar = nomeVarPerfil(tarefa);
   const v = String(process.env[nomeVar] || '').trim();
+  if (!v && escolhido && escolhido.modelo && ESFORCOS.includes(escolhido.esforco)) {
+    base.modelo = escolhido.modelo;
+    base.esforco = escolhido.esforco;
+    if (escolhido.modelo === OPUS && escolhido.esforco === 'high') base.maxTokens = Math.max(base.maxTokens, 64000);
+  }
   if (v) {
     const [modelo, esforco] = v.split(':').map(s => s.trim());
     if (/^claude-[a-z0-9.-]+$/.test(modelo || '') && (!esforco || ESFORCOS.includes(esforco))) {
@@ -155,8 +167,8 @@ function traduzirErro(e, modelo) {
   return e instanceof Error ? e : new Error(detalhe);
 }
 
-async function chamar({ tarefa, sistema, partes, esquema = null, busca = false, codigo = null }) {
-  const p = perfil(tarefa);
+async function chamar({ tarefa, sistema, partes, esquema = null, busca = false, codigo = null, escolhido = null }) {
+  const p = perfil(tarefa, escolhido);
   const modelo = p.modelo;
   // v1.39.3 (segurança, pacote C): a regra "dado nunca é instrução" vai no fim do prompt de
   // sistema de TODA chamada — inclusive dos agentes que o Tabelião edita no banco. Ela vai
@@ -236,7 +248,7 @@ function esquemaExtracao(campos) {
 // ---------------------------------------------------------------- ETAPA 1
 // Extração: documentos (PDF/imagem) → JSON com os campos do ato.
 // A usuária confere o JSON na tela antes de redigir.
-async function extrair({ agente, arquivos, observacoes, fonte, manifestos = [] }) {
+async function extrair({ agente, arquivos, observacoes, fonte, manifestos = [], perfil: escolhido = null }) {
   const campos = Array.isArray(agente.campos) ? agente.campos : [];
   const esquemaTexto = campos.map(c =>
     `- ${c.id} (${c.tipo || 'texto'})${c.obrigatorio ? ' [OBRIGATÓRIO]' : ''}: ${c.rotulo || ''}`
@@ -274,14 +286,14 @@ async function extrair({ agente, arquivos, observacoes, fonte, manifestos = [] }
   // Esquema JSON garantido quando há campos declarados e não há fonte (a matriz da fonte
   // tem valor_documento de tipo livre, que o esquema estrito não expressa).
   const esquema = campos.length && !fonte ? esquemaExtracao(campos) : null;
-  const r = await chamar({ tarefa: 'agente-extrair', sistema, partes, esquema });
+  const r = await chamar({ tarefa: 'agente-extrair', sistema, partes, esquema, escolhido });
   if (r.finish === 'max_tokens') exigirCompleto(r, 'a extração');
   return { dados: lerJson(r.texto), uso: r };
 }
 
 // ---------------------------------------------------------------- ETAPA 2
 // Redação: JSON conferido + template do ato → minuta completa.
-async function redigir({ agente, dados, observacoes, fonte, manifestos = [], conferencia = [] }) {
+async function redigir({ agente, dados, observacoes, fonte, manifestos = [], conferencia = [], perfil: escolhido = null }) {
   const sistema = [
     agente.prompt_sistema,
     agente.template ? '\n\n===== TEMPLATE VIGENTE DO ATO (siga a estrutura e as cláusulas condicionais) =====\n' + agente.template : '',
@@ -301,13 +313,13 @@ async function redigir({ agente, dados, observacoes, fonte, manifestos = [], con
     'Não escreva preâmbulo nem comentário: comece direto pelo texto da escritura.'
   ].join('\n') }];
 
-  const r = exigirCompleto(await chamar({ tarefa: 'agente-redigir', sistema, partes }), 'a minuta');
+  const r = exigirCompleto(await chamar({ tarefa: 'agente-redigir', sistema, partes, escolhido }), 'a minuta');
   return { texto: r.texto, uso: r };
 }
 
 // ---------------------------------------------------------------- ETAPA 3
 // Revisão: minuta + pedido de ajuste → minuta corrigida por inteiro.
-async function revisar({ agente, minutaAtual, pedido, historico = [], fonte, manifestos = [], conferencia = [] }) {
+async function revisar({ agente, minutaAtual, pedido, historico = [], fonte, manifestos = [], conferencia = [], perfil: escolhido = null }) {
   const sistema = [
     agente.prompt_sistema,
     agente.template ? '\n\n===== TEMPLATE VIGENTE DO ATO =====\n' + agente.template : '',
@@ -330,7 +342,7 @@ async function revisar({ agente, minutaAtual, pedido, historico = [], fonte, man
     '', 'Devolva a minuta inteira já corrigida.'
   ].join('\n') }];
 
-  const r = exigirCompleto(await chamar({ tarefa: 'agente-revisar', sistema, partes }), 'a revisão da minuta');
+  const r = exigirCompleto(await chamar({ tarefa: 'agente-revisar', sistema, partes, escolhido }), 'a revisão da minuta');
   return { texto: r.texto, uso: r };
 }
 
@@ -339,7 +351,7 @@ async function revisar({ agente, minutaAtual, pedido, historico = [], fonte, man
 // conferência de JSON e não viram minuta em três turnos. Entra documento ou
 // formulário, sai texto. Uma chamada só. `tarefa` escolhe o perfil (modelo + esforço);
 // `esquema` (opcional) garante a resposta em JSON nesse formato.
-async function executar({ agente, arquivos = [], campos = {}, observacoes, tarefa = 'agente-executar', esquema = null, codigo = null }) {
+async function executar({ agente, arquivos = [], campos = {}, observacoes, tarefa = 'agente-executar', esquema = null, codigo = null, perfil: escolhido = null }) {
   const preenchidos = Object.entries(campos)
     .filter(([, v]) => v != null && String(v).trim() !== '')
     .map(([k, v]) => `${k}: ${v}`);
@@ -362,6 +374,7 @@ async function executar({ agente, arquivos = [], campos = {}, observacoes, taref
   const r = exigirCompleto(await chamar({
     tarefa, sistema: agente.prompt_sistema, partes, esquema,
     busca: !!agente.usa_busca,
+    escolhido,   // v1.51: modelo + esforço da triagem (null = perfil fixo)
     codigo   // v1.39.3: código dos blocos de dados deste pedido (ia-defesa.js)
   }), 'a resposta');
   return { texto: r.texto, uso: r };
@@ -373,6 +386,6 @@ function perfisVigentes() {
 }
 
 module.exports = {
-  extrair, redigir, revisar, executar, custoUsd, perfil, perfisVigentes, ehHeic, blocosDeArquivos,
+  extrair, redigir, revisar, executar, custoUsd, perfil, perfilFixado, perfisVigentes, ehHeic, blocosDeArquivos,
   esquemaExtracao, PERFIS, PRECOS, OPUS, SONNET, HAIKU, _definirCliente
 };
