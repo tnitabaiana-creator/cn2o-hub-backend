@@ -57,25 +57,7 @@ const periodoAnterior = (tipo, per) => periodo(tipo, per.inicioISO);
 // Vem direto do Trello; se falhar, o relatório sai sem esse pedaço.
 async function wipAtual(escreventes) {
   if (!process.env.TRELLO_KEY || !process.env.TRELLO_TOKEN) return null;
-  const agora = Date.now(), out = {};
-  const trabalho = new Set(['elaboracao', 'retrabalho', 'conferencia', 'pendencia', 'assinatura']);
-  for (const e of escreventes) {
-    try {
-      const [listas, cartoes] = await Promise.all([
-        trello.t('GET', `/boards/${e.board_id}/lists?fields=name&filter=open`),
-        trello.t('GET', `/boards/${e.board_id}/cards?fields=idList,due,dueComplete&filter=open`)
-      ]);
-      const cat = new Map(listas.map(l => [l.id, rastreio.categoriaDaLista(l.name)]));
-      const ativos = cartoes.filter(c => trabalho.has(cat.get(c.idList)));
-      out[e.login] = {
-        total: ativos.length,
-        atrasados: ativos.filter(c => c.due && !c.dueComplete && new Date(c.due).getTime() < agora).length
-      };
-    } catch (err) {
-      console.error(`[relatórios] WIP de ${e.login}:`, err.message);
-    }
-  }
-  return out;
+  return require('./prazos-wip').consultar({ pool: db.pool, trello, escreventes, rastreio, agora: new Date() });
 }
 
 async function coletar(tipo, per, { wip = true } = {}) {
@@ -351,6 +333,26 @@ router.get('/prazos', async (req,res) => {
   res.set('Cache-Control','private, no-store');
   try { res.json(await require('./prazos-metricas').consultar(db.pool,String(req.query.de||''),String(req.query.ate||''))); }
   catch(e) { res.status(e.status||503).json({erro:e.status?e.message:'Estatística de prazos indisponível.'}); }
+});
+
+// Consulta administrativa, inteiramente de leitura, dos relógios já existentes.
+router.get(['/prazos/semanal', '/prazos/semanal.csv'], async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  try {
+    const fonte = require('./prazos-semanal'), exportar = req.path.endsWith('.csv');
+    const resultado = await fonte.consultar(db.pool, req.query, { integral: exportar });
+    if (!exportar) return res.json(resultado);
+    const nomeArquivo = `prazos-${resultado.semana.inicio}-${resultado.semana.fim}.csv`;
+    if (req.query.formato === 'json') return res.json({ csv: fonte.csv(resultado), nome_arquivo: nomeArquivo });
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+    res.set('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.send(fonte.csv(resultado));
+  } catch (e) {
+    res.status(e.status || 503).json({ codigo: e.codigo || 'FONTE_INDISPONIVEL',
+      erro: e.status ? e.message : 'Fonte de prazos indisponível; não foi possível confirmar os totais.' });
+  }
 });
 
 router.get('/relogio-setor/status', async (_req, res) => {
