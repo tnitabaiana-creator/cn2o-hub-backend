@@ -133,7 +133,7 @@ function perfil(e, pesos) {
     ...fracos.map(a => chip(`${esc(a.tipo)} ${num(a.indice, 2)}×`, C.down, '#F6E7EA'))
   ].join('') || `<span style="font:12px/1.5 ${SANS};color:${C.ink2}">ainda sem atos suficientes (mínimo de 3 do mesmo tipo em 90 dias)</span>`;
   const wip = e.wip
-    ? `${e.wip.total} cartão(ões) no quadro agora${e.wip.atrasados ? ` · <b style="color:${C.down}">${e.wip.atrasados} com prazo vencido</b>` : ''}`
+    ? `${e.wip.total} cartão(ões) no quadro agora${e.wip.atrasados ? ` · <b style="color:${C.down}">${e.wip.atrasados} com prazo do ato vencido</b>` : ''}${e.wip.sem_prazo_confirmado ? ` · ${e.wip.sem_prazo_confirmado} sem prazo confirmado nesta consulta` : ''}`
     : '';
   const tipsAf = fortes.map(a => `${desc(a.tipo)}`).join(', ');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px;border:1px solid ${C.line};border-left:4px solid ${C.gold}">
